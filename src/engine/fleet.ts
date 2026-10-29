@@ -11114,8 +11114,18 @@ export class FleetManager {
   }
 
   /** Current keeper stations for the dashboard: ship → market it guards. */
-  keeperStations(): { shipSymbol: string; market: string }[] {
-    return [...this.keeperMarkets.entries()].map(([shipSymbol, market]) => ({ shipSymbol, market }));
+  keeperStations(): { shipSymbol: string; market: string; parked?: "staged" | "triage" }[] {
+    const active: { shipSymbol: string; market: string; parked?: "staged" | "triage" }[] = [...this.keeperMarkets.entries()].map(([shipSymbol, market]) => ({ shipSymbol, market }));
+    // Parked keepers are on their markets too, only not polling: a staged system's keepers wait there for its release, and triage
+    // parks one whose market has no viable route. Listed with their reason so the keeper list and badges do not call them "pending".
+    const seen = new Set(active.map((s) => s.shipSymbol));
+    const where = new Map(this.fleetStatusSummary().map((s) => [s.symbol, s.waypoint]));
+    for (const [shipSymbol] of this.stagedParked) {
+      const market = where.get(shipSymbol);
+      if (!seen.has(shipSymbol) && market) { active.push({ shipSymbol, market, parked: "staged" }); seen.add(shipSymbol); }
+    }
+    for (const [shipSymbol, t] of this.triageParked) if (!seen.has(shipSymbol)) { active.push({ shipSymbol, market: t.market, parked: "triage" }); seen.add(shipSymbol); }
+    return active;
   }
 
   /** Attempt to rescue ships stranded at 0 fuel, first from their own cargo hold,

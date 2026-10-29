@@ -173,6 +173,8 @@ export const fmtAge = (iso) => {
  *   "enroute" — a keeper is pinned here but hasn't arrived yet (a freshly
  *               bought probe sits at its shipyard until its first tick, then
  *               drifts slowly), so the market isn't really being kept yet;
+ *   "staged"  — a keeper is parked here waiting for its system to be released (it polls nothing until then);
+ *   "parked"  — a keeper is parked here by triage (low value), not polling;
  *   "pending" — on the priority list, no keeper assigned;
  *   "none"    — neither.
  * `ships` is state.ships; a pinned ship missing from it counts as arrived
@@ -182,6 +184,7 @@ export const fmtAge = (iso) => {
 export function keeperCoverage(wp, stations, listed, ships) {
   const pin = (stations ?? []).find((s) => s.market === wp);
   if (pin) {
+    if (pin.parked) return pin.parked === "staged" ? "staged" : "parked";
     const ship = (ships ?? []).find((x) => x.symbol === pin.shipSymbol);
     const arrived = !ship || (ship.nav?.status !== "IN_TRANSIT" && ship.nav?.waypointSymbol === wp);
     return arrived ? "covered" : "enroute";

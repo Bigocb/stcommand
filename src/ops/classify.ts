@@ -80,9 +80,11 @@ export function classifyShips(summary: SummaryShip[], stateShips: StateShip[], s
 export interface KeeperStation {
   shipSymbol: string;
   market: string;
+  /** Set for a keeper that is on its market but parked: waiting for its system's release, or parked by triage as low value. */
+  parked?: "staged" | "triage";
 }
 
-export type Coverage = "covered" | "enroute" | "pending" | "none";
+export type Coverage = "covered" | "enroute" | "staged" | "parked" | "pending" | "none";
 
 export interface KeeperMarketRow {
   market: string;
@@ -111,7 +113,11 @@ export function keeperReport(stations: KeeperStation[], stateShips: StateShip[],
       const s = live.get(p.shipSymbol);
       return !s || (s.nav?.status !== "IN_TRANSIT" && s.nav?.waypointSymbol === market);
     });
-    markets.push({ market, status: anyArrived ? "covered" : "enroute", ships, duplicate: pins.length > 1 });
+    // An active keeper on the market wins; otherwise a parked one says why it is not polling. A duplicate is only active pairs.
+    const active = pins.filter((p) => !p.parked);
+    const parked = pins.find((p) => p.parked);
+    const status: Coverage = active.length ? (anyArrived ? "covered" : "enroute") : parked!.parked === "staged" ? "staged" : "parked";
+    markets.push({ market, status, ships, duplicate: active.length > 1 });
   }
   const uncoveredPriority = priority.filter((m) => !byMarket.has(m));
   for (const m of uncoveredPriority) markets.push({ market: m, status: "pending", ships: [], duplicate: false });

@@ -70,6 +70,18 @@ describe("keeperReport", () => {
     assert.deepEqual(r.duplicates, ["M1"]);
   });
 
+  it("shows a parked keeper as staged or parked, not pending, and not as uncovered", () => {
+    const r = keeperReport(
+      [{ shipSymbol: "K1", market: "M1", parked: "staged" }, { shipSymbol: "K2", market: "M2", parked: "triage" }, { shipSymbol: "K3", market: "M3" }, { shipSymbol: "K4", market: "M3", parked: "staged" }],
+      [at("K1", "M1", "DOCKED"), at("K2", "M2", "DOCKED"), at("K3", "M3"), at("K4", "M3", "DOCKED")],
+      ["M1", "M2", "M3", "M4"],
+    );
+    const by = Object.fromEntries(r.markets.map((m) => [m.market, m.status]));
+    assert.deepEqual(by, { M1: "staged", M2: "parked", M3: "covered", M4: "pending" });
+    assert.deepEqual(r.uncoveredPriority, ["M4"]);
+    assert.deepEqual(r.duplicates, []); // an active keeper plus a parked one is not a wasted pair
+  });
+
   it("treats a pin on a ship missing from state as arrived rather than falsely pending", () => {
     assert.equal(keeperReport([{ shipSymbol: "GHOST", market: "M1" }], [], []).markets[0]!.status, "covered");
   });

@@ -2177,6 +2177,8 @@ function renderSnapshots() {
 function keeperBadge(wp) {
   const cov = keeperCoverage(wp, keeperStationsCfg, keeperMarketsCfg, state?.ships);
   if (cov === "covered") return `<span class="keeper-badge covered" title="Keeper stationed here">● covered</span>`;
+  if (cov === "staged") return `<span class="keeper-badge covered" title="Keeper in place, parked until this system is released">● staged</span>`;
+  if (cov === "parked") return `<span class="keeper-badge covered" title="Keeper parked here by triage: no viable route through this market">● parked</span>`;
   if (cov === "enroute") return `<span class="keeper-badge pending" title="A keeper is on its way — this becomes covered when it arrives">◐ pending</span>`;
   if (cov === "pending") return `<span class="keeper-badge pending" data-wp="${escapeAttr(wp)}" role="button" title="On the keeper priority list, no keeper stationed yet — click to remove from the list">◐ pending</span>`;
   return `<span class="keeper-badge none" data-wp="${escapeAttr(wp)}" role="button" title="Not on the keeper priority list — click to add">+ cover</span>`;

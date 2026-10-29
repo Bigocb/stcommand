@@ -239,15 +239,15 @@ export const OPS_TOOLS: OpsTool[] = [
     name: "keepers",
     title: "Keeper coverage per market",
     description:
-      "For every market with a keeper pinned or on the priority list: covered (a keeper is physically there), enroute (pinned but still flying or waiting at its shipyard), or pending (listed, nobody assigned); lists duplicates (more than one keeper on a market — wasted probes) and uncovered priority markets. Optionally restrict to one system.",
+      "For every market with a keeper pinned or on the priority list: covered (a keeper is physically there), enroute (pinned but still flying or waiting at its shipyard), staged (parked there, waiting for its system to be released), parked (parked there by triage as low value), or pending (listed, nobody assigned); lists duplicates (more than one keeper on a market — wasted probes) and uncovered priority markets. Optionally restrict to one system.",
     input: { system: z.string().optional() },
     async run(ctx, a) {
       const { w } = ctx;
       const inSystem = (m: string) => !a.system || m.startsWith(`${a.system}-`);
-      const stations = (w.fleet.keeperStations() as { shipSymbol: string; market: string }[]).filter((s) => inSystem(s.market));
+      const stations = (w.fleet.keeperStations() as { shipSymbol: string; market: string; parked?: "staged" | "triage" }[]).filter((s) => inSystem(s.market));
       const priority = (await w.fleet.keeperPriorityMarkets()).filter(inSystem);
       const rep = keeperReport(stations, stateShips(ctx), priority);
-      const counts = { covered: 0, enroute: 0, pending: 0 };
+      const counts = { covered: 0, enroute: 0, staged: 0, parked: 0, pending: 0 };
       for (const m of rep.markets) if (m.status in counts) counts[m.status as keyof typeof counts]++;
       return { asOf: iso(ctx.now()), counts, duplicates: rep.duplicates, uncoveredPriority: rep.uncoveredPriority, markets: rep.markets };
     },
