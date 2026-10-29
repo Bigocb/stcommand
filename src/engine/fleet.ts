@@ -5778,7 +5778,8 @@ export class FleetManager {
       if (q.state !== "live" || q.held) continue;
       const { add } = await this.keeperCandidatesForSystem(q.system);
       const have = (this.galaxy.getSystem(q.system)?.waypoints ?? []).filter((w) => covered.has(w.symbol) || listed.has(w.symbol)).length;
-      systems.push({ system: q.system, covered: have, candidates: add });
+      // Listed markets are already left out of `add`; a market with a keeper on it that was never listed (pinned by hand) must be too.
+      systems.push({ system: q.system, covered: have, candidates: add.filter((m) => !covered.has(m)) });
     }
     const polls = [...this.keeperMarkets.values()].map((m) => 60_000 / Math.max(this.keeperPollMs(m), 60_000));
     const load = polls.reduce((t, c) => t + c, 0);
