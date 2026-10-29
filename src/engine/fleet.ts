@@ -4205,7 +4205,7 @@ export class FleetManager {
   }
 
   /** Jump a ship to a connected waypoint in another system. */
-  async jumpShip(shipSymbol: string, waypointSymbol: string): Promise<void> {
+  async jumpShip(shipSymbol: string, waypointSymbol: string, opts: { keepHold?: boolean } = {}): Promise<void> {
     const ship = await this.api.getShip(shipSymbol);
     const sourceSystem = ship.nav.systemSymbol;
     const targetSystem = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
@@ -4309,7 +4309,10 @@ export class FleetManager {
     // X1-MY77, then errored every tick with "Destination X1-S84-I60 is
     // outside the X1-MY77 system" until a restart re-derived the hold from
     // its live position. Re-pin the hold to where the ship actually landed.
-    if (this.operatorHolds.has(shipSymbol)) {
+    // Not for a hop on the way to a hold's own cross-system target (hopToward() passes keepHold): re-pinning there replaced the
+    // final target with each gate, so a hold more than one jump away stopped after its first hop (2026-10-29, two probes
+    // bought for DJ38 sat at the ZG14 gate until pushed).
+    if (this.operatorHolds.has(shipSymbol) && !opts.keepHold) {
       await this.updateShipManualState(shipSymbol, { holdWaypoint: waypointSymbol });
     }
   }
@@ -4616,7 +4619,7 @@ export class FleetManager {
       return false;
     }
     try {
-      await this.jumpShip(shipSymbol, remoteGate.symbol);
+      await this.jumpShip(shipSymbol, remoteGate.symbol, { keepHold: true });
     } catch (err) {
       // jumpShip() reaches the gate via dispatchShip()/agent.dispatchTo(),
       // which for a scheduler-driven ship really flies there and throws
