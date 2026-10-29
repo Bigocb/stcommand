@@ -150,6 +150,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "keeperDeliveryHops",
+    name: "Keepers delivered across gates",
+    description: "A market whose own system has no yard selling a keeper hull (DJ38's only yard lists an interceptor) can get its keeper from a yard in another system: a probe bought there is sent through the gates under a hold and becomes the market's keeper on arrival (2026-10-29: a probe went YF38 to DJ38 for about 13.6k in jumps). This is the most gate jumps allowed between the yard's system and the market's. It picks the cheapest hull-plus-jumps among yards with one of our ships docked, and asks through the usual keeper approval card (its price is the hull plus the expected jumps), or buys without one when the auto-approve keeper rule allows that total. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next keeper queue pass.",
+    value: 3, min: 1, max: 6, step: 1, unit: " jumps",
+    enabled: false, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
     key: "remoteSurveyPerPass",
     name: "Remote survey: systems read per pass",
     description: "Read systems without sending a ship: every 5 minutes the server reads this many systems reachable through finished gates from home (nearest first) that no read has covered yet: each market's goods lists and each shipyard's hull-type list (does it sell probes?), saved to the market and shipyard directories (ops market_directory). It costs about one API call per market and yard in the system. It marks nothing surveyed, so explorers still owe those systems their physical visit (yard stock and prices need a ship there). Off by default (clause disabled): turn the clause on to use it. Takes effect on the next maintenance pass.",

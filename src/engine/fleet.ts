@@ -55,6 +55,7 @@ import { getGameResetDate } from "../core/universe.js";
 import { setTenantUniverse } from "../db/pool.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
+import { DEFAULT_DELIVERY_POLICY, deliveryArrived, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
 import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
 import { pickCheapestKeeperYard, pickKeeperYardWithShip } from "./keeperYard.js";
@@ -5596,6 +5597,68 @@ export class FleetManager {
   }
 
   /** Every 5 minutes: work out what the release rule says, show it to the operator (advisory) or act on it (auto). */
+  /**
+   * A yard in another system to buy a keeper probe at for `targetSystem`, or undefined: the clause is off, or no yard within reach
+   * (finished gates only) has a ship of ours docked at it. See keeperDelivery.ts.
+   */
+  private pickKeeperDelivery(targetSystem: string, yards: Awaited<ReturnType<Store["shipyardInventory"]>>): DeliveryPick | undefined {
+    const maxHops = this.doctrine.isEnabledOr("keeperDeliveryHops", false) ? Math.floor(this.doctrine.value("keeperDeliveryHops", 0)) : 0;
+    if (maxHops <= 0) return undefined;
+    const summary = this.fleetStatusSummary();
+    return pickDeliveryYard(
+      targetSystem,
+      yards,
+      {
+        hulls: KEEPER_HULL_PREFERENCE,
+        hopsFrom: (system) => {
+          const path = this.galaxy.jumpPath(system, targetSystem);
+          return path ? path.length - 1 : undefined;
+        },
+        shipPresentAt: (wp) => pickShipAtYard(summary, wp) !== undefined,
+      },
+      { ...DEFAULT_DELIVERY_POLICY, maxHops },
+    );
+  }
+
+  /** Probes bought for a market in another system, walking the gates under a hold: ship -> target market. Persisted (fleet flag keeperDeliveries) so a restart does not lose them. */
+  private keeperDeliveries = new Map<string, string>();
+  private keeperDeliveriesLoaded = false;
+
+  private async loadKeeperDeliveries(): Promise<void> {
+    if (this.keeperDeliveriesLoaded || !this.store || !this.tenantId) return;
+    this.keeperDeliveriesLoaded = true;
+    try {
+      const raw = await this.store.getFleetFlag(this.tenantId, "keeperDeliveries");
+      const parsed: unknown = raw ? JSON.parse(raw) : {};
+      if (parsed && typeof parsed === "object") for (const [ship, market] of Object.entries(parsed as Record<string, unknown>)) if (typeof market === "string") this.keeperDeliveries.set(ship, market);
+    } catch { /* an unreadable flag means no deliveries are tracked */ }
+  }
+
+  private async saveKeeperDeliveries(): Promise<void> {
+    if (this.store && this.tenantId) await this.store.setFleetFlag(this.tenantId, "keeperDeliveries", JSON.stringify(Object.fromEntries(this.keeperDeliveries)));
+  }
+
+  /** Once a delivered probe is in its market's system, release the hold that walked it there so the keeper works its market as any other. */
+  private async advanceKeeperDeliveries(): Promise<void> {
+    await this.loadKeeperDeliveries();
+    if (!this.keeperDeliveries.size) return;
+    let changed = false;
+    for (const [ship, market] of [...this.keeperDeliveries]) {
+      const system = this.shipFor(ship)?.nav.systemSymbol;
+      if (system === undefined) { this.keeperDeliveries.delete(ship); changed = true; continue; }   // no longer ours
+      if (!deliveryArrived(system, market)) continue;
+      try {
+        await this.releaseShip(ship);
+        this.log(`${ship}: delivered to ${system}; hold released, now keeping ${market}`);
+        this.keeperDeliveries.delete(ship);
+        changed = true;
+      } catch (err) {
+        this.log(`${ship}: delivered but release failed, will retry: ${describeError(err)}`);
+      }
+    }
+    if (changed) await this.saveKeeperDeliveries();
+  }
+
   private lastRemoteSurveyAt = 0;
   private remoteSurveyRetry = new Map<string, number>();
 
@@ -6986,7 +7049,14 @@ export class FleetManager {
       pick = pickCheapestKeeperYard(yards, { systemSymbol: marketSystem, hulls: [hull], nowMs: Date.now(), distance: yardDist });
       if (pick) break;
     }
-    const best = pick ? { waypointSymbol: pick.waypointSymbol, price: pick.purchasePrice, hull: pick.shipType } : undefined;
+    let best: { waypointSymbol: string; price: number; hull: string } | undefined = pick ? { waypointSymbol: pick.waypointSymbol, price: pick.purchasePrice, hull: pick.shipType } : undefined;
+    // No yard in the market's own system sells a keeper hull: a probe bought at a yard in another system can cross the gates to it
+    // (keeperDelivery.ts). Behind the keeperDeliveryHops clause, and through the same approval card or auto-approve cap as any keeper.
+    let delivery: DeliveryPick | undefined;
+    if (!best) {
+      delivery = this.pickKeeperDelivery(marketSystem, yards);
+      if (delivery) best = { waypointSymbol: delivery.yard, price: delivery.price, hull: delivery.hull };
+    }
     if (!best) { this.keeperNote(`mnohull:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: no yard in ${marketSystem} has a stored ${KEEPER_HULL_PREFERENCE.join("/")} (${yards.filter((y) => y.systemSymbol === marketSystem).length} stored yard rows in that system; a yard is stored only when one of our ships reads it)`); return false; } // no shipyard in this system has a cached keeper hull in stock right now
     if (!this.canAfford(best.price)) { this.keeperNote(`mafford:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: ${keeperHullLabel(best.hull)} at ${best.waypointSymbol} costs ${best.price}c, more than the spendable credits`); return false; }
 
@@ -7005,7 +7075,7 @@ export class FleetManager {
     // provably about THIS exact shipyard/market pairing. Otherwise back off
     // silently — advanceKeeperMarketQueue() will get back to this market
     // once the kind frees up.
-    const auto = this.keeperAutoApproves(best.price);
+    const auto = this.keeperAutoApproves(delivery ? delivery.total : best.price);
     if (auto.blocked) { this.keeperNote(`budget:${marketWaypoint}`, `no keeper bought for ${marketWaypoint}: ${auto.reason}`); return false; }
     if (this.store && this.tenantId) {
       const existing = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
@@ -7049,8 +7119,8 @@ export class FleetManager {
       // actual coverage target this request is about. Led with "to" after
       // an operator read "at A2" as "covering A2 again" — A2 already had a
       // keeper.
-      detail: `${keeperHullLabel(best.hull)} to ${marketWaypoint} (${goodsCount} goods${recommended ? ", recommended" : `, below the ${minGoods}-good recommended threshold`}) — buying at ${best.waypointSymbol} for ${best.price}c, no keeper stationed at ${marketWaypoint} yet`,
-      cost: best.price,
+      detail: `${keeperHullLabel(best.hull)} to ${marketWaypoint} (${goodsCount} goods${recommended ? ", recommended" : `, below the ${minGoods}-good recommended threshold`}) — buying at ${best.waypointSymbol} for ${best.price}c, no keeper stationed at ${marketWaypoint} yet${delivery ? `; ${deliveryNote(delivery, marketWaypoint)}` : ""}`,
+      cost: delivery ? delivery.total : best.price,
       timeoutMs: 2 * 60 * 60_000,
       onTimeout: "deny",
     });
@@ -7226,6 +7296,18 @@ export class FleetManager {
       // its pinned market on its own, 0-fuel probes included — see
       // maybeRequestKeeperProbe()'s own comment for why that's safe now.
       await this.setShipRole(res.ship.symbol, "keeper", targetMarket);
+      // Bought in another system (keeperDelivery.ts): hold it at the target market, which walks it through the gates one hop a tick
+      // like any cross-system hold, and let advanceKeeperDeliveries() release it on arrival.
+      const yardSystem = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
+      if (yardSystem !== targetMarket.slice(0, targetMarket.lastIndexOf("-"))) {
+        await this.loadKeeperDeliveries();
+        await this.updateShipManualState(res.ship.symbol, { holdWaypoint: targetMarket, tourDestination: null });
+        this.dispatcher.release(res.ship.symbol);
+        this.shipRegistry.claim(res.ship.symbol, "operator", this.roleOf(res.ship.symbol), {}, { preempt: true });
+        this.keeperDeliveries.set(res.ship.symbol, targetMarket);
+        await this.saveKeeperDeliveries();
+        this.log(`${res.ship.symbol}: bought at ${waypointSymbol} for ${targetMarket} in another system; walking the gates under a hold until it arrives`);
+      }
       // Durable going forward, not just this one purchase — an operator
       // looking at the Book's keeper priority list should see this market
       // listed, same as any keeper the operator configured by hand.
@@ -10218,6 +10300,7 @@ export class FleetManager {
       await this.timed("maintainFreshGate", () => this.maintainFreshGate());
       await this.timed("maybeManageFreshSystems", () => this.maybeManageFreshSystems());
       await this.timed("maybeRemoteSurvey", () => this.maybeRemoteSurvey());
+      await this.timed("advanceKeeperDeliveries", () => this.advanceKeeperDeliveries());
       await this.timed("maybeRepairFleet", () => this.maybeRepairFleet());
       await this.timed("repairSuspendedShips", () => this.repairSuspendedShips());
       await this.timed("maybeRecordGateOpened", () => this.maybeRecordGateOpened());
