@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — Tower: sub-tab pills back to their own size under the 70% scale
+The sub-tab pills had been shrunk by hand (38 px, 14 px) just before the app-wide 70% scale went in, so they were reduced twice and came out too small (operator). They are back to a full 48 px pill at 17 px in sentence case, which the scale draws at about 34 px with 12 px labels, in line with the rest of the app.
+
 ## 2026-10-29 — Tower drawn at 70% (one scale knob)
 Operator, after living with the redesign: "I love these layouts. However everything's just a little too big... reduce everything by 30%", and "every page, not just that one". Rather than resizing a few hundred rules again, Tower now has one knob, `--tower-scale` in `public/m.css` (0.7): the app shell, the sign-in cards and the rate-limit toast are drawn at that scale with CSS `zoom`, and the fixed shell is enlarged by the inverse so it still fills the screen. Colours and contrast are unchanged. Previews at 70% and 80% were shown first; the operator's 30% went in. Retune by changing the one value (0.8 if it reads small, 1 for the Clear Tower sizes as designed).
 

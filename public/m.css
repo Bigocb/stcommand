@@ -1032,8 +1032,10 @@ button, .btn, select, input { min-height: 48px; font-size: 17px; }
  * sentence case, so a group's tabs usually fit on one row; still wrap rather than hide, and still 40 px to tap. */
 .subnav { gap: 6px; padding: 6px 12px 8px; }
 .subnav button { min-height: 40px; padding: 0 12px; border-radius: 20px; font-size: 15px; text-transform: none; letter-spacing: 0.02em; }
-.subnav button { min-height: 38px; padding: 0 10px; font-size: 14px; letter-spacing: 0.01em; }
-.subnav button { padding: 0 9px; } .subnav { gap: 5px; }
+/* Sub-tab pills at their own full size again: the 70% scale below already shrinks them, so the earlier hand reduction
+ * (38 px, 14 px) shrank them twice (operator, 2026-10-29: "the pill buttons at the top are now too small"). */
+.subnav { gap: 8px; padding: 8px 12px 10px; }
+.subnav button { min-height: 48px; padding: 0 16px; border-radius: 24px; font-size: 17px; letter-spacing: 0.02em; }
 /* controls, second pass (operator, 2026-10-29: "everything here is a bit too big as well", on the ship sheet): the blanket
  * 48 px / 17 px rule above is eased to 40 px / 15 px, the ship sheet's action grid is tighter, and the drag handle and the
  * close button get their own sizes back (the blanket rule had stretched the handle into a block and the close into an oval). */
