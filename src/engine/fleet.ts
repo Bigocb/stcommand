@@ -58,6 +58,7 @@ import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { yardsFirst } from "./keeperOrder.js";
 import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, pickTopUp, type TopUpSystem } from "./keeperTopUp.js";
+import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
 import { DEFAULT_DELIVERY_POLICY, deliveryArrived, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
 import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
@@ -5774,12 +5775,18 @@ export class FleetManager {
     const covered = this.coveredKeeperMarkets();
     const listed = new Set(await this.keeperPriorityMarkets());
     const systems: TopUpSystem[] = [];
+    // Goods per market come from the market directory (the goods lists a survey reads with no ship there), best first. A market the
+    // directory has no row for is not picked: 2026-10-29 the first pick was a 1-good market (BT69-ZB5F) because unknown goods were kept.
+    const minGoods = this.doctrine.isEnabledOr("keeperMinGoods", true) ? this.doctrine.value("keeperMinGoods") : this.doctrine.value("keeperMinGoodsRecommended", 5);
+    const dir = new Map<string, DirectoryRow[]>();
+    for (const r of (await this.store.marketDirectory()) ?? []) dir.set(r.systemSymbol, [...(dir.get(r.systemSymbol) ?? []), r]);
     for (const q of this.systemQueue.list()) {
       if (q.state !== "live" || q.held) continue;
-      const { add } = await this.keeperCandidatesForSystem(q.system);
-      const have = (this.galaxy.getSystem(q.system)?.waypoints ?? []).filter((w) => covered.has(w.symbol) || listed.has(w.symbol)).length;
-      // Listed markets are already left out of `add`; a market with a keeper on it that was never listed (pinned by hand) must be too.
-      systems.push({ system: q.system, covered: have, candidates: add.filter((m) => !covered.has(m)) });
+      const rows = dir.get(q.system) ?? [];
+      const ranked = (summarizeDirectory(rows, new Set(), now, minGoods)[0]?.ranked ?? []).filter((m) => m.goods >= minGoods);
+      // A market already listed, or with a keeper on it (pinned by hand and never listed), is not a candidate.
+      const have = ranked.filter((m) => covered.has(m.market) || listed.has(m.market)).length;
+      systems.push({ system: q.system, covered: have, candidates: ranked.filter((m) => !covered.has(m.market) && !listed.has(m.market)).map((m) => m.market) });
     }
     const polls = [...this.keeperMarkets.values()].map((m) => 60_000 / Math.max(this.keeperPollMs(m), 60_000));
     const load = polls.reduce((t, c) => t + c, 0);
