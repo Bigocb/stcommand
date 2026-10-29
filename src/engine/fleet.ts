@@ -1082,7 +1082,7 @@ export class FleetManager {
         try {
           this.restoringHold = true;
           try {
-            await this.holdShip(shipSymbol);
+            await this.holdShip(shipSymbol, st.holdWaypoint);
           } finally {
             this.restoringHold = false;
           }
@@ -5639,7 +5639,19 @@ export class FleetManager {
     for (const [ship, market] of [...this.keeperDeliveries]) {
       const system = this.shipFor(ship)?.nav.systemSymbol;
       if (system === undefined) { this.keeperDeliveries.delete(ship); changed = true; continue; }   // no longer ours
-      if (!deliveryArrived(system, market)) continue;
+      if (!deliveryArrived(system, market)) {
+        // Still on its way: the hold must name the final market. Anything that re-pinned it (a restart before this fix, a manual jump)
+        // is put right, so the walk through the gates carries on.
+        if (this.operatorHolds.get(ship) !== market) {
+          try {
+            await this.updateShipManualState(ship, { holdWaypoint: market, tourDestination: null });
+            this.log(`${ship}: delivery hold put back on ${market} (it was ${this.operatorHolds.get(ship) ?? "unset"})`);
+          } catch (err) {
+            this.log(`${ship}: could not put the delivery hold back: ${describeError(err)}`);
+          }
+        }
+        continue;
+      }
       try {
         await this.releaseShip(ship);
         this.log(`${ship}: delivered to ${system}; hold released, now keeping ${market}`);
@@ -8278,10 +8290,12 @@ export class FleetManager {
    * 0 fuel (exactly the case an operator needs to take manual control of) can
    * still be held rather than failing a fuel pre-check.
    */
-  async holdShip(shipSymbol: string): Promise<void> {
+  async holdShip(shipSymbol: string, at?: string): Promise<void> {
     const agent = this.controlledAgent(shipSymbol);
     if (!agent) throw new Error(`ship ${shipSymbol} is not under fleet control`);
-    const here = this.shipWaypoint(shipSymbol) || (await this.api.getShip(shipSymbol)).nav.waypointSymbol;
+    // `at` is a stored hold being replayed at boot: hold it where it was set, which for a hold on a waypoint in another system (a
+    // keeper being delivered) is not where the ship stands. Without it a restart re-pinned every such hold to the ship's own position.
+    const here = at ?? (this.shipWaypoint(shipSymbol) || (await this.api.getShip(shipSymbol)).nav.waypointSymbol);
     // Persist the instruction and stop. proposeOperatorHolds() turns it into
     // an intent on the next tick and the hull flies it through the shared
     // executor — this used to call agent.dispatchTo(), which set a private
