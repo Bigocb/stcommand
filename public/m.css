@@ -1034,3 +1034,13 @@ button, .btn, select, input { min-height: 48px; font-size: 17px; }
 .subnav button { min-height: 40px; padding: 0 12px; border-radius: 20px; font-size: 15px; text-transform: none; letter-spacing: 0.02em; }
 .subnav button { min-height: 38px; padding: 0 10px; font-size: 14px; letter-spacing: 0.01em; }
 .subnav button { padding: 0 9px; } .subnav { gap: 5px; }
+/* controls, second pass (operator, 2026-10-29: "everything here is a bit too big as well", on the ship sheet): the blanket
+ * 48 px / 17 px rule above is eased to 40 px / 15 px, the ship sheet's action grid is tighter, and the drag handle and the
+ * close button get their own sizes back (the blanket rule had stretched the handle into a block and the close into an oval). */
+button, .btn, select, input { min-height: 40px; font-size: 15px; }
+.grid5 { gap: 6px; }
+.grid5 .btn { min-height: 40px; padding: 8px 6px; font-size: 14px; letter-spacing: 0.02em; line-height: 1.2; }
+.sheet .handle { min-height: 0; width: 40px; height: 5px; }
+.sheet-close { min-height: 0; width: 36px; height: 36px; font-size: 18px; border-width: 2px; color: var(--bone); }
+.sheet .who { font-size: 20px; }
+.sheet .sub { font-size: 16px; }

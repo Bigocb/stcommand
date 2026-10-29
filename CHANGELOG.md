@@ -9,6 +9,9 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — Tower: a tighter ship sheet and smaller controls
+Operator, on the ship sheet: "everything here is a bit too big as well. Loving the layout though." The blanket rule from the Clear Tower pass (every button 48 px at 17 px) is eased to 40 px at 15 px; the ship sheet's action grid is tighter (40 px, 14 px labels); and the sheet's drag handle and close button get their own sizes back, since the blanket rule had stretched the handle into a tall block and the close button into an oval.
+
 ## 2026-10-29 — Tower: smaller sub-tabs, and the Status checks load on first open
 Operator, on the first look at the redesign: the sub-tab buttons at the top were bigger than needed. They are now 38 px pills at 14 px in sentence case, so Now's four tabs fit on one row (still wrapping, never hidden). The Status checks (Trouble, Fresh systems, Keepers) stayed on "Loading…" because their data was only read when a tab was opened, not when Tower first loaded on Status; they now load with the bridge whenever Status is on screen (at most once a minute).
 
