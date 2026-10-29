@@ -25,6 +25,7 @@ import { startLive, liveConnected } from "/shared/live.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { seasonCardHtml } from "/shared/season.js";
+import { mountCompare } from "/shared/compare.js";
 import { mountMiningFields } from "/shared/miningFields.js";
 import { mountExplorers } from "/shared/explorers.js";
 import { mountBlockedGoods } from "/shared/blockedGoods.js";
@@ -261,6 +262,7 @@ const NAV_GROUPS = [
   { key: "more", label: "More", tabs: [
     { key: "metrics", label: "Metrics", screen: "metrics" },
     { key: "season", label: "Season", screen: "more", pane: "work", only: ["more-sec-season"] },
+    { key: "compare", label: "Compare", screen: "more", pane: "work", only: ["more-sec-compare"] },
     { key: "doctrine", label: "Doctrine", screen: "more", pane: "rules", only: ["more-sec-doctrine"] },
     { key: "blocked", label: "Blocked", screen: "more", pane: "rules", only: ["more-sec-blocked"] },
     { key: "opening", label: "Opening", screen: "more", pane: "rules", only: ["more-sec-opening"] },
@@ -2155,8 +2157,20 @@ async function renderMoreSeason() {
   }
 }
 
+/** Week over week (public/shared/compare.js): this week against a kept one. Loaded at most every five minutes. */
+let compareCard = null;
+let compareCardAt = 0;
+function renderMoreCompare() {
+  const el = $("more-compare");
+  if (!el || Date.now() - compareCardAt < 300_000) return;
+  compareCardAt = Date.now();
+  compareCard ??= mountCompare(el, { api, compact: true });
+  compareCard.show();
+}
+
 function renderMore() {
   renderMoreSeason();
+  renderMoreCompare();
   renderBulkScrap();
   renderMoreKeepers();
   renderMoreContracts();

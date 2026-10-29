@@ -25,6 +25,7 @@ import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { mountSeason } from "/shared/season.js";
 import { mountWeeks } from "/shared/weeks.js";
+import { mountCompare } from "/shared/compare.js";
 import { mountSystems } from "/shared/systems.js";
 import { mountExplorers } from "/shared/explorers.js";
 import { mountBlockedGoods } from "/shared/blockedGoods.js";
@@ -81,6 +82,7 @@ $("auth-form").addEventListener("submit", async (e) => {
 let metricsScreen = null;
 let seasonScreen = null;
 let weeksScreen = null;
+let compareScreen = null;
 let systemsScreen = null;
 let explorersScreen = null;
 let blockedGoods = null;
@@ -95,6 +97,7 @@ function setView(name) {
   if (name !== "metrics") metricsScreen?.hide();
   if (name !== "season") seasonScreen?.hide();
   if (name !== "weeks") weeksScreen?.hide();
+  if (name !== "compare") compareScreen?.hide();
   if (name !== "systems") systemsScreen?.hide();
   if (name !== "explorers") explorersScreen?.hide();
   if (name !== "mining") miningScreen?.hide();
@@ -141,6 +144,10 @@ function setView(name) {
   if (name === "weeks") {
     weeksScreen ??= mountWeeks($("weeks-root"), { api });
     weeksScreen.show();
+  }
+  if (name === "compare") {
+    compareScreen ??= mountCompare($("compare-root"), { api });
+    compareScreen.show();
   }
   if (name === "season") {
     seasonScreen ??= mountSeason($("season-root"), { api });
@@ -201,6 +208,7 @@ const NAV_GROUPS = [
   { key: "insights", label: "Insights", ic: "∿", tabs: [
     { key: "metrics", label: "Metrics", view: "metrics" },
     { key: "weeks", label: "Weeks", view: "weeks" },
+    { key: "compare", label: "Compare", view: "compare" },
     { key: "season", label: "Season", view: "season" },
     { key: "notes", label: "Notes", view: "ops", seg: ["ops-seg", "notes"], hide: ["ops-row2"] },
   ] },

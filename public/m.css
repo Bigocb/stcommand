@@ -835,3 +835,37 @@ select:focus, .price-picker select:focus, select.role-select:focus { outline: 1p
 .bg-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--hair); }
 .bg-good { font-family: var(--mono); font-size: 12px; }
 .bg-why { flex: 1; font-size: 10px; color: var(--dim); }
+
+/* Week over week (public/shared/compare.js) */
+.cmp .cmp-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.cmp .cmp-pick{font-family:var(--mono);font-size:11px;color:var(--dim);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cmp .cmp-pick select{background:var(--panel);color:var(--bone);border:1px solid var(--hair-hi);border-radius:4px;padding:6px 8px;font-family:var(--mono);font-size:11.5px;max-width:100%}
+.cmp .cmp-note,.cmp .cmp-foot{font-family:var(--mono);font-size:10.5px;color:var(--dim);line-height:1.5}
+.cmp .cmp-foot{margin-top:10px}
+.cmp .cmp-empty{font-family:var(--mono);font-size:11.5px;color:var(--dim);padding:14px;line-height:1.5}
+.cmp .cmp-kpis{margin-bottom:12px}
+.cmp .cmp-kpis .kpi .sub{font-family:var(--mono);font-size:10px;color:var(--dim)}
+.cmp .good{color:var(--green)} .cmp .bad{color:var(--red)}
+.cmp .cmp-charts{display:grid;grid-template-columns:1fr;gap:12px;margin-bottom:12px}
+.cmp .cmp-chart-box{background:var(--panel);border:1px solid var(--hair);border-radius:5px;padding:10px 12px}
+.cmp .cmp-chart-h{font-family:var(--chrome);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.cmp .cmp-legend{font-family:var(--mono);letter-spacing:0;text-transform:none;font-size:10px;display:flex;gap:6px;align-items:center}
+.cmp .cmp-legend i{display:inline-block;width:14px;height:0;border-top:2px solid var(--amber)}
+.cmp .cmp-legend i.b{border-top:2px dashed var(--ice);margin-left:8px}
+.cmp .cmp-chart{width:100%;height:auto;display:block}
+.cmp .cmp-line{fill:none;stroke-width:1.8}
+.cmp .cmp-line.a{stroke:var(--amber)} .cmp .cmp-line.b{stroke:var(--ice);stroke-dasharray:5 3}
+.cmp .cmp-grid{stroke:var(--hair);stroke-width:1} .cmp .cmp-axis{fill:var(--dim);font-family:var(--mono);font-size:9px}
+.cmp .cmp-gate{stroke-width:1;stroke-dasharray:1 3} .cmp .cmp-gate.a{stroke:var(--amber)} .cmp .cmp-gate.b{stroke:var(--ice)}
+.cmp .cmp-table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11.5px}
+.cmp .cmp-table th{font-family:var(--chrome);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);text-align:left;padding:6px 8px;border-bottom:1px solid var(--hair)}
+.cmp .cmp-table td{padding:6px 8px;border-bottom:1px solid var(--hair)}
+.cmp .cmp-table .num{text-align:right;font-variant-numeric:tabular-nums}
+.cmp-tower .cmp-kpis{grid-template-columns:repeat(2,1fr)}
+@media (min-width:900px){.cmp:not(.cmp-tower) .cmp-charts{grid-template-columns:1fr 1fr}.cmp:not(.cmp-tower) .cmp-kpis{grid-template-columns:repeat(6,1fr)}}
+.cmp .kpirow{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cmp .kpi{background:var(--panel);border:1px solid var(--hair);border-radius:5px;padding:9px 11px;display:flex;flex-direction:column;gap:4px;min-width:0}
+.cmp .kpi .k{font-family:var(--chrome);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+.cmp .kpi .v{font-family:var(--mono);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+
+.cmp .cmp-scroll{overflow-x:auto;max-width:100%}

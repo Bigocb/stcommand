@@ -9,6 +9,20 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-29 — Week over week: Compare tab in Deck and a Compare card in Tower
+Operator request: compare this week with a previous week, with a dropdown of earlier weeks and "any tenants from the previous week" (all tenants are the operator's).
+
+- `src/engine/weekCompare.ts` (pure) lines two weeks up by hours since each week's first ledger row (the same axis as the gate milestone) and returns cumulative matched profit,
+  wallet (carried over hours with no reading), ships bought and sells per hour, fixed checkpoints (6, 12, 24 ... 167 h) and like-for-like totals cut at the shorter week's last hour,
+  so a week in progress is not set against a finished one.
+- `Store.weekHours()` sums one tenant's ledger for one named week per hour (row-level policy: that week only); `Store.tenantDirectory()` lists agent symbols. The first gate jump stands in for
+  "gate open" for every past week.
+- `GET /api/compare/weeks` lists the weeks this tenant kept; for an **operator** (`OPERATOR_AGENTS`, the same env list that gates the agent-watch view) it also lists every other tenant's.
+  `GET /api/compare?week=<tenantId>|<universeKey>` returns both series. Another tenant's week is refused unless the caller is an operator: isolation stays the rule, with this one deliberate crossing.
+  **Set `OPERATOR_AGENTS=THEO` (comma-separated for more) in the box's environment to see THEOREM's weeks from THEO.**
+- `public/shared/compare.js` (shared): dropdown, KPI row, cumulative matched profit and wallet charts with the gate marked, and a checkpoint table. Deck: Insights > Compare. Tower: More > Compare (compact).
+- Tests: `tests/weekCompare.test.ts` (alignment, carry-forward, like-for-like), `tests/compareRoute.test.ts` (own weeks, current-week flag, cross-tenant refusal and operator access, bad ids).
+
 ## 2026-10-28 — Cargo already bought: the destination is re-checked before it is flown there
 Option 1 of the rival-trading discussion (operator, 2026-10-28). The GRAVITON cargo was judged against KR9-A1's bid once, at the buy (58k); a rival then sold 126
 units into that market and the bid was 25.7k when the ship arrived, after the jumps and fuel were spent. The loss floor judged it only on arrival.

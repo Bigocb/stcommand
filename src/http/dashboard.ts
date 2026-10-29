@@ -3,6 +3,7 @@ import { Store } from "../db/store.js";
 import { isOperator } from "./operatorFlag.js";
 import { createOpsRouter } from "./ops.js";
 import { createAnalysisRouter, createSeasonRouter } from "./season.js";
+import { createCompareRouter } from "./compare.js";
 import { rateLimitMonitor, INSTANCE_ID } from "../core/rateLimitMonitor.js";
 import type pg from "pg";
 import { optimizeLoadouts } from "../engine/loadoutGa.js";
@@ -203,6 +204,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
 
   router.use("/ops", createOpsRouter(worker));
   router.use("/season", createSeasonRouter(worker));
+  router.use("/compare", createCompareRouter(worker));
   router.use("/analysis", createAnalysisRouter(worker));
 
   router.get("/state", async (req, res) => {
