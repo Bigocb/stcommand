@@ -150,6 +150,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "remoteSurveyPerPass",
+    name: "Remote survey: systems read per pass",
+    description: "Read systems without sending a ship: every 5 minutes the server reads this many systems reachable through finished gates from home (nearest first) that no read has covered yet: each market's goods lists and each shipyard's hull-type list (does it sell probes?), saved to the market and shipyard directories (ops market_directory). It costs about one API call per market and yard in the system. It marks nothing surveyed, so explorers still owe those systems their physical visit (yard stock and prices need a ship there). Off by default (clause disabled): turn the clause on to use it. Takes effect on the next maintenance pass.",
+    value: 1, min: 1, max: 5, step: 1, unit: " systems",
+    enabled: false, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
     key: "keeperYardWaitMin",
     name: "Keeper request waits for a ship at its yard",
     description: "A keeper purchase you approved can only run when one of our ships is docked at the shipyard it is bought at. The queue holds one open request at a time, so one with no ship at its yard used to block every other market's request for ever (2026-10-29: CK45 blocked KX84, SF98 and the rest). After this many minutes without a ship there, the request is released and the queue moves on; that market is left out for 2 hours, or until a ship docks at its yard. Clause off = wait for ever (the old behaviour). Takes effect on the next keeper queue pass.",

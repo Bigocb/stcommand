@@ -14,7 +14,7 @@ export interface KnownSystem {
   waypoints: Waypoint[];
   jumpGates: JumpGate[];
   markets: MarketSnapshot[];
-  shipyards: { symbol: string; ships: ShipyardShip[]; modificationsFee: number }[];
+  shipyards: { symbol: string; ships: ShipyardShip[]; modificationsFee: number; shipTypes?: string[] }[];
 }
 /** Persisted topology cache GalaxyAtlas checks before a live scan — see
  *  Store.getSystemTopology()/setSystemTopology()'s own comment. Structural,
@@ -857,13 +857,13 @@ export class GalaxyAtlas {
   /** Fetch shipyards in a system and cache inventory. */
   async surveyShipyards(systemSymbol: string, store?: {
     recordShipyardInventory: (systemSymbol: string, waypointSymbol: string, ships: ShipyardShip[]) => Promise<void>;
-  }): Promise<{ symbol: string; ships: ShipyardShip[]; modificationsFee: number }[]> {
+  }): Promise<{ symbol: string; ships: ShipyardShip[]; modificationsFee: number; shipTypes?: string[] }[]> {
     const known = await this.loadSystem(systemSymbol);
-    const shipyards: { symbol: string; ships: ShipyardShip[]; modificationsFee: number }[] = [];
+    const shipyards: { symbol: string; ships: ShipyardShip[]; modificationsFee: number; shipTypes?: string[] }[] = [];
     for (const w of known.waypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD"))) {
       try {
         const yard = await this.api.getShipyard(systemSymbol, w.symbol);
-        const entry = { symbol: w.symbol, ships: yard.ships ?? [], modificationsFee: yard.modificationsFee ?? 0 };
+        const entry = { symbol: w.symbol, ships: yard.ships ?? [], modificationsFee: yard.modificationsFee ?? 0, shipTypes: (yard.shipTypes ?? []).map((t: { type: string }) => t.type) };
         shipyards.push(entry);
         if (store) await store.recordShipyardInventory(systemSymbol, w.symbol, entry.ships);
       } catch (err) {

@@ -564,13 +564,15 @@ export const OPS_TOOLS: OpsTool[] = [
   {
     name: "market_directory",
     title: "What each surveyed market trades, ranked, with keeper coverage",
-    description: "The goods lists (imports, exports, exchange) a survey read remotely for every market of a system, saved when the survey ran. No ship has to have stood there and there are no prices: the number of distinct goods is the signal for where a keeper is worth sending. Per system: markets, how many already have a keeper, how many have at least minGoods goods and no keeper (worthKeeping), and the markets best first. Filter with system. Read-only.",
+    description: "The goods lists (imports, exports, exchange) a survey read remotely for every market of a system, saved when the survey ran. No ship has to have stood there and there are no prices: the number of distinct goods is the signal for where a keeper is worth sending. Also each yard's hull-type list and whether it sells probes (yards). Per system: markets, how many already have a keeper, how many have at least minGoods goods and no keeper (worthKeeping), and the markets best first. Filter with system. Read-only.",
     input: { system: z.string().optional(), minGoods: num(5), limit: num(40) },
     async run(ctx, a) {
-      const rows = await ctx.w.store.marketDirectory(a.system);
+      const [rows, yardRows] = await Promise.all([ctx.w.store.marketDirectory(a.system), ctx.w.store.shipyardDirectory(a.system)]);
       const covered = new Set(ctx.w.fleet.keeperStations().map((k) => k.market));
       const systems = summarizeDirectory(rows, covered, ctx.now(), a.minGoods);
-      return { systems: systems.length, rows: rows.length, list: systems.slice(0, Math.min(Math.max(a.limit, 1), 200)).map((s) => ({ ...s, ranked: a.system ? s.ranked : s.ranked.slice(0, 6) })) };
+      const yardsBySystem = new Map<string, { yard: string; sellsProbes: boolean; types: number }[]>();
+      for (const y of yardRows) yardsBySystem.set(y.systemSymbol, [...(yardsBySystem.get(y.systemSymbol) ?? []), { yard: y.waypointSymbol, sellsProbes: y.shipTypes.includes("SHIP_PROBE"), types: y.shipTypes.length }]);
+      return { systems: systems.length, rows: rows.length, list: systems.slice(0, Math.min(Math.max(a.limit, 1), 200)).map((s) => ({ ...s, yards: yardsBySystem.get(s.system) ?? [], ranked: a.system ? s.ranked : s.ranked.slice(0, 6) })) };
     },
   },
 

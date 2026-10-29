@@ -55,6 +55,7 @@ import { getGameResetDate } from "../core/universe.js";
 import { setTenantUniverse } from "../db/pool.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
+import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
 import { pickCheapestKeeperYard, pickKeeperYardWithShip } from "./keeperYard.js";
 import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
@@ -2456,6 +2457,11 @@ export class FleetManager {
       await this.store?.recordMarketDirectory(systemSymbol, markets.map((m) => ({ symbol: m.symbol, imports: m.imports ?? [], exports: m.exports ?? [], exchange: m.exchange ?? [] })));
     } catch (err) {
       this.log(`market directory for ${systemSymbol} not saved: ${describeError(err)}`);
+    }
+    try {
+      await this.store?.recordShipyardDirectory(systemSymbol, shipyards.map((y) => ({ symbol: y.symbol, shipTypes: y.shipTypes ?? [] })));
+    } catch (err) {
+      this.log(`shipyard directory for ${systemSymbol} not saved: ${describeError(err)}`);
     }
     await this.markSystemSurveyed(systemSymbol, "survey", { markets: markets.length, shipyards: shipyards.length });
     this.log(`surveyed ${systemSymbol}: ${markets.length} markets, ${shipyards.length} shipyards`);
@@ -5590,6 +5596,48 @@ export class FleetManager {
   }
 
   /** Every 5 minutes: work out what the release rule says, show it to the operator (advisory) or act on it (auto). */
+  private lastRemoteSurveyAt = 0;
+  private remoteSurveyRetry = new Map<string, number>();
+
+  /**
+   * Read systems remotely, with no ship: waypoints with traits, every market's goods lists and every shipyard's hull-type list,
+   * saved to the market and shipyard directories. Marks nothing as surveyed, so explorers still owe those systems their physical
+   * visit (yard stock and prices need a ship there). Reaches systems through finished gates from home, nearest first; one pass
+   * every 5 minutes at most. Off unless the remoteSurveyPerPass clause is on. See remoteSurvey.ts.
+   */
+  private async maybeRemoteSurvey(): Promise<void> {
+    const perPass = this.doctrine.isEnabledOr("remoteSurveyPerPass", false) ? Math.floor(this.doctrine.value("remoteSurveyPerPass", 0)) : 0;
+    if (perPass <= 0 || !this.store) return;
+    const now = Date.now();
+    if (now - this.lastRemoteSurveyAt < 5 * 60_000) return;
+    this.lastRemoteSurveyAt = now;
+    const hops = new Map<string, number>([[this.systemSymbol, 0]]);
+    const queue = [this.systemSymbol];
+    for (let i = 0; i < queue.length; i++) {
+      const u = queue[i]!;
+      for (const c of this.galaxy.connectedSystems(u)) {
+        if (!hops.has(c) && this.galaxy.canJump(u, c)) { hops.set(c, hops.get(u)! + 1); queue.push(c); }
+      }
+    }
+    hops.delete(this.systemSymbol);
+    const picks = pickRemoteSurveys({ reachable: hops, alreadyRead: await this.store.directorySystems(), retryAt: this.remoteSurveyRetry, nowMs: now }, { ...DEFAULT_REMOTE_SURVEY_POLICY, perPass });
+    for (const system of picks) {
+      try {
+        await this.galaxy.loadSystem(system);
+        const markets = await this.galaxy.surveyMarkets(system, this.store);
+        const yards = await this.galaxy.surveyShipyards(system, this.store);
+        await this.store.recordMarketDirectory(system, markets.map((m) => ({ symbol: m.symbol, imports: m.imports ?? [], exports: m.exports ?? [], exchange: m.exchange ?? [] })));
+        await this.store.recordShipyardDirectory(system, yards.map((y) => ({ symbol: y.symbol, shipTypes: y.shipTypes ?? [] })));
+        const probeYards = yards.filter((y) => (y.shipTypes ?? []).includes("SHIP_PROBE")).length;
+        this.log(`remote survey of ${system} (${hops.get(system)} hop(s) from home): ${markets.length} markets, ${yards.length} yards (${probeYards} list probes); nothing marked surveyed`);
+        if (!markets.length) this.remoteSurveyRetry.set(system, now + 2 * 3_600_000);
+      } catch (err) {
+        this.remoteSurveyRetry.set(system, now + 2 * 3_600_000);
+        this.log(`remote survey of ${system} failed, trying again in 2 h: ${describeError(err)}`);
+      }
+    }
+  }
+
   private async maybeManageFreshSystems(): Promise<void> {
     const mode = this.freshGateMode();
     if (mode === "off" || !this.tenantId || !this.store) return;
@@ -10169,6 +10217,7 @@ export class FleetManager {
       await this.timed("maybeTriageKeepers", () => this.maybeTriageKeepers());
       await this.timed("maintainFreshGate", () => this.maintainFreshGate());
       await this.timed("maybeManageFreshSystems", () => this.maybeManageFreshSystems());
+      await this.timed("maybeRemoteSurvey", () => this.maybeRemoteSurvey());
       await this.timed("maybeRepairFleet", () => this.maybeRepairFleet());
       await this.timed("repairSuspendedShips", () => this.repairSuspendedShips());
       await this.timed("maybeRecordGateOpened", () => this.maybeRecordGateOpened());

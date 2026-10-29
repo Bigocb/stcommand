@@ -1857,6 +1857,35 @@ export class Store {
     });
   }
 
+  /** Save which hull types each shipyard of a system lists, as read remotely. Idempotent. */
+  async recordShipyardDirectory(systemSymbol: string, yards: { symbol: string; shipTypes: string[] }[]): Promise<void> {
+    if (!yards.length) return;
+    await withPool(this.pool, async (c) => {
+      for (const y of yards) {
+        await c.query(
+          `INSERT INTO shipyard_directory (waypoint_symbol, system_symbol, ship_types, updated_at) VALUES ($1, $2, $3, now())
+           ON CONFLICT (waypoint_symbol) DO UPDATE SET ship_types = excluded.ship_types, updated_at = now()`,
+          [y.symbol, systemSymbol, y.shipTypes],
+        );
+      }
+    });
+  }
+
+  async shipyardDirectory(systemSymbol?: string): Promise<{ waypointSymbol: string; systemSymbol: string; shipTypes: string[]; updatedAt: string }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ waypoint_symbol: string; system_symbol: string; ship_types: string[]; updated_at: Date }>(
+        `SELECT waypoint_symbol, system_symbol, ship_types, updated_at FROM shipyard_directory ${systemSymbol ? "WHERE system_symbol = $1" : ""} ORDER BY waypoint_symbol`,
+        systemSymbol ? [systemSymbol] : [],
+      );
+      return res.rows.map((r) => ({ waypointSymbol: r.waypoint_symbol, systemSymbol: r.system_symbol, shipTypes: r.ship_types, updatedAt: r.updated_at.toISOString() }));
+    });
+  }
+
+  /** Systems the market directory has rows for, i.e. already read remotely at least once. */
+  async directorySystems(): Promise<Set<string>> {
+    return withPool(this.pool, async (c) => new Set((await c.query<{ system_symbol: string }>(`SELECT DISTINCT system_symbol FROM market_directory`)).rows.map((r) => r.system_symbol)));
+  }
+
   /** The saved goods lists, optionally for one system, newest read first. */
   async marketDirectory(systemSymbol?: string): Promise<{ waypointSymbol: string; systemSymbol: string; imports: string[]; exports: string[]; exchange: string[]; updatedAt: string }[]> {
     return withPool(this.pool, async (c) => {
@@ -4226,7 +4255,7 @@ export class Store {
   private static readonly SHARED_GALAXY_TABLES = [
     "galaxy_systems", "galaxy_factions", "galaxy_crawl_state",
     "market_snapshots", "market_latest", "shipyard_inventory", "module_catalog",
-    "galaxy_jump_costs", "galaxy_gate_construction", "agent_credit_snapshots", "market_transactions", "field_surveys", "market_directory",
+    "galaxy_jump_costs", "galaxy_gate_construction", "agent_credit_snapshots", "market_transactions", "field_surveys", "market_directory", "shipyard_directory",
   ];
 
   /** Wipes every shared galaxy-fact table — see SHARED_GALAXY_TABLES's own

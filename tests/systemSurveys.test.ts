@@ -148,3 +148,17 @@ describe("market directory (migrations/064)", () => {
     await pool.query(`DELETE FROM market_directory WHERE system_symbol = $1`, [sys]);
   });
 });
+
+describe("shipyard directory (migrations/065)", () => {
+  it("saves each yard's hull types, replaces them on a re-read, and lists the systems the market directory covers", async () => {
+    const sys = `X1-SD${Date.now() % 100000}`;
+    await store.recordShipyardDirectory(sys, [{ symbol: `${sys}-A2`, shipTypes: ["SHIP_PROBE", "SHIP_LIGHT_HAULER"] }]);
+    await store.recordShipyardDirectory(sys, [{ symbol: `${sys}-A2`, shipTypes: ["SHIP_PROBE"] }]);
+    const rows = await store.shipyardDirectory(sys);
+    assert.deepEqual(rows.map((r) => [r.waypointSymbol, r.shipTypes]), [[`${sys}-A2`, ["SHIP_PROBE"]]]);
+    await store.recordMarketDirectory(sys, [{ symbol: `${sys}-A1`, imports: ["IRON"], exports: [], exchange: [] }]);
+    assert.ok((await store.directorySystems()).has(sys));
+    await pool.query(`DELETE FROM shipyard_directory WHERE system_symbol = $1`, [sys]);
+    await pool.query(`DELETE FROM market_directory WHERE system_symbol = $1`, [sys]);
+  });
+});
