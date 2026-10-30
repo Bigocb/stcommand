@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-30 — Tour scout: a probe (no fuel tank) can now tour
+
+A probe on the tour role sat still with "no reachable target" at every system it reached. The reachability filter in
+`tourScout()` (`src/engine/agent.ts`) compared each target's fuel cost against the tank, and a probe's tank is 0/0, so every
+target cost more than the budget. Found live when THEO-C9 was sent to X1-SP97 to read its shipyards: the system was fully
+charted (29 waypoints known), the filter was the only thing stopping it. A hull with no tank now has an unlimited fuel budget
+(as `discoverMarkets()` already treated it); only unknown coordinates rule a target out. Hulls with a tank keep the range rule.
+Tests in `tests/tourScout.test.ts`.
+
 ## 2026-10-30 — Fresh systems: how many to warm up at once is now a doctrine clause
 
 The engine kept exactly one system staged (keepers bought and parked, gate shut) ahead of need, hard-coded as `stagedAhead: 1` in

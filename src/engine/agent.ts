@@ -1753,7 +1753,10 @@ export class ShipAgent {
     // Budgeting against capacity unconditionally let a tour/scout ship hop
     // away from the only market, leg after leg, until it sat at 34/300 with
     // the nearest market 150 away (THEO-2F, X1-VU66-B30, 2026-10-02).
-    const fuelBudget = this.atMarketHere() ? this.ship.fuel.capacity : this.ship.fuel.current;
+    // A hull with no tank at all (a probe: fuel 0/0) never burns fuel, so the budget is not zero, it is unlimited.
+    // Without this every target cost more than 0 and a probe on the tour role reported "no reachable target" forever
+    // (THEO-C9 at X1-SP97, 2026-10-30). Only coordinates that are still unknown (dist Infinity) rule a target out.
+    const fuelBudget = this.ship.fuel.capacity <= 0 ? Number.MAX_SAFE_INTEGER : this.atMarketHere() ? this.ship.fuel.capacity : this.ship.fuel.current;
     const reachable = targets
       .filter((t) => t !== here)
       // Same system only. Waypoint coordinates are per-system, so the distance

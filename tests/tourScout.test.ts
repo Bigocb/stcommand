@@ -836,3 +836,36 @@ describe("ShipAgent.tourScout: drift fallback for a small-tank ship", () => {
     assert.deepEqual(navigated, []);
   });
 });
+
+describe("ShipAgent.tourScout: a hull with no fuel tank (a probe)", () => {
+  function probeAgent(capacity: number) {
+    const ship = { ...makeShip("X1-REMOTE-A1", "X1-REMOTE"), fuel: { current: capacity, capacity } } as unknown as Ship;
+    const logs: string[] = [];
+    const agent = new ShipAgent(ship, {
+      api: { getShip: async () => ship } as any,
+      log: (m) => logs.push(m),
+      marketTourTargets: async () => ["X1-REMOTE-B2", "X1-REMOTE-C3"],
+    });
+    agent.withWorld(remotePositions as any, []);
+    const navigated: string[] = [];
+    (agent as any).refuelIfNeeded = async () => true;
+    (agent as any).navigateTo = async (t: string) => { navigated.push(t); };
+    (agent as any).ensureDocked = async () => {};
+    return { agent, logs, navigated };
+  }
+
+  it("tours to the nearest market instead of reporting 'no reachable target'", async () => {
+    const { agent, navigated, logs } = probeAgent(0);
+    const worked = await (agent as any).tourScout();
+    assert.equal(worked, true);
+    assert.deepEqual(navigated, ["X1-REMOTE-B2"]);
+    assert.ok(!logs.some((l) => l.includes("no reachable target")));
+  });
+
+  it("a ship with a tank still keeps its range rule (nothing reachable on a tiny tank)", async () => {
+    const { agent, navigated } = probeAgent(1);
+    const worked = await (agent as any).tourScout();
+    assert.equal(worked, false);
+    assert.deepEqual(navigated, []);
+  });
+});
