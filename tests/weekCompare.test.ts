@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { checkpoints, gateAligned, hoursReached, likeForLike, toPoints, weekTotals, type HourRow } from "../src/engine/weekCompare.js";
+import { checkpoints, drawnPoints, gateAligned, hoursReached, likeForLike, toPoints, weekTotals, type HourRow } from "../src/engine/weekCompare.js";
 
 const row = (hour: number, o: Partial<HourRow> = {}): HourRow => ({ hour, sells: 0, pnl: 0, revenue: 0, purchases: 0, ships: 0, jumps: 0, wallet: null, ...o });
 
@@ -20,6 +20,12 @@ describe("weekCompare: two weeks lined up by hours since the first trade", () =>
     const rows: HourRow[] = [0, 1, 2, 3, 4].map((hour) => ({ hour, sells: 1, pnl: [300, 600, 900, 0, 1200][hour]!, revenue: 0, purchases: 0, ships: 0, jumps: 0, wallet: null }));
     const p = toPoints({ hours: rows }, 4);
     assert.deepEqual(p.map((x) => x.rate), [300, 450, 600, 500, 700]);
+  });
+
+  it("drawnPoints blanks the hours after the week's last row, so a week in progress is not drawn as zero", () => {
+    const p = drawnPoints(toPoints(a, 5), 3);
+    assert.deepEqual(p.map((x) => x.cumPnl), [100, 100, 400, 450, null, null]);
+    assert.deepEqual(p.map((x) => x.rate), [100, 50, 133, 117, null, null]);
   });
 
   it("totals: profit, per-hour rate over the hours the ledger reaches, best hour, last wallet", () => {

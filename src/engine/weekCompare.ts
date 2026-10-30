@@ -67,6 +67,14 @@ export function toPoints(series: Pick<WeekSeries, "hours">, upToHour: number): P
   return out;
 }
 
+/**
+ * The points a chart should draw: the hours after a week's last ledger row are blanked (null), so a week still in progress ends
+ * where it is instead of falling to zero or running flat to the end of the axis. The checkpoint table reads the unblanked points.
+ */
+export function drawnPoints(points: readonly Point[], reached: number): (Point | { hour: number; cumPnl: null; pnl: null; wallet: null; ships: null; trades: null; rate: null })[] {
+  return points.map((p) => (p.hour <= reached ? p : { hour: p.hour, cumPnl: null, pnl: null, wallet: null, ships: null, trades: null, rate: null }));
+}
+
 export const CHECKPOINT_HOURS = [6, 12, 24, 36, 48, 60, 72, 96, 120, 144, 167] as const;
 
 export interface CheckpointRow {

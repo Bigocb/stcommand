@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-30 — Compare: a week in progress is not drawn as zero
+
+The profit and wallet charts drew the hours after a week's last ledger row as zero (profit per hour) or flat (cumulative), so this week fell to the
+axis at the current hour (operator screenshot, hour 121 of 168). `/api/compare` now blanks those hours (`drawnPoints`), so the line stops where the
+week is. The checkpoint table still reads the unblanked points.
+
 ## 2026-10-30 — Hourly fleet snapshots, and Compare charts for live systems, keepers and API load
 
 The ledger cannot say how many keepers, live systems or API calls a past week had, so a week could not be compared on them. Once an hour the fleet
