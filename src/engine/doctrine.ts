@@ -458,6 +458,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "freshTradingSells",
+    name: "Fresh systems: count only systems that trade",
+    description: "On = a live system more than 3 hours past its release counts toward Fresh systems: live target only when it has at least this many sells in the last 2 hours; a system nobody trades in no longer holds a place, so the next one is opened sooner. Off (the default) = age alone counts, as before. Takes effect on the next check.",
+    value: 3, min: 1, max: 30, step: 1, unit: " sells",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "freshLeadMin",
     name: "Fresh systems: lead time",
     description: "Open the next system this long before the live ones are expected to fade (they fade at the fade age below). Raise it when traders sit waiting or the premium goes faster than expected; lower it when systems are opened too early and their premium is wasted. About 240 minutes matches 2026-10-24: the first sale came 3.7 hours after a system was listed. Takes effect on the next check.",

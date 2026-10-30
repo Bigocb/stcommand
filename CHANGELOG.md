@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-30 — Fresh systems: count only the systems that trade (clause freshTradingSells)
+
+The release rule counted a live system toward the target by age alone, so 27 live systems satisfied a target of 8 while only
+about 8 had any sales in the last hour, and the next system was opened late. New clause `freshTradingSells` (ships off):
+with it on, a live system more than 3 hours past its release counts only with at least that many sells in the last 2 hours;
+a younger one counts while traders find it. Off reproduces the old behaviour (tested). `src/engine/systemRelease.ts`
+(`idleLive`), wired in `FleetManager.releasePolicy()`.
+
 ## 2026-10-30 — Tour scout: a probe (no fuel tank) can now tour
 
 A probe on the tour role sat still with "no reachable target" at every system it reached. The reachability filter in

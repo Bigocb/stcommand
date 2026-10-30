@@ -90,6 +90,17 @@ describe("release rule", () => {
     assert.equal(aliveState(live("X1-L", 11, 1.7, 40), NOW, auto), "faded", "past the fade age");
   });
 
+  it("counts only systems that trade once minTradingSells is on (off reproduces age-only counting)", () => {
+    const lives = [live("X1-T1", 5, 1.7, 40), live("X1-U1", 5, null, 0), live("X1-U2", 5, null, 1), live("X1-N1", 1, null, 0)];
+    const base: ReleasePolicy = { ...auto, target: 3 };
+    const q = [staged("X1-S", 1)];
+    assert.deepEqual(decideReleases(sig({ queue: q, live: lives }), base).release, [], "off: four alive systems, nothing to release");
+    const on = decideReleases(sig({ queue: q, live: lives }), { ...base, minTradingSells: 3 });
+    assert.deepEqual(on.release.map((r) => r.system), ["X1-S"], "on: only the trading one and the new one count");
+    assert.match(on.release[0]!.reason, /2 not counted for lack of sales/);
+    assert.equal(decideReleases(sig({ queue: q, live: [live("X1-N1", 1, null, 0), live("X1-N2", 2, null, 0), live("X1-N3", 2.5, null, 0)] }), { ...base, minTradingSells: 3 }).release.length, 0, "systems inside the grace window count");
+  });
+
   it("releases at once for idle traders, ignoring the target and the gap, and never a held or unready system", () => {
     const lives = [live("X1-L1", 1), live("X1-L2", 2), live("X1-L3", 3)];
     const d = decideReleases(sig({ queue: [staged("X1-S", 1)], live: lives, idleTraders: 4, lastReleaseAt: NOW - 2 * MIN }), auto);

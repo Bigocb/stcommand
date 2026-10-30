@@ -34,6 +34,10 @@ export interface ReleasePolicy {
   idleTradersMax: number;
   /** Staged systems to keep ready ahead of need. */
   stagedAhead: number;
+  /** A live system older than `graceMs` counts toward the target only with at least this many recent sells; 0 = off (age alone counts). */
+  minTradingSells: number;
+  /** How long after its release a system counts without sells, while traders find it. */
+  graceMs: number;
 }
 
 const H = 3_600_000;
@@ -48,6 +52,8 @@ export const DEFAULT_RELEASE_POLICY: ReleasePolicy = {
   minGapMs: 30 * 60_000,
   idleTradersMax: 3,
   stagedAhead: 1,
+  minTradingSells: 0,
+  graceMs: 3 * H,
 };
 
 export interface QueueFacts {
@@ -97,12 +103,18 @@ export function aliveState(l: LiveFacts, now: number, p: ReleasePolicy): "alive"
   return age >= p.fadeMs - p.leadMs ? "fading-soon" : "alive";
 }
 
+/** A system that is alive by age but that nobody trades in yet no longer holds a place in the target (clause freshTradingSells). */
+export function idleLive(l: LiveFacts, now: number, p: ReleasePolicy): boolean {
+  return p.minTradingSells > 0 && now - l.releasedAt >= p.graceMs && l.sells < p.minTradingSells;
+}
+
 export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDecision {
   const out: ReleaseDecision = { stage: [], release: [], notes: [] };
   if (p.mode === "off") return out;
 
   const states = s.live.map((l) => ({ l, st: aliveState(l, s.now, p) }));
-  const alive = states.filter((x) => x.st === "alive").length;
+  const alive = states.filter((x) => x.st === "alive" && !idleLive(x.l, s.now, p)).length;
+  const untraded = states.filter((x) => x.st === "alive" && idleLive(x.l, s.now, p)).length;
   const soon = states.filter((x) => x.st === "fading-soon").length;
   const eligible = (q: QueueFacts) => !q.held;
 
@@ -128,7 +140,7 @@ export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDeci
   const short = p.target - covered;
   const wantRelease = idle || short > 0;
   if (!wantRelease) {
-    out.notes.push(`${covered} live premium system(s) not fading, target ${p.target}${soon ? `; ${soon} fading within the lead time` : ""}: no release needed`);
+    out.notes.push(`${covered} live premium system(s) not fading, target ${p.target}${soon ? `; ${soon} fading within the lead time` : ""}${untraded ? `; ${untraded} not counted (under ${p.minTradingSells} recent sells)` : ""}: no release needed`);
     return out;
   }
   const sinceLast = s.lastReleaseAt === undefined ? Infinity : s.now - s.lastReleaseAt;
@@ -145,7 +157,7 @@ export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDeci
     );
     return out;
   }
-  const why = idle ? `${s.idleTraders} trader(s) idle, at or over ${p.idleTradersMax}` : `${covered} live premium system(s) not fading, target ${p.target}${soon ? `, ${soon} fading within ${Math.round(p.leadMs / 60_000)} min` : ""}`;
+  const why = idle ? `${s.idleTraders} trader(s) idle, at or over ${p.idleTradersMax}` : `${covered} live premium system(s) not fading, target ${p.target}${soon ? `, ${soon} fading within ${Math.round(p.leadMs / 60_000)} min` : ""}${untraded ? `, ${untraded} not counted for lack of sales` : ""}`;
   out.release.push({ system: pick.system, reason: `${why}; ${pick.system} is ${Math.round((pick.readyShare ?? 0) * 100)}% ready` });
   return out;
 }
