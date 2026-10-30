@@ -1055,7 +1055,7 @@ input, select, textarea { font-size: 16px; }
 .app, .auth-gate { zoom: var(--tower-scale); width: calc(100vw / var(--tower-scale)); height: calc(100dvh / var(--tower-scale)); }
 .rl-toast { zoom: var(--tower-scale); }
 
-/* Redesign: sections open from a group's list page, so the bar above a section is one plain "‹ Group" link, not pills. */
-.subnav button { border: 0; border-radius: 0; background: none; min-height: 44px; padding: 0 4px; font-size: 16px; color: var(--amber); letter-spacing: 0.06em; }
-.menu-row .chev { color: var(--amber); font-size: 20px; margin-left: auto; }
+/* Sub-tabs: square-cornered rectangles, not pills. Active = filled amber. */
+.subnav button { min-height: 44px; padding: 0 14px; border: 1px solid var(--hair-hi); border-radius: 2px; background: transparent; color: var(--dim); font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; }
+.subnav button.on { background: var(--amber); border-color: var(--amber); color: #1a1200; }
 .tabbar button .ti { width: 22px; height: 22px; display: block; }
