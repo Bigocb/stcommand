@@ -73,6 +73,8 @@ function hideAuthGate() {
   startLive();
   $("auth-gate").hidden = true;
   $("app-root").hidden = false;
+  // Land on Now's list page unless a notification link already named a screen (openFromHash runs on load).
+  if (!window.location.hash) openTab("now");
 }
 
 /** Where a signed-in session goes next: onboarding when the tenant still owes it, else the app. */
@@ -283,6 +285,14 @@ const NAV_GROUPS = [
     { key: "admin", label: "Admin", section: "Setup", screen: "admin", adminOnly: true },
   ] },
 ];
+/* Bottom-bar icons: plain stroke glyphs, drawn in the button's own colour (amber when it is the open group). */
+const GROUP_ICONS = {
+  now: '<svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M3 12h4l2-5 4 10 2-5h6"/></svg>',
+  money: '<svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v8M9.5 10c0-.8 1-1.3 2.5-1.3s2.5.5 2.5 1.3-1 1.2-2.5 1.5-2.5.7-2.5 1.5 1 1.3 2.5 1.3 2.5-.5 2.5-1.3"/></svg>',
+  expand: '<svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M4 12h16M12 4c2.5 2.5 2.5 13.5 0 16M12 4c-2.5 2.5-2.5 13.5 0 16"/></svg>',
+  ships: '<svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M12 3l6 16-6-3-6 3z"/></svg>',
+  menu: '<svg class="ti" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>',
+};
 const navGet = (k) => { try { return window.localStorage.getItem(k); } catch { return null; } };
 const navSet = (k, v) => { try { window.localStorage.setItem(k, v); } catch { /* private window: fine */ } };
 let currentGroup = "now";
@@ -292,7 +302,7 @@ const groupTabs = (key) => (NAV_GROUPS.find((g) => g.key === key)?.tabs ?? []).f
 
 function renderNav() {
   const pending = approvals.length;
-  setHtml($("tabbar"), NAV_GROUPS.map((g) => `<button${g.key === currentGroup ? ' class="on"' : ""} data-group="${g.key}"><span class="dot"></span>${g.label}${g.key === "now" && pending ? ` <span class="n">${pending}</span>` : ""}</button>`).join(""));
+  setHtml($("tabbar"), NAV_GROUPS.map((g) => `<button${g.key === currentGroup ? ' class="on"' : ""} data-group="${g.key}"><span class="dot"></span>${GROUP_ICONS[g.key] ?? ""}${g.label}${g.key === "now" && pending ? ` <span class="n">${pending}</span>` : ""}</button>`).join(""));
   const group = NAV_GROUPS.find((g) => g.key === currentGroup);
   // Menu is a list page: its items are not pills; inside one, the sub-nav offers the way back.
   const tabs = group?.list
@@ -334,7 +344,7 @@ function openTab(groupKey, tabKey) {
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-group]");
-  if (b) openTab(b.dataset.group);
+  if (b) openTab(b.dataset.group);  // no tab given: the page last open in that group, or its first
 });
 $("subnav").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");

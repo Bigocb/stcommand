@@ -1054,3 +1054,8 @@ input, select, textarea { font-size: 16px; }
 :root { --tower-scale: 0.7; }
 .app, .auth-gate { zoom: var(--tower-scale); width: calc(100vw / var(--tower-scale)); height: calc(100dvh / var(--tower-scale)); }
 .rl-toast { zoom: var(--tower-scale); }
+
+/* Sub-tabs: square-cornered rectangles, not pills. Active = filled amber. */
+.subnav button { min-height: 44px; padding: 0 14px; border: 1px solid var(--hair-hi); border-radius: 2px; background: transparent; color: var(--dim); font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; }
+.subnav button.on { background: var(--amber); border-color: var(--amber); color: #1a1200; }
+.tabbar button .ti { width: 22px; height: 22px; display: block; }
