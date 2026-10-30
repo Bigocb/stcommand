@@ -26,6 +26,9 @@ Operator's start for the next reset (2026-10-29, details in `docs/reset-opening-
 trades; at 1,000,000 credits the gate mission starts with the FAB_MATS ceiling at 2,000 and waits when the market is above it; keepers
 are bought slowly as cash allows. Saved as an opening template on THEOREM. Explorers are parked: keepers reach yardless systems by probe
 delivery and the remote surveyor reads systems with no ship (see the 2026-10-29 CHANGELOG entries).
+Which agent plays (2026-10-30): the week of 2026-10-25 ran on the THEO agent (home X1-BT10); the next reset (about 2026-11-01) runs on
+THEOREM, which holds the saved opening template. Opening templates belong to one agent, so check which agent is live (`get_fleet_status`,
+the key's own agent) before saving or reading one, and name `agent` explicitly when it is not the key's own.
 Update this section when the operator states a layout for a following week.
 
 ## Operating the fleet via the stcommand MCP server
