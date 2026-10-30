@@ -81,7 +81,7 @@ export interface KeeperStation {
   shipSymbol: string;
   market: string;
   /** Set for a keeper that is on its market but parked: waiting for its system's release, or parked by triage as low value. */
-  parked?: "staged" | "triage";
+  parked?: "staged" | "triage" | "idle";
 }
 
 export type Coverage = "covered" | "enroute" | "staged" | "parked" | "pending" | "none";

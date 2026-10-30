@@ -472,6 +472,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "freshIdleParkHours",
+    name: "Fresh systems: park keepers where nothing sells",
+    description: "On = a live system that is this many hours past its release and has had no sells at all in the last this-many hours has its keepers parked: they stay on their markets and still cover them, but stop polling, which frees API calls (about 0.18 a minute each). They are unparked as soon as the system sells again, or when this is turned off. Note that a parked system's prices go stale, so traders see fewer routes there. Off (the default) = keepers always poll. Takes effect on the next check (every 5 minutes).",
+    value: 6, min: 2, max: 24, step: 1, unit: " h",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "freshLeadMin",
     name: "Fresh systems: lead time",
     description: "Open the next system this long before the live ones are expected to fade (they fade at the fade age below). Raise it when traders sit waiting or the premium goes faster than expected; lower it when systems are opened too early and their premium is wasted. About 240 minutes matches 2026-10-24: the first sale came 3.7 hours after a system was listed. Takes effect on the next check.",

@@ -29,6 +29,7 @@ import { SystemQueue } from "./systemQueue.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
 import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, type QueueFacts, type ReleaseDecision, type ReleaseMode, type ReleasePolicy } from "./systemRelease.js";
 import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
+import { decideIdleParking, type IdleFacts } from "./idleSystems.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
 import type { FleetState } from "./state.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
@@ -1156,8 +1157,9 @@ export class FleetManager {
     const freshGateFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "freshGate") : undefined;
     if (freshGateFlag) {
       try {
-        const f = JSON.parse(freshGateFlag) as { stagedParked?: Record<string, string>; lastReleaseAt?: number };
+        const f = JSON.parse(freshGateFlag) as { stagedParked?: Record<string, string>; idleParked?: Record<string, string>; lastReleaseAt?: number };
         for (const [ship, sys] of Object.entries(f.stagedParked ?? {})) if (typeof sys === "string") this.stagedParked.set(ship, sys);
+        for (const [ship, sys] of Object.entries(f.idleParked ?? {})) if (typeof sys === "string") this.idleParked.set(ship, sys);
         if (typeof f.lastReleaseAt === "number") this.lastFreshReleaseAt = f.lastReleaseAt;
       } catch {
         /* a bad flag is dropped; the parked hulls themselves are restored from fleet_state */
@@ -5467,6 +5469,8 @@ export class FleetManager {
   private readonly systemQueue = new SystemQueue();
   /** Keepers parked on a staged system's markets, ship -> system, saved in the `freshGate` flag with the last release time. */
   private readonly stagedParked = new Map<string, string>();
+  /** Keepers parked because their live system has no sales (clause freshIdleParkHours): ship -> system. */
+  private readonly idleParked = new Map<string, string>();
   private lastFreshReleaseAt: number | undefined;
   private lastFreshCheckAt = 0;
   private freshLast?: { at: number; mode: ReleaseMode; decision: ReleaseDecision; queue: QueueFacts[]; live: LiveFacts[]; idleTraders: number };
@@ -5503,8 +5507,8 @@ export class FleetManager {
     try {
       if (this.systemQueue.size) await this.store.setFleetFlag(this.tenantId, "systemQueue", this.systemQueue.toJson());
       else await this.store.removeFleetFlag(this.tenantId, "systemQueue");
-      if (this.stagedParked.size || this.lastFreshReleaseAt !== undefined) {
-        await this.store.setFleetFlag(this.tenantId, "freshGate", JSON.stringify({ stagedParked: Object.fromEntries(this.stagedParked), lastReleaseAt: this.lastFreshReleaseAt }));
+      if (this.stagedParked.size || this.idleParked.size || this.lastFreshReleaseAt !== undefined) {
+        await this.store.setFleetFlag(this.tenantId, "freshGate", JSON.stringify({ stagedParked: Object.fromEntries(this.stagedParked), idleParked: Object.fromEntries(this.idleParked), lastReleaseAt: this.lastFreshReleaseAt }));
       } else await this.store.removeFleetFlag(this.tenantId, "freshGate");
     } catch (err) {
       this.log(`save fresh-system queue failed: ${describeError(err)}`);
@@ -5573,11 +5577,12 @@ export class FleetManager {
     const mode = this.freshGateMode();
     this.dispatcher.setGatedSystems(mode === "off" ? new Set() : this.systemQueue.gated());
     if (mode === "off") {
-      if (this.stagedParked.size === 0) return;
+      if (this.stagedParked.size === 0 && this.idleParked.size === 0) return;
       // Turning the clause off must not strand keepers: unpark them all (the queue entries stay, inert).
-      for (const [ship] of [...this.stagedParked]) {
+      for (const [ship] of [...this.stagedParked, ...this.idleParked]) {
         try { if (this.parkedShips.has(ship)) await this.unparkShip(ship); } catch { /* already gone */ }
         this.stagedParked.delete(ship);
+        this.idleParked.delete(ship);
       }
       this.freshNote("freshGate is off: staged keepers unparked, every gate open");
       await this.saveFreshGate();
@@ -5927,6 +5932,7 @@ export class FleetManager {
       const lines = [...decision.stage.map((d) => `stage ${d.system} (${d.reason})`), ...decision.release.map((d) => `release ${d.system} (${d.reason})`), ...decision.notes];
       if (lines.length) this.freshNote(`${mode === "auto" ? "acting" : "advice"}: ${lines.join("; ")}`);
     }
+    if (mode === "auto") await this.applyIdleParking(liveQ.map((q) => q.system), now);
     if (mode !== "auto") return;
     for (const d of decision.stage) {
       try { await this.stageSystem(d.system, d.reason); } catch (err) { this.freshNote(`stage ${d.system} failed: ${describeError(err)}`); }
@@ -5934,6 +5940,41 @@ export class FleetManager {
     for (const d of decision.release) {
       try { await this.releaseSystem(d.system, d.reason); } catch (err) { this.freshNote(`release ${d.system} failed: ${describeError(err)}`); }
     }
+  }
+
+  /** Park the keepers of live systems that nobody trades in, unpark them when sales return (clause freshIdleParkHours; idleSystems.ts). */
+  private async applyIdleParking(liveSystems: string[], now: number): Promise<void> {
+    const hours = this.doctrine.isEnabledOr("freshIdleParkHours", false) ? this.doctrine.value("freshIdleParkHours") : 0;
+    const rows = this.freshMature?.sells ?? [];
+    const since = now - Math.max(hours, 1) * 3_600_000;
+    const sells = new Map<string, number>();
+    for (const r of rows) if (r.waypoint && Date.parse(r.timestamp) >= since) { const sys = systemOf(r.waypoint); sells.set(sys, (sells.get(sys) ?? 0) + 1); }
+    const parkedSystems = new Set(this.idleParked.values());
+    const releasedAt = new Map(this.systemQueue.list().filter((q) => q.releasedAt !== undefined).map((q) => [q.system, q.releasedAt!]));
+    // With no sell data (the ledger read failed) nothing is parked: a missing count would read as "no sales".
+    const facts: IdleFacts[] = liveSystems.filter((s) => releasedAt.has(s)).map((s) => ({ system: s, releasedAt: releasedAt.get(s)!, sells: this.freshMature ? (sells.get(s) ?? 0) : 1, parked: parkedSystems.has(s) }));
+    const d = decideIdleParking(facts, now, { hours });
+    let changed = false;
+    for (const x of d.unpark) {
+      for (const [ship, sys] of [...this.idleParked]) {
+        if (sys !== x.system) continue;
+        try { if (this.parkedShips.has(ship)) await this.unparkShip(ship); } catch (err) { this.freshNote(`${ship}: unpark of idle ${sys} failed: ${describeError(err)}`); }
+        this.idleParked.delete(ship); changed = true;
+      }
+      this.freshNote(`${x.system}: keepers unparked (${x.reason})`);
+    }
+    for (const x of d.park) {
+      const here = new Map(this.fleetStatusSummary().map((s) => [s.symbol, s]));
+      let n = 0;
+      for (const [ship, market] of this.keeperMarkets) {
+        if (systemOf(market) !== x.system || this.idleParked.has(ship)) continue;
+        const st = here.get(ship);
+        if (!st || st.nav === "IN_TRANSIT" || st.waypoint !== market) continue;
+        try { await this.parkShip(ship); this.idleParked.set(ship, x.system); n++; changed = true; } catch (err) { this.freshNote(`${ship}: idle parking at ${market} failed: ${describeError(err)}`); }
+      }
+      if (n) this.freshNote(`${x.system}: ${n} keeper(s) parked (${x.reason})`);
+    }
+    if (changed) await this.saveFreshGate();
   }
 
   /** For the ops tool: the queue, readiness, live premiums, what the rule says now and the last notes. */
@@ -6081,7 +6122,7 @@ export class FleetManager {
       for (const k of review.stationed) {
         const s = here.get(k.ship);
         // A keeper still flying to its market, or already under triage, is left alone.
-        if (!s || s.nav === "IN_TRANSIT" || s.waypoint !== k.market || this.reminders.hasAny(k.ship, [FleetManager.TRIAGE_KIND]) || this.triageParked.has(k.ship) || this.stagedParked.has(k.ship) || this.systemQueue.gated().has(systemOf(k.market))) skip.add(k.ship);
+        if (!s || s.nav === "IN_TRANSIT" || s.waypoint !== k.market || this.reminders.hasAny(k.ship, [FleetManager.TRIAGE_KIND]) || this.triageParked.has(k.ship) || this.stagedParked.has(k.ship) || this.idleParked.has(k.ship) || this.systemQueue.gated().has(systemOf(k.market))) skip.add(k.ship);
       }
       const plan = triageKeepers({
         now,
@@ -11116,8 +11157,8 @@ export class FleetManager {
   }
 
   /** Current keeper stations for the dashboard: ship → market it guards. */
-  keeperStations(): { shipSymbol: string; market: string; parked?: "staged" | "triage" }[] {
-    const active: { shipSymbol: string; market: string; parked?: "staged" | "triage" }[] = [...this.keeperMarkets.entries()].map(([shipSymbol, market]) => ({ shipSymbol, market }));
+  keeperStations(): { shipSymbol: string; market: string; parked?: "staged" | "triage" | "idle" }[] {
+    const active: { shipSymbol: string; market: string; parked?: "staged" | "triage" | "idle" }[] = [...this.keeperMarkets.entries()].map(([shipSymbol, market]) => ({ shipSymbol, market }));
     // Parked keepers are on their markets too, only not polling: a staged system's keepers wait there for its release, and triage
     // parks one whose market has no viable route. Listed with their reason so the keeper list and badges do not call them "pending".
     const seen = new Set(active.map((s) => s.shipSymbol));
@@ -11127,6 +11168,10 @@ export class FleetManager {
       if (!seen.has(shipSymbol) && market) { active.push({ shipSymbol, market, parked: "staged" }); seen.add(shipSymbol); }
     }
     for (const [shipSymbol, t] of this.triageParked) if (!seen.has(shipSymbol)) { active.push({ shipSymbol, market: t.market, parked: "triage" }); seen.add(shipSymbol); }
+    for (const [shipSymbol] of this.idleParked) {
+      const market = this.parkedKeeperMarkets.get(shipSymbol) ?? where.get(shipSymbol);
+      if (!seen.has(shipSymbol) && market) { active.push({ shipSymbol, market, parked: "idle" }); seen.add(shipSymbol); }
+    }
     return active;
   }
 

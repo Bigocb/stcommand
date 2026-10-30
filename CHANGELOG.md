@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-30 — Fresh systems: park keepers where nothing sells (clause freshIdleParkHours)
+
+A live system that nobody trades in still has its keepers polling (about 0.18 API calls a minute each; at 2026-10-30 13:22 nine
+systems 6+ hours old had no sells in 2 hours). New clause `freshIdleParkHours` (ships off, default 6 h): a live system that many hours
+past its release with zero sells over the same window has its keepers parked; they stay on their markets and still cover them, so
+nothing is re-bought. They are unparked when the system sells again, or when the clause or the fresh gate is turned off. Parked
+systems' prices go stale, so traders see fewer routes there. `src/engine/idleSystems.ts` (pure), `FleetManager.applyIdleParking()`;
+persisted in the freshGate fleet flag (`idleParked`). With no sell data nothing is parked.
+
 ## 2026-10-30 — Delivered keepers: say when another yard is much cheaper (clause keeperYardGapRatio)
 
 When a probe is delivered across gates, the pick is limited to yards where a ship of ours is docked. Prices differ a lot between

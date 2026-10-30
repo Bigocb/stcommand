@@ -244,7 +244,7 @@ export const OPS_TOOLS: OpsTool[] = [
     async run(ctx, a) {
       const { w } = ctx;
       const inSystem = (m: string) => !a.system || m.startsWith(`${a.system}-`);
-      const stations = (w.fleet.keeperStations() as { shipSymbol: string; market: string; parked?: "staged" | "triage" }[]).filter((s) => inSystem(s.market));
+      const stations = (w.fleet.keeperStations() as { shipSymbol: string; market: string; parked?: "staged" | "triage" | "idle" }[]).filter((s) => inSystem(s.market));
       const priority = (await w.fleet.keeperPriorityMarkets()).filter(inSystem);
       const rep = keeperReport(stations, stateShips(ctx), priority);
       const counts = { covered: 0, enroute: 0, staged: 0, parked: 0, pending: 0 };
