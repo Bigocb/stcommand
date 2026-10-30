@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-30 — Delivered keeper probes run in the trader tier
+
+A probe bought in another system walks the gates under a hold, and each step (attach the hold, fly to the gate, jump, jump) is a keeper task re-armed 30 seconds out. All keeper tasks shared priority 3 and the runner takes the oldest-due first, so with ~400 keepers and the call budget spent each step waited 20-40 minutes behind keepers that came due earlier. THEO-1DB (bought 18:09, jumps 20:43 and 21:26, keeping at 21:26) took 3h16m for two jumps whose cooldowns are about 5 minutes. A keeper that is held at a waypoint or still outside its market's system (`keeperDriven()` in `src/engine/agent.ts`) now runs at `KEEPER_DRIVEN_PRIORITY` (2, the trader tier); parked and polling keepers stay at 3. Expect a delivery to take about flight time plus cooldowns. Test in `tests/agentNextTask.test.ts`.
+
 ## 2026-10-30 — Compare: a week in progress is not drawn as zero
 
 The profit and wallet charts drew the hours after a week's last ledger row as zero (profit per hour) or flat (cumulative), so this week fell to the

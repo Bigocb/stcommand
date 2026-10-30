@@ -25,6 +25,8 @@ const HALT_POLL_MS = 1_000;
  * systems were found for 7 hours (2026-10-25). Within a tier, oldest-due runs first.
  */
 export const EXPLORE_PRIORITY = 2;
+/** A keeper on its way to its market (a delivered probe) runs in the trader tier too: see keeperDriven(). */
+export const KEEPER_DRIVEN_PRIORITY = 2;
 
 /** Farthest leg (fuel units) a tour/scout ship will DRIFT when nothing is within
  *  cruise range: a drift is hours per leg, so beyond this the target is not
@@ -2415,13 +2417,27 @@ export class ShipAgent {
     return Math.max(5 * 60_000, wanted ?? 0);
   }
 
+  /**
+   * True while the keeper is being walked somewhere: held at a waypoint (a delivery's hold) or still outside its market's system.
+   * Such a keeper is stepped every 30 seconds and runs in the trader tier. At the keeper tier it queued behind ~400 other
+   * keepers that had come due earlier, so each step of a delivery waited 20-40 minutes (THEO-1DB, 2026-10-30: bought 18:09,
+   * jumps at 20:43 and 21:26, 3h16m in all). The first poll runs a few seconds before the delivery's hold is attached, so the
+   * away test matters as much as the hold test (19 minutes seen on THEO-1D5).
+   */
+  private keeperDriven(): boolean {
+    const goal = this.intentFor?.()?.goal;
+    const market = this.keeperMarket?.();
+    const away = market !== undefined && this.ship.nav.systemSymbol !== market.slice(0, market.lastIndexOf("-"));
+    return (goal?.kind === "hold" && !!goal.waypoint) || away;
+  }
+
   /** Unlike the other three, a successful keeper poll backs off 5 minutes (KEEPER_POLL_MS-equivalent), not 0 — same as keeperLoop()'s own sleep(5 * 60_000) after a snapshot. */
   nextKeeperTask(earliestRunAt = Date.now()): Task {
     // See nextTask()'s comment: not set here, only by external enqueue sites.
     return {
       id: `${this.symbol}-keeper`,
       shipSymbol: this.symbol,
-      priority: 3,
+      priority: this.keeperDriven() ? KEEPER_DRIVEN_PRIORITY : 3,
       estimatedCalls: 2,
       earliestRunAt,
       run: async (): Promise<TaskResult> => {
@@ -2434,16 +2450,7 @@ export class ShipAgent {
         this.inFlight = p;
         try {
           const snapshotted = await p;
-          // An operator hold on a waypoint (such as a delivery walking through the gates) is stepped again in 30 seconds, not after
-          // the market's 5 to 30 minute snapshot cadence: each gate hop of a delivery waited that long, so two jumps took an hour.
-          const goal = this.intentFor?.()?.goal;
-          // A keeper still outside its market's system is on its way there (a delivered probe): it is stepped again in 30 seconds too.
-          // Without this the first poll, which runs a few seconds before the delivery's hold is attached, waited out the market
-          // cadence (19 minutes seen on 2026-10-30, THEO-1D5) before the probe so much as set off for the gate.
-          const market = this.keeperMarket?.();
-          const away = market !== undefined && this.ship.nav.systemSymbol !== market.slice(0, market.lastIndexOf("-"));
-          const driven = (goal?.kind === "hold" && !!goal.waypoint) || away;
-          return { actualCalls: this.api.getCallCount() - before, next: this.nextKeeperTask(Date.now() + (snapshotted && !driven ? this.keeperDelayMs() : 30_000)) };
+          return { actualCalls: this.api.getCallCount() - before, next: this.nextKeeperTask(Date.now() + (snapshotted && !this.keeperDriven() ? this.keeperDelayMs() : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;
           if (err instanceof Pending) return { actualCalls, next: this.nextKeeperTask(err.resumeAt) };

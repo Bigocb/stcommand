@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { ShipAgent, EXPLORE_PRIORITY, type Ship } from "../src/engine/agent.js";
+import { ShipAgent, EXPLORE_PRIORITY, KEEPER_DRIVEN_PRIORITY, type Ship } from "../src/engine/agent.js";
 import { ScoutAgent } from "../src/engine/scout.js";
 import { SiphonerAgent } from "../src/engine/siphoner.js";
 import { NavigationPending } from "../src/engine/agentStep.js";
@@ -209,6 +209,17 @@ describe("ShipAgent.nextKeeperTask", () => {
     const d2 = (await home.nextKeeperTask().run()).next!.earliestRunAt - Date.now();
     assert.ok(d2 > 4.5 * 60_000, `keeper in its own system keeps the cadence, got ${d2}ms`);
     void far;
+  });
+
+  it("a keeper being walked to its market runs in the trader tier; one at home stays in the keeper tier", () => {
+    const ship = makeShip("KEEPER-4");
+    const here = ship.nav.systemSymbol;
+    const away = new ShipAgent(ship, { api: { getCallCount: () => 0 } as any, keeperMarket: () => "X1-ELSEWHERE-A1" });
+    assert.equal(away.nextKeeperTask().priority, KEEPER_DRIVEN_PRIORITY);
+    const home = new ShipAgent(makeShip("KEEPER-5"), { api: { getCallCount: () => 0 } as any, keeperMarket: () => `${here}-A1` });
+    assert.equal(home.nextKeeperTask().priority, 3);
+    const held = new ShipAgent(makeShip("KEEPER-6"), { api: { getCallCount: () => 0 } as any, keeperMarket: () => `${here}-A1`, intentFor: () => ({ goal: { kind: "hold", waypoint: `${here}-B2` } }) as any });
+    assert.equal(held.nextKeeperTask().priority, KEEPER_DRIVEN_PRIORITY);
   });
 
   it("no assigned market backs off ~30s", async () => {
