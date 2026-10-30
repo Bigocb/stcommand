@@ -5485,6 +5485,7 @@ export class FleetManager {
       ...DEFAULT_RELEASE_POLICY,
       mode: this.freshGateMode(),
       target: this.doctrine.value("freshTarget"),
+      stagedAhead: this.doctrine.value("freshStagedAhead"),
       leadMs: this.doctrine.value("freshLeadMin") * 60_000,
       fadeMs: this.doctrine.value("freshFadeHours") * 3_600_000,
     };

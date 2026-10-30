@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-30 — Fresh systems: how many to warm up at once is now a doctrine clause
+
+The engine kept exactly one system staged (keepers bought and parked, gate shut) ahead of need, hard-coded as `stagedAhead: 1` in
+`src/engine/systemRelease.ts`. With about 85 systems waiting in the scouted queue, a release that came due often found nothing
+ready: on 2026-10-30 00:40 it wanted a release at 6 of 8 live systems, and the one staged system had 1 of 5 keepers. New clause
+`freshStagedAhead` (default 1, so behaviour is unchanged until it is raised) feeds the release policy. The operator set it to 2 to
+see what it does to the time between releases; watch idle traders, keeper count against `keeperMaxTotal`, and the gap between releases.
+
 ## 2026-10-29 — Tower: sub-tab pills back to their own size under the 70% scale
 The sub-tab pills had been shrunk by hand (38 px, 14 px) just before the app-wide 70% scale went in, so they were reduced twice and came out too small (operator). They are back to a full 48 px pill at 17 px in sentence case, which the scale draws at about 34 px with 12 px labels, in line with the rest of the app.
 

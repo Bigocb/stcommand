@@ -451,6 +451,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "freshStagedAhead",
+    name: "Fresh systems: warming up ahead of need",
+    description: "How many systems the engine keeps staged (keepers bought and parked, gate shut) at once while it waits to release one. The dugout (scouted) holds everything found; this is the on-deck circle. 1 = buy keepers for one system at a time, so a release can find nothing ready. 2 or 3 = the next systems are warming up while the current one finishes, at the cost of keepers sitting parked sooner. Counts against Keeper limit. Takes effect on the next check.",
+    value: 1, min: 1, max: 5, step: 1, unit: " systems",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "freshLeadMin",
     name: "Fresh systems: lead time",
     description: "Open the next system this long before the live ones are expected to fade (they fade at the fade age below). Raise it when traders sit waiting or the premium goes faster than expected; lower it when systems are opened too early and their premium is wasted. About 240 minutes matches 2026-10-24: the first sale came 3.7 hours after a system was listed. Takes effect on the next check.",
