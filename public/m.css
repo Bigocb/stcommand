@@ -917,7 +917,7 @@ th { color: #e8c98f; }
 /* sub-tabs: every tab visible (rows wrap), each a 48 px pill */
 .subnav { flex-wrap: wrap; overflow: visible; gap: 8px; padding: 8px 12px 12px; border-bottom-width: 2px; }
 .subnav button {
-  min-height: 48px; padding: 0 14px; border: 2px solid var(--hair-hi); border-radius: 24px; color: var(--bone);
+  min-height: calc(48px / var(--tower-scale)); padding: 0 14px; border: 2px solid var(--hair-hi); border-radius: 24px; color: var(--bone);
 }
 .subnav button.on { background: var(--amber); border-color: var(--amber); color: #0a0908; }
 .subnav button .n { font-size: 16px; line-height: 22px; min-width: 24px; padding: 0 6px; border-radius: 11px; background: var(--red); color: #1a0a08; }
@@ -930,20 +930,20 @@ th { color: #e8c98f; }
 .tabbar button .n { font-size: 15px; line-height: 20px; min-width: 20px; }
 
 /* every control a comfortable target */
-/* Global control sizing: one rule. 44px is the touch-target floor; inputs and selects stay at 16px so iOS does not zoom on focus. */
-button, .btn, select, input { min-height: 44px; font-size: 15px; }
+/* Global control sizing: one rule. Touch targets are sized on screen, not in CSS px: the Tower scale shrinks them, so each min-height is divided by --tower-scale (44px on screen). inputs and selects stay at 16px so iOS does not zoom on focus. */
+button, .btn, select, input { min-height: calc(44px / var(--tower-scale)); font-size: 15px; }
 input, select, textarea { font-size: 16px; }
 .sw { min-height: 0; }
 
 /* header: the brand and the "all clear" note were touching at the larger size */
 .topbar { gap: 12px; }
 .topbar .who { font-size: 16px; color: var(--green); font-weight: 600; }
-.topbar .topguide, .topbar .toplogout { font-size: 16px; color: var(--bone); min-height: 48px; display: inline-flex; align-items: center; }
+.topbar .topguide, .topbar .toplogout { font-size: 16px; color: var(--bone); min-height: calc(48px / var(--tower-scale)); display: inline-flex; align-items: center; }
 /* bottom bar: five labels in 390 px, so no extra letter-spacing */
 .tabbar button { letter-spacing: 0; padding: 0 2px; }
 /* queue tab (shared/queue.js): headings in the label colour, values full strength */
 .qq .qq-top { color: var(--bone); font-size: 18px; }
-.qq .qq-refresh { min-height: 48px; color: var(--bone); border-width: 2px; }
+.qq .qq-refresh { min-height: calc(48px / var(--tower-scale)); color: var(--bone); border-width: 2px; }
 .qq .qq-rule { color: var(--bone); font-size: 17px; }
 .qq .qq-sub { color: #e8c98f; font-size: 16px; font-weight: 700; }
 .qq .qq-t th { color: #e8c98f; font-weight: 600; border-bottom: 2px solid var(--hair-hi); padding: 6px 6px 6px 0; }
@@ -953,7 +953,7 @@ input, select, textarea { font-size: 16px; }
 .doc-row { flex-wrap: wrap; row-gap: 8px; }
 .doc-row .dn { flex: 1 0 100%; font-size: 18px; color: var(--bone); }
 .doc-row .tag { color: var(--bone); border-width: 2px; border-color: var(--hair-hi); }
-.doc-row .dv { width: 96px; min-height: 48px; font-size: 18px; border-width: 2px; border-color: var(--hair-hi); }
+.doc-row .dv { width: 96px; min-height: calc(48px / var(--tower-scale)); font-size: 18px; border-width: 2px; border-color: var(--hair-hi); }
 .doc-row .du { color: var(--bone); font-size: 16px; }
 .doc-row .sw { margin-left: auto; }
 /* switches: a 56 x 32 target instead of 30 x 17 */
@@ -1023,9 +1023,9 @@ input, select, textarea { font-size: 16px; }
 #more-queue.card.qq { background: none; border: none; padding: 0; }
 /* Ships › Ships filters and search (redesign B) */
 .ship-filter { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
-.ship-filter button { min-height: 52px; background: transparent; color: var(--bone); border: 2px solid var(--hair-hi); border-radius: 8px; font-family: var(--chrome); font-weight: 700; font-size: 18px; }
+.ship-filter button { min-height: calc(52px / var(--tower-scale)); background: transparent; color: var(--bone); border: 2px solid var(--hair-hi); border-radius: 8px; font-family: var(--chrome); font-weight: 700; font-size: 18px; }
 .ship-filter button.on { background: var(--amber); border-color: var(--amber); color: #0a0908; }
-.ship-search { width: 100%; min-height: 52px; margin-bottom: 10px; padding: 0 14px; background: var(--panel); color: var(--bone); border: 2px solid var(--hair-hi); border-radius: 8px; font-family: var(--mono); font-size: 18px; }
+.ship-search { width: 100%; min-height: calc(52px / var(--tower-scale)); margin-bottom: 10px; padding: 0 14px; background: var(--panel); color: var(--bone); border: 2px solid var(--hair-hi); border-radius: 8px; font-family: var(--mono); font-size: 18px; }
 .ship-search::placeholder { color: var(--dim); }
 .roster-hd { font-size: 17px; color: var(--bone); }
 .tile .pair .pv { font-size: 24px; }
@@ -1036,12 +1036,12 @@ input, select, textarea { font-size: 16px; }
 /* Sub-tab pills at their own full size again: the 70% scale below already shrinks them, so the earlier hand reduction
  * (38 px, 14 px) shrank them twice (operator, 2026-10-29: "the pill buttons at the top are now too small"). */
 .subnav { gap: 8px; padding: 8px 12px 10px; }
-.subnav button { min-height: 48px; padding: 0 16px; border-radius: 24px; font-size: 17px; letter-spacing: 0.02em; }
+.subnav button { min-height: calc(48px / var(--tower-scale)); padding: 0 16px; border-radius: 24px; font-size: 17px; letter-spacing: 0.02em; }
 /* controls, second pass (operator, 2026-10-29: "everything here is a bit too big as well", on the ship sheet): the blanket
  * 48 px / 17 px rule above is eased to 40 px / 15 px, the ship sheet's action grid is tighter, and the drag handle and the
  * close button get their own sizes back (the blanket rule had stretched the handle into a block and the close into an oval). */
 .grid5 { gap: 6px; }
-.grid5 .btn { min-height: 44px; padding: 8px 6px; font-size: 14px; letter-spacing: 0.02em; line-height: 1.2; }
+.grid5 .btn { min-height: calc(44px / var(--tower-scale)); padding: 8px 6px; font-size: 14px; letter-spacing: 0.02em; line-height: 1.2; }
 .sheet .handle { min-height: 0; width: 40px; height: 5px; }
 .sheet-close { min-height: 0; width: 36px; height: 36px; font-size: 18px; border-width: 2px; color: var(--bone); }
 .sheet .who { font-size: 20px; }
