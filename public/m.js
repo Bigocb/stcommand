@@ -73,6 +73,8 @@ function hideAuthGate() {
   startLive();
   $("auth-gate").hidden = true;
   $("app-root").hidden = false;
+  // Land on Now's list page unless a notification link already named a screen (openFromHash runs on load).
+  if (!window.location.hash) openTab("now");
 }
 
 /** Where a signed-in session goes next: onboarding when the tenant still owes it, else the app. */
@@ -299,12 +301,43 @@ function renderNav() {
     ? (currentTab === "menu" ? [] : [{ key: "menu", label: "‹ Menu" }, ...groupTabs(currentGroup).filter((t) => t.key === currentTab)])
     : groupTabs(currentGroup);
   const sub = $("subnav");
-  sub.hidden = group?.list ? tabs.length === 0 : tabs.length <= 1;
+  // Redesign: a group opens to its list page, so its sub-tabs are not shown. Inside a section, the bar is one "‹ Group" link back.
+  if (group && !group.list && currentTab !== LIST_TAB) {
+    sub.hidden = false;
+    setHtml(sub, `<button data-tab="${LIST_TAB}">‹ ${escapeHtml(group.label)}</button>`);
+    return;
+  }
+  sub.hidden = group?.list ? tabs.length === 0 : true;
   setHtml(sub, tabs.map((t) => `<button${t.key === currentTab ? ' class="on"' : ""} data-tab="${t.key}">${t.label}${t.badge && pending ? ` <span class="n">${pending}</span>` : ""}</button>`).join(""));
 }
 
+const LIST_TAB = "__list";
+/** A group's list page: one row per section it holds, opening that section. Menu keeps its own list (renderMenu). */
+function renderGroupList(groupKey) {
+  const el = $("group-list");
+  if (!el) return;
+  const group = NAV_GROUPS.find((g) => g.key === groupKey);
+  const rows = groupTabs(groupKey).filter((t) => !t.adminOnly);
+  setHtml(el, `<div class="sec-h">${escapeHtml(group?.label ?? "")}</div><div class="menu-sec">${rows.map((t) => `<button class="menu-row" data-group-go="${escapeHtml(groupKey)}:${escapeHtml(t.key)}">${escapeHtml(t.label)}${t.badge && approvals.length ? ` <span class="n">${approvals.length}</span>` : ""}<span class="chev" aria-hidden="true">›</span></button>`).join("")}</div>`);
+}
+$("group-list")?.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-group-go]");
+  if (!b) return;
+  const [g, t] = b.dataset.groupGo.split(":");
+  openTab(g, t);
+});
+
 /** Open one tab of one group: the screen, narrowed to the pane, sections and segment that tab is about. */
 function openTab(groupKey, tabKey) {
+  // A group's list page (the redesign's landing for Now, Money, Expand and Ships).
+  if (tabKey === LIST_TAB || (tabKey === undefined && groupKey !== "menu")) {
+    currentGroup = groupKey;
+    currentTab = LIST_TAB;
+    document.querySelectorAll(".grp-hidden").forEach((el) => el.classList.remove("grp-hidden"));
+    try { setTab("group"); renderGroupList(groupKey); } catch (err) { console.error(err); }
+    renderNav();
+    return;
+  }
   const tabs = groupTabs(groupKey);
   const tab = tabs.find((t) => t.key === tabKey) ?? tabs.find((t) => t.key === navGet(`towerTab:${groupKey}`)) ?? tabs[0];
   if (!tab) return;
@@ -334,7 +367,7 @@ function openTab(groupKey, tabKey) {
 }
 $("tabbar").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-group]");
-  if (b) openTab(b.dataset.group);
+  if (b) openTab(b.dataset.group);  // no tab given: the group's list page (Menu keeps its own list)
 });
 $("subnav").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-tab]");
