@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-30 — Fresh systems: the minimum gap between releases is a clause (freshMinGapMin)
+
+The 30-minute gap between two releases was a constant in `DEFAULT_RELEASE_POLICY`. JZ78 had all its keepers in place at 17:37 and waited until
+18:04 for the gap since SP97. It is now the clause `freshMinGapMin` (default 30, so nothing changes until it is lowered; 5-120). Also set
+`freshStagedAhead` to 3 live, so a ready system is more likely to be waiting.
+
 ## 2026-10-30 — Delivered probes start walking at once, not after the market cadence
 
 A probe bought in one system for a market in another (keeperDelivery) waited 19-44 minutes before its first step toward the gate:

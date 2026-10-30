@@ -7,6 +7,12 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+- [ ] **In-depth code review and refactor, once the engine stops changing (raised 2026-10-30, operator).** A lot of this week's fixes were patches on patches
+  (keeper delivery alone has three: the 30 s hold step, the first-poll cadence, the yard choice). When the engine settles, do a full review for code smells and
+  patches that should be one straightforward mechanism, and for efficiency: `fleet.ts` and `dispatcher.ts` first (each is thousands of lines with long
+  inline comments recording incidents), the keeper delivery / staging / release flow, the cross-system reachability checks that appear in `dispatcher.ts`,
+  `galaxy.ts` and `jumpGraph.ts` with slightly different rules, and constants that should be doctrine clauses. Do not start while behaviour is still being tuned.
+
 - [ ] **Gate-construction reads slow the maintenance pass (2026-10-24).** `maybeRefreshGateConstruction` takes 8 to 28 seconds a pass because the fleet's
   own authenticated reads are priority 4 and wait on the 90 calls a minute limiter; the pass also delays ship purchases and keeper buying
   (`maybeBuyScout` 8.7s, `advanceKeeperMarketQueue` 8s). The crawler also logged 45 HTTP 400 answers in one 160-gate pass that nothing explains (a 400 is skipped and the gate is queued again every pass; find out what the game means by it, and whether those gates are being left unresolved).

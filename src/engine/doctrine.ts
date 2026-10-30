@@ -486,6 +486,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "freshMinGapMin",
+    name: "Fresh systems: least time between two releases",
+    description: "How long the engine waits after releasing one system before it releases the next because it is short of fresh systems (a release for idle traders ignores this). It spaces the openings so two systems do not spend their premium together; 30 was a constant until 2026-10-30. Lower it when a system is staged and ready but waits on the gap (JZ78 on 2026-10-30: ready at 17:37, released 18:04). Takes effect on the next check.",
+    value: 30, min: 5, max: 120, step: 5, unit: " min",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "freshIdleParkHours",
     name: "Fresh systems: park keepers where nothing sells",
     description: "On = a live system that is this many hours past its release and has had no sells at all in the last this-many hours has its keepers parked: they stay on their markets and still cover them, but stop polling, which frees API calls (about 0.18 a minute each). They are unparked as soon as the system sells again, or when this is turned off. Note that a parked system's prices go stale, so traders see fewer routes there. Off (the default) = keepers always poll. Takes effect on the next check (every 5 minutes).",
