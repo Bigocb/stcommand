@@ -1058,3 +1058,4 @@ input, select, textarea { font-size: 16px; }
 /* Redesign: sections open from a group's list page, so the bar above a section is one plain "‹ Group" link, not pills. */
 .subnav button { border: 0; border-radius: 0; background: none; min-height: 44px; padding: 0 4px; font-size: 16px; color: var(--amber); letter-spacing: 0.06em; }
 .menu-row .chev { color: var(--amber); font-size: 20px; margin-left: auto; }
+.tabbar button .ti { width: 22px; height: 22px; display: block; }
