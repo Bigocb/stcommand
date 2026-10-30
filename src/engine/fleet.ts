@@ -30,6 +30,7 @@ import { gateFromJumpRejection } from "./jumpRejection.js";
 import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, type QueueFacts, type ReleaseDecision, type ReleaseMode, type ReleasePolicy } from "./systemRelease.js";
 import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
 import { decideIdleParking, type IdleFacts } from "./idleSystems.js";
+import { hourOf, hourlySnapshotEvent } from "./hourlySnapshot.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
 import type { FleetState } from "./state.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
@@ -5971,6 +5972,32 @@ export class FleetManager {
     }
   }
 
+  /**
+   * Once an hour, write what the ledger does not keep (keepers, live systems, API load) as an hourly_snapshot action event
+   * (hourlySnapshot.ts). The hour last written is a fleet flag, so a restart inside an hour does not write a second reading.
+   */
+  private async maybeRecordHourlySnapshot(): Promise<void> {
+    if (!this.store || !this.tenantId) return;
+    const now = Date.now();
+    const hour = hourOf(now);
+    const last = Number(await this.store.getFleetFlag(this.tenantId, "hourlySnapshotHour"));
+    if (Number.isFinite(last) && last >= hour) return;
+    const queue = this.systemQueue.list();
+    const polls = [...this.keepers.keys()].map((sym) => this.keeperMarkets.get(sym)).filter((m): m is string => !!m).map((m) => 60_000 / Math.max(this.keeperPollMs(m), 60_000));
+    this.recordAction(hourlySnapshotEvent({
+      keepers: this.keepers.size,
+      keepersParked: this.stagedParked.size + this.idleParked.size + this.triageParked.size,
+      liveSystems: queue.filter((q) => q.state === "live").length,
+      stagedSystems: queue.filter((q) => q.state === "staged").length,
+      scoutedSystems: queue.filter((q) => q.state === "scouted").length,
+      keeperCallsPerMin: polls.reduce((t, c) => t + c, 0),
+      ships: this.fleetStatusSummary().length,
+      traders: this.traders.size,
+      wallet: this.credits,
+    }, new Date(now).toISOString()));
+    await this.store.setFleetFlag(this.tenantId, "hourlySnapshotHour", String(hour));
+  }
+
   /** Park the keepers of live systems that nobody trades in, unpark them when sales return (clause freshIdleParkHours; idleSystems.ts). */
   private async applyIdleParking(liveSystems: string[], now: number): Promise<void> {
     const hours = this.doctrine.isEnabledOr("freshIdleParkHours", false) ? this.doctrine.value("freshIdleParkHours") : 0;
@@ -10568,6 +10595,7 @@ export class FleetManager {
       await this.timed("maybeAssignKeepers", () => this.maybeAssignKeepers());
       await this.timed("maybeTriageKeepers", () => this.maybeTriageKeepers());
       await this.timed("maintainFreshGate", () => this.maintainFreshGate());
+      await this.timed("maybeRecordHourlySnapshot", () => this.maybeRecordHourlySnapshot());
       await this.timed("maybeManageFreshSystems", () => this.maybeManageFreshSystems());
       await this.timed("maybeRemoteSurvey", () => this.maybeRemoteSurvey());
       await this.timed("maybeTopUpKeepers", () => this.maybeTopUpKeepers());

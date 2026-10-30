@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-30 — Hourly fleet snapshots, and Compare charts for live systems, keepers and API load
+
+The ledger cannot say how many keepers, live systems or API calls a past week had, so a week could not be compared on them. Once an hour the fleet
+now writes an `hourly_snapshot` action event (keepers polling and parked, live / staged / scouted systems, keepers' calls a minute, ships, traders,
+wallet; `src/engine/hourlySnapshot.ts`, `FleetManager.maybeRecordHourlySnapshot()`). It uses `action_events`, which keeps every week keyed by
+`universe_key`, so there is no new table and a reset wipes nothing. The hour last written is the fleet flag `hourlySnapshotHour`, so a restart
+inside an hour writes no second reading. `/api/compare` returns the readings per week on the ledger's hour axis (`fleetA`, `fleetB`), and the
+Compare screen charts live systems (Tower and Deck) and keepers polling and keeper calls a minute (Deck). A week from before today has no
+readings and the chart says so. Other agents' weeks come through the same path for an operator.
+
 ## 2026-10-30 — Compare: profit-per-hour and ships-bought charts
 
 The week-over-week Compare screen (Tower card and Deck Season tab, built 2026-10-29, other agents' weeks included for operators) had a cumulative

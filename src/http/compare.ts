@@ -3,6 +3,7 @@ import type { TenantWorker } from "../engine/tenantRegistry.js";
 import { tenantUniverse } from "../db/pool.js";
 import { isUniverseKey } from "../engine/universe.js";
 import { isOperator, operatorAgents } from "./operatorFlag.js";
+import { SNAPSHOT_KIND, fleetPoints } from "../engine/hourlySnapshot.js";
 import { checkpoints, gateAligned, hoursReached, likeForLike, toPoints, weekTotals, type WeekSeries } from "../engine/weekCompare.js";
 
 /**
@@ -87,7 +88,13 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
       const [a, b] = await Promise.all([series(w, base), series(w, other)]);
       const upTo = Math.min(MAX_HOURS, Math.max(hoursReached(a), hoursReached(b)));
       const pa = toPoints(a, upTo), pb = toPoints(b, upTo);
+      const fleet = async (ref: WeekRef, ser: WeekSeries) => {
+        const rows = await w.store.actionEvents(ref.tenantId, { sinceIso: ser.startAt ?? "1970-01-01T00:00:00Z", kinds: [SNAPSHOT_KIND], limit: 5000 });
+        return fleetPoints(rows.filter((r) => r.universeKey === ref.universeKey), ser.startAt, upTo);
+      };
+      const [fa, fb] = await Promise.all([fleet(base, a), fleet(other, b)]);
       res.json({
+        fleetA: fa, fleetB: fb,
         a: { label: a.label, universeKey: a.universeKey, startAt: a.startAt, firstJumpHour: a.firstJumpHour, totals: weekTotals(a), points: pa, reached: hoursReached(a) },
         b: { label: b.label, universeKey: b.universeKey, startAt: b.startAt, firstJumpHour: b.firstJumpHour, totals: weekTotals(b), points: pb, reached: hoursReached(b) },
         likeForLike: likeForLike(a, b),

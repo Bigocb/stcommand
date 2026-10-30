@@ -52,6 +52,15 @@ export function compareChart(a, b, { key, gateA, gateB, height = 150, width = 56
   return `<svg viewBox="0 0 ${width} ${height}" class="cmp-chart" role="img" aria-label="${h(label)} by hours since the first trade">${ticks}${hourTicks}${gate(gateB, "b")}${gate(gateA, "a")}<path d="${path(b)}" class="cmp-line b"/><path d="${path(a)}" class="cmp-line a"/></svg>`;
 }
 
+/** A chart from the hourly fleet snapshots (hourlySnapshot.ts); a week from before they were kept has none and says so. */
+function fleetChart(key, title, data, gateA, gateB, small) {
+  const has = (pts) => (pts ?? []).some((p) => p[key] !== null && p[key] !== undefined);
+  const body = has(data.fleetA) || has(data.fleetB)
+    ? compareChart(data.fleetA ?? [], data.fleetB ?? [], { key, gateA, gateB, label: title.toLowerCase(), height: small ? 120 : 150 })
+    : `<div class="cmp-empty">No readings yet: they are written once an hour from now on, so a week from before 2026-10-30 has none.</div>`;
+  return `<div class="cmp-chart-box"><div class="cmp-chart-h">${h(title)}</div>${body}</div>`;
+}
+
 export function mountCompare(root, { api, compact: small = false } = {}) {
   let weeks = null;       // GET /api/compare/weeks
   let data = null;        // GET /api/compare
@@ -138,6 +147,9 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
     const charts = `<div class="cmp-charts">
       <div class="cmp-chart-box"><div class="cmp-chart-h">Matched profit, cumulative <span class="cmp-legend"><i class="a"></i>${h(A.label)}<i class="b"></i>${h(B.label)}</span></div>${compareChart(A.points, B.points, { key: "cumPnl", gateA: gate(A), gateB: gate(B), label: "matched profit", height: small ? 120 : 160 })}</div>
       <div class="cmp-chart-box"><div class="cmp-chart-h">Profit per hour, 3-hour average</div>${compareChart(A.points, B.points, { key: "rate", gateA: gate(A), gateB: gate(B), label: "profit per hour", height: small ? 120 : 160 })}</div>
+      ${fleetChart("live", "Live systems", data, gate(A), gate(B), small)}
+      ${small ? "" : fleetChart("keepers", "Keepers polling", data, gate(A), gate(B), small)}
+      ${small ? "" : fleetChart("calls", "Keeper API calls a minute", data, gate(A), gate(B), small)}
       ${small ? "" : `<div class="cmp-chart-box"><div class="cmp-chart-h">Ships bought so far</div>${compareChart(A.points, B.points, { key: "ships", gateA: gate(A), gateB: gate(B), label: "ships bought" })}</div>`}
       ${small ? "" : `<div class="cmp-chart-box"><div class="cmp-chart-h">Wallet</div>${compareChart(A.points, B.points, { key: "wallet", gateA: gate(A), gateB: gate(B), label: "wallet" })}</div>`}
     </div>`;
