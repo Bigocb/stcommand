@@ -591,23 +591,23 @@ body {
 .more-scroll .adm-body { overflow: visible; padding: 0; }
 
 .fm-tag{font-size:15px;letter-spacing:.1em;text-transform:uppercase;border:1px solid rgba(255,255,255,.18);padding:1px 5px;margin-left:6px}
-.fm-tag.fm-drift{color:#ff5b5b;border-color:rgba(255,91,91,.4)}
-.fm-tag.fm-burn{color:#4fd1c5;border-color:rgba(79,209,197,.4)}
+.fm-tag.fm-drift{color:var(--red);border-color:rgba(255, 149, 133, 0.4)}
+.fm-tag.fm-burn{color:var(--ice);border-color:rgba(79,209,197,.4)}
 
 /* Gate supply chain (More tab) — same classes as Deck, phone widths */
-.chain-health .ch-card{border-bottom:1px solid var(--hairline,rgba(255,255,255,.1));margin-bottom:6px}
+.chain-health .ch-card{border-bottom:1px solid var(--hair);margin-bottom:6px}
 .chain-health .ch-head{display:flex;flex-direction:column;gap:2px;padding:6px 0;font-size:17px}
 .chain-health .ch-title{font-weight:600}
 .chain-health .ch-producer,.chain-health .ch-input{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0;font-size:16px;border-top:1px solid rgba(255,255,255,.06)}
-.chain-health .ch-input.weakest{background:rgba(255,91,91,.08)}
-.chain-health .ch-weak{font-size:15px;text-transform:uppercase;color:#ff5b5b;border:1px solid rgba(255,91,91,.4);padding:1px 4px;margin-left:4px}
+.chain-health .ch-input.weakest{background:rgba(255, 149, 133, 0.08)}
+.chain-health .ch-weak{font-size:15px;text-transform:uppercase;color:var(--red);border:1px solid rgba(255, 149, 133, 0.4);padding:1px 4px;margin-left:4px}
 .chain-health .ch-tag{font-size:15px;text-transform:uppercase;border:1px solid rgba(255,255,255,.18);padding:1px 4px;margin-right:2px;opacity:.9}
-.chain-health .ch-tag.good{color:#58d68d}.chain-health .ch-tag.warn{color:#ffc778}.chain-health .ch-tag.bad{color:#ff5b5b}
+.chain-health .ch-tag.good{color:var(--green)}.chain-health .ch-tag.warn{color:var(--amber)}.chain-health .ch-tag.bad{color:var(--red)}
 .chain-health .dim{opacity:.7}
 
 /* Mission material buy/hold toggle (onlyMaterials). */
 .mat-hold{font-size:16px;padding:2px 8px;margin-left:6px}
-.mat-hold.warn{color:var(--amber,#f5a524);border-color:var(--amber,#f5a524)}
+.mat-hold.warn{color:var(--amber);border-color:var(--amber)}
 
 /* Estimated value of a hold (cargoValueText) */
 .cv { font-family: var(--mono); color: var(--amber); }
@@ -615,8 +615,8 @@ body {
 
 /* Trading pace sparkline (paceSparkline) */
 .pace-spark { display: block; width: 100%; height: 26px; margin-top: 6px; }
-.pace-spark .pace-up { fill: var(--good, #5ec27a); opacity: .55; }
-.pace-spark .pace-down { fill: var(--bad, #e5675d); opacity: .55; }
+.pace-spark .pace-up { fill: var(--green); opacity: .55; }
+.pace-spark .pace-down { fill: var(--red); opacity: .55; }
 .pace-spark .now { opacity: 1; }
 .pace-spark .pace-zero { stroke: currentColor; stroke-opacity: .25; stroke-width: 1; vector-effect: non-scaling-stroke; }
 
@@ -685,7 +685,7 @@ body {
 .cp-settings { padding: 10px 12px; border-bottom: 1px solid var(--hair); display: flex; flex-direction: column; gap: 8px; }
 .cp-settings[hidden] { display: none; }
 .cp-set-note { font-size: 17px; color: var(--ice); }
-.cp-field { display: flex; flex-direction: column; gap: 4px; font-size: 16px; color: var(--muted, #8a8a8a); }
+.cp-field { display: flex; flex-direction: column; gap: 4px; font-size: 16px; color: var(--dim); }
 .cp-field input { font: inherit; font-size: 18px; color: inherit; background: transparent; border: 1px solid var(--hair); border-radius: 6px; padding: 8px 10px; }
 .cp-set-row { display: flex; gap: 6px; }
 .cp-set-row .btn { flex: 1; }
@@ -705,9 +705,9 @@ body {
 .fleet-modes { margin: 8px 12px 0; }
 .fleet-modes button { flex: 1; }
 
-.jump-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--hair, #333); }
+.jump-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--hair); }
 .jump-row .tgt { min-width: 0; font-size: 18px; }
-.jump-row .via { color: var(--muted, #888); font-size: 16px; }
+.jump-row .via { color: var(--dim); font-size: 16px; }
 .jump-row.gate-off { opacity: 0.4; }
 .jump-row .btn { flex: 0 0 auto; }
 
@@ -746,29 +746,29 @@ body {
 /* Must out-specify `.route-row .rr-legs` (dim gray), or the block reason reads as faded. */
 .route-row .rr-legs.rr-blocked { color: var(--red); font-size: 16px; font-weight: 600; }
 .rr-skipped { margin: 0 0 8px; padding: 8px 10px; border-left: 3px solid var(--amber, #d9a400); font-size: 17px; }
-.route-sort { display: flex; gap: 6px; align-items: center; margin: 0 0 8px; font-size: 16px; color: var(--muted, #888); }
-.route-sort button { padding: 3px 9px; border-radius: 999px; border: 1px solid var(--hair, #333); background: transparent; color: inherit; font: inherit; }
+.route-sort { display: flex; gap: 6px; align-items: center; margin: 0 0 8px; font-size: 16px; color: var(--dim); }
+.route-sort button { padding: 3px 9px; border-radius: 999px; border: 1px solid var(--hair); background: transparent; color: inherit; font: inherit; }
 .route-sort button.on { background: var(--amber, #d9a400); color: #000; border-color: transparent; }
 .route-row .rr-why { margin: 4px 0 10px; }
 /* Quiet by default (muted, hairline), amber only while open. */
-.why-more { padding: 2px 10px; border-radius: 999px; border: 1px solid var(--hair, #333); background: transparent; color: var(--muted, #888); font: inherit; font-size: 16px; cursor: pointer; }
+.why-more { padding: 2px 10px; border-radius: 999px; border: 1px solid var(--hair); background: transparent; color: var(--dim); font: inherit; font-size: 16px; cursor: pointer; }
 .why-more[aria-expanded="true"] { color: var(--amber, #d9a400); border-color: var(--amber, #d9a400); }
-.why-list { margin: 0 0 10px 18px; padding: 0; font-size: 16px; color: var(--muted, #888); }
+.why-list { margin: 0 0 10px 18px; padding: 0; font-size: 16px; color: var(--dim); }
 .why-list li + li { margin-top: 2px; }
 .runs-left { white-space: nowrap; } .runs-left.low { color: var(--amber, #d9a400); font-weight: 600; }
 .crew { margin: 6px 0 2px; }
-.crew-toggle { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--hair, #333); background: transparent; color: inherit; font: inherit; font-size: 16px; cursor: pointer; }
+.crew-toggle { padding: 3px 10px; border-radius: 999px; border: 1px solid var(--hair); background: transparent; color: inherit; font: inherit; font-size: 16px; cursor: pointer; }
 .crew-body { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
 .crew-h { font-family: var(--mono); font-size: 16px; color: var(--dim); margin-top: 8px; line-height: 1.4; }
-.crew-ship, .crew-field { display: flex; justify-content: space-between; gap: 8px; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--hair, #333); background: transparent; color: inherit; font: inherit; font-size: 17px; text-align: left; cursor: pointer; }
+.crew-ship, .crew-field { display: flex; justify-content: space-between; gap: 8px; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--hair); background: transparent; color: inherit; font: inherit; font-size: 17px; text-align: left; cursor: pointer; }
 .crew-field { display: inline-flex; margin: 0 4px 4px 0; }
 .crew-ship.on, .crew-field.on { border-color: var(--amber, #d9a400); background: rgba(217,164,0,.12); }
 .crew-ship.mine span:last-child { color: var(--green, #5fd38d); }
 .crew-fields { display: flex; flex-wrap: wrap; }
 .crew-acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
-.crew-empty, .crew-note { font-size: 16px; color: var(--muted, #888); }
+.crew-empty, .crew-note { font-size: 16px; color: var(--dim); }
 
-.mx-contracts .mx-sub { font-size: 16px; letter-spacing: .12em; text-transform: uppercase; color: var(--muted, #888); margin: 14px 0 4px; }
+.mx-contracts .mx-sub { font-size: 16px; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); margin: 14px 0 4px; }
 
 /* Metrics sections fold when their header is tapped (shared/metrics.js, collapsible). */
 .mx-fold { cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -930,7 +930,9 @@ th { color: #e8c98f; }
 .tabbar button .n { font-size: 15px; line-height: 20px; min-width: 20px; }
 
 /* every control a comfortable target */
-button, .btn, select, input { min-height: 48px; font-size: 17px; }
+/* Global control sizing: one rule. 44px is the touch-target floor; inputs and selects stay at 16px so iOS does not zoom on focus. */
+button, .btn, select, input { min-height: 44px; font-size: 15px; }
+input, select, textarea { font-size: 16px; }
 .sw { min-height: 0; }
 
 /* header: the brand and the "all clear" note were touching at the larger size */
@@ -1031,7 +1033,6 @@ button, .btn, select, input { min-height: 48px; font-size: 17px; }
 /* sub-tabs, second pass (operator, 2026-10-29: "I don't need the buttons at the top to be so big"): smaller pills in
  * sentence case, so a group's tabs usually fit on one row; still wrap rather than hide, and still 40 px to tap. */
 .subnav { gap: 6px; padding: 6px 12px 8px; }
-.subnav button { min-height: 40px; padding: 0 12px; border-radius: 20px; font-size: 15px; text-transform: none; letter-spacing: 0.02em; }
 /* Sub-tab pills at their own full size again: the 70% scale below already shrinks them, so the earlier hand reduction
  * (38 px, 14 px) shrank them twice (operator, 2026-10-29: "the pill buttons at the top are now too small"). */
 .subnav { gap: 8px; padding: 8px 12px 10px; }
@@ -1039,9 +1040,8 @@ button, .btn, select, input { min-height: 48px; font-size: 17px; }
 /* controls, second pass (operator, 2026-10-29: "everything here is a bit too big as well", on the ship sheet): the blanket
  * 48 px / 17 px rule above is eased to 40 px / 15 px, the ship sheet's action grid is tighter, and the drag handle and the
  * close button get their own sizes back (the blanket rule had stretched the handle into a block and the close into an oval). */
-button, .btn, select, input { min-height: 40px; font-size: 15px; }
 .grid5 { gap: 6px; }
-.grid5 .btn { min-height: 40px; padding: 8px 6px; font-size: 14px; letter-spacing: 0.02em; line-height: 1.2; }
+.grid5 .btn { min-height: 44px; padding: 8px 6px; font-size: 14px; letter-spacing: 0.02em; line-height: 1.2; }
 .sheet .handle { min-height: 0; width: 40px; height: 5px; }
 .sheet-close { min-height: 0; width: 36px; height: 36px; font-size: 18px; border-width: 2px; color: var(--bone); }
 .sheet .who { font-size: 20px; }
