@@ -1054,3 +1054,8 @@ input, select, textarea { font-size: 16px; }
 :root { --tower-scale: 0.7; }
 .app, .auth-gate { zoom: var(--tower-scale); width: calc(100vw / var(--tower-scale)); height: calc(100dvh / var(--tower-scale)); }
 .rl-toast { zoom: var(--tower-scale); }
+
+/* Redesign: sections open from a group's list page, so the bar above a section is one plain "‹ Group" link, not pills. */
+.subnav button { border: 0; border-radius: 0; background: none; min-height: 44px; padding: 0 4px; font-size: 16px; color: var(--amber); letter-spacing: 0.06em; }
+.menu-row .chev { color: var(--amber); font-size: 20px; margin-left: auto; }
+.tabbar button .ti { width: 22px; height: 22px; display: block; }
