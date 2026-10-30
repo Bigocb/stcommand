@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-30 — Route list: drop markets outside our gate network, and stop unflyable routes using up route-matcher places
+
+Two faults found reviewing why THEO-EE (a 490-hold hull at TV37) sat on an 8k-a-trip COPPER route. (1) X1-PK42, another agent's
+cluster that no gate of ours reaches, was charted, so its same-system legs (JEWELRY 162k, FOOD 265k a trip) sat at the top of the
+route list and nobody could fly them. The route build now drops any leg whose buy or sell system is outside the gate network
+reachable from home or from where a trader stands, at any distance (`Galaxy.gateNetwork`, `jumpGraph.reachableSystems`; the drop
+reason shows in dispatch_explain). A graph too small to mean anything filters nothing. (2) `matchShips` took the first `topN`
+routes before skipping the ones nobody could take, so with six of the top twelve unreachable only six places did any matching.
+Routes nobody can take no longer use a place. Existing test updated to that behaviour.
+
 ## 2026-10-30 — Fresh systems: park keepers where nothing sells (clause freshIdleParkHours)
 
 A live system that nobody trades in still has its keepers polling (about 0.18 API calls a minute each; at 2026-10-30 13:22 nine

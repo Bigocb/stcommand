@@ -2213,6 +2213,11 @@ export class FleetManager {
       if (dropSample.length < 80) dropSample.push({ reason, good, buyAt, sellAt, profitPerTrip });
     };
     const storedLegs = (await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin())) ?? [];
+    // Where our ships can gate to: from the home system and wherever a trader stands. A graph too small to mean anything (not
+    // hydrated yet) filters nothing.
+    const netStarts = [...new Set([this.systemSymbol, ...[...this.traders.values()].map((a) => a.getShip().nav.systemSymbol)].filter((x): x is string => !!x))];
+    const reach = this.galaxy.gateNetwork(netStarts);
+    const network = reach.size >= 5 ? reach : undefined;
     const blocked = blockedSet(await this.blockedGoodsEntries());
     const legs = storedLegs
       .filter((l) => {
@@ -2223,6 +2228,13 @@ export class FleetManager {
       .filter((l) => {
         if (charted.has(l.buySystem) && charted.has(l.sellSystem)) return true;
         drop("a market system this tenant has not charted", l.goodSymbol, l.buyAt, l.sellAt);
+        return false;
+      })
+      // A market in a part of the galaxy our ships cannot gate to at all (another agent's cluster, such as X1-PK42) is no route:
+      // before this its legs took slots on the route list and in the route matcher's top N while nobody could fly them.
+      .filter((l) => {
+        if (network === undefined || (network.has(l.buySystem) && network.has(l.sellSystem))) return true;
+        drop("a market system outside our gate network (no finished gate path at any distance)", l.goodSymbol, l.buyAt, l.sellAt);
         return false;
       })
       .filter((l) => {

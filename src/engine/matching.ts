@@ -72,14 +72,17 @@ export function fitValue(item: MatchItem, ship: MatchShip, positioningSeconds: n
 }
 
 /**
- * Walk the best `topN` routes in the order given (the caller passes them best first) and pick for each the unmatched
- * ship with the highest `fitValue`. A tie goes to the bigger hold. Routes nobody can take are skipped.
+ * Walk the best routes in the order given (the caller passes them best first) and pick for each the unmatched ship with
+ * the highest `fitValue`, until `topN` routes have been matched. A tie goes to the bigger hold. A route nobody can take is
+ * skipped and does not use up one of the `topN` places: on 2026-10-30 six of the top twelve routes were in systems THEO-EE
+ * could not reach, so only six places did any matching.
  */
 export function matchShips(items: readonly MatchItem[], ships: readonly MatchShip[], ctx: MatchContext, policy: MatchPolicy): MatchResult {
   const result: MatchResult = { order: [], notes: [] };
   if (policy.topN <= 0) return result;
   const free = new Map(ships.map((s) => [s.shipSymbol, s]));
-  for (const item of items.slice(0, policy.topN)) {
+  for (const item of items) {
+    if (result.order.length >= policy.topN || free.size === 0) break;
     const scored: { ship: MatchShip; value: number }[] = [];
     for (const ship of free.values()) {
       const pos = ctx.positioningSeconds(ship, item);

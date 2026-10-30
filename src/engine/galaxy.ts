@@ -2,7 +2,7 @@ import type { SpaceTradersAPI } from "../core/client.js";
 import { API_BASE, APIError } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
-import { findJumpPath, MAX_POSITIONING_HOPS, MAX_POSITIONING_HOPS_CEILING } from "./jumpGraph.js";
+import { findJumpPath, MAX_POSITIONING_HOPS, MAX_POSITIONING_HOPS_CEILING, reachableSystems } from "./jumpGraph.js";
 
 export type Waypoint = components["schemas"]["Waypoint"];
 export type JumpGate = components["schemas"]["JumpGate"];
@@ -478,6 +478,11 @@ export class GalaxyAtlas {
     return path?.slice();
   }
   private readonly pathCache = new Map<string, string[] | undefined>();
+
+  /** Systems our ships can reach over finished gates from any of `starts`, however many jumps (jumpGraph.reachableSystems). */
+  gateNetwork(starts: readonly string[]): Set<string> {
+    return reachableSystems(starts, (s) => this.usableNeighbors(s));
+  }
   /** From the hydrated graph: for each system, each gate with the far gate it connects to and that gate's system. */
   private gateLinks = new Map<string, { gate: string; farGate: string; to: string }[]>();
 

@@ -54,3 +54,21 @@ export function findJumpPath(
   }
   return undefined;
 }
+
+/**
+ * Every system reachable from any of `starts` over `neighbors`, the starts included, with no hop limit. A system outside this set is in
+ * a part of the galaxy our ships cannot gate to at all (another agent's cluster: X1-PK42 on 2026-10-30), so a route there can never
+ * be flown, however long the positioning limit. `limit` stops a runaway graph.
+ */
+export function reachableSystems(starts: readonly string[], neighbors: (system: string) => string[], limit = 5000): Set<string> {
+  const seen = new Set<string>(starts);
+  const queue = [...starts];
+  for (let i = 0; i < queue.length && seen.size < limit; i++) {
+    for (const n of neighbors(queue[i]!)) {
+      if (seen.has(n)) continue;
+      seen.add(n);
+      queue.push(n);
+    }
+  }
+  return seen;
+}

@@ -43,11 +43,12 @@ describe("matching: matchShips", () => {
     const r = matchShips([a], [ship("SMALL", 40), ship("BIG", 150)], never, { topN: 1 });
     assert.deepEqual(r.order, ["BIG"]);
   });
-  it("skips a route nobody can take and only matches the top N", () => {
-    const a = item("A", 9), b = item("B", 8), c = item("C", 7);
+  it("skips a route nobody can take without using up one of the N places", () => {
+    const a = item("A", 9), b = item("B", 8), c = item("C", 7), d = item("D", 6);
     const can = (_s: MatchShip, i: MatchItem) => (i.key === "A" ? undefined : 0);
-    const r = matchShips([a, b, c], [ship("S1", 40), ship("S2", 40)], { positioningSeconds: can }, { topN: 2 });
-    assert.equal(r.order.length, 1); // A skipped, B matched, C is beyond the top 2
+    const r = matchShips([a, b, c, d], [ship("S1", 40), ship("S2", 40), ship("S3", 40)], { positioningSeconds: can }, { topN: 2 });
+    assert.equal(r.order.length, 2); // A skipped; B and C matched; D is beyond the 2 matched
     assert.match(r.notes[0]!, /B -> S1/);
+    assert.match(r.notes[1]!, /C -> /);
   });
 });
