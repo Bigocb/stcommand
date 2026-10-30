@@ -53,18 +53,28 @@ export interface MatchContext {
 export interface MatchResult {
   /** Matched ships, in the order they should be served: best route's ship first. */
   order: string[];
+  /** The same matches as ship -> route key, in the same order. */
+  pairs: { ship: string; key: string }[];
   /** One line per match, for the dispatch log. */
   notes: string[];
 }
 
-/** What this ship would earn from this route: its hold's share of the profit, less the time spent getting there. */
-export function fitValue(item: MatchItem, ship: MatchShip, positioningSeconds: number): number {
-  const exact = item.profitByHold?.[String(ship.capacity)];
+/**
+ * The share of a route's profit (priced at the biggest hold) a hull of `capacity` earns from it: the route's own figure for
+ * that hold when it has one, else the hold's share of the units the trip can move, capped at 1. 1 when nothing is known.
+ */
+export function holdShare(item: Pick<MatchItem, "profitByHold" | "rawProfit" | "volume">, capacity: number): number {
+  const exact = item.profitByHold?.[String(capacity)];
   let share: number;
   if (exact !== undefined && item.rawProfit !== undefined && item.rawProfit > 0) share = exact / item.rawProfit;
-  else if (item.volume !== undefined && item.volume > 0) share = ship.capacity / item.volume;
+  else if (item.volume !== undefined && item.volume > 0) share = capacity / item.volume;
   else share = 1;
-  share = Math.min(1, Math.max(0, share));
+  return Math.min(1, Math.max(0, share));
+}
+
+/** What this ship would earn from this route: its hold's share of the profit, less the time spent getting there. */
+export function fitValue(item: MatchItem, ship: MatchShip, positioningSeconds: number): number {
+  const share = holdShare(item, ship.capacity);
   const gain = item.flightBound ? Math.max(0, ship.speedGain ?? 1) || 1 : 1;
   const trip = item.tripSeconds && item.tripSeconds > 0 ? item.tripSeconds / gain : item.tripSeconds;
   const timeScale = trip && trip > 0 ? trip / (trip + Math.max(0, positioningSeconds) / gain) : 1;
@@ -78,7 +88,7 @@ export function fitValue(item: MatchItem, ship: MatchShip, positioningSeconds: n
  * could not reach, so only six places did any matching.
  */
 export function matchShips(items: readonly MatchItem[], ships: readonly MatchShip[], ctx: MatchContext, policy: MatchPolicy): MatchResult {
-  const result: MatchResult = { order: [], notes: [] };
+  const result: MatchResult = { order: [], pairs: [], notes: [] };
   if (policy.topN <= 0) return result;
   const free = new Map(ships.map((s) => [s.shipSymbol, s]));
   for (const item of items) {
@@ -95,6 +105,7 @@ export function matchShips(items: readonly MatchItem[], ships: readonly MatchShi
     const next = scored[1];
     free.delete(best.ship.shipSymbol);
     result.order.push(best.ship.shipSymbol);
+    result.pairs.push({ ship: best.ship.shipSymbol, key: item.key });
     result.notes.push(
       `dispatch match: ${item.key} -> ${best.ship.shipSymbol} (${best.ship.capacity}u, worth ${Math.round(best.value)})` +
         (next ? `, next ${next.ship.shipSymbol} (${next.ship.capacity}u, ${Math.round(next.value)})` : ", no other ship can take it"),

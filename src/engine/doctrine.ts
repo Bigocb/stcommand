@@ -143,6 +143,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "routeHoldAware",
+    name: "Score a route by what this ship's hold earns",
+    description: "A route's profit is priced at the biggest hold in the fleet, and the dispatcher scored every ship against that same figure, so a small ship looked as well placed for a far, rich route as a big one while paying the same positioning cost. With this on, each ship is scored on what ITS hold earns from the route (the route's own figure for that hold, else its share of the units the trip can move), so small ships stay with nearby work and big hulls are the ones that find far routes worth the trip. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",
+    value: 1, min: 1, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "routeSoonFreeMin",
+    name: "Plan the next route for ships about to finish",
+    description: "Route matching only saw idle ships, so a big hull due free in two minutes could not be saved for the best route and a small idle ship took it. With this on, a loaded ship flying the last leg of its trip to its sell market, and due free within this many minutes, joins the matching at that market. When it is the best fit for one of the top routes, that route is held back from the idle ships this cycle and the ship is matched first when it frees up. Same-system routes only for now. Needs Best ship for the best routes on. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",
+    value: 5, min: 1, max: 30, step: 1, unit: " min",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "shipSpeedWeight",
     name: "Value a hull's speed",
     description: "Route times are costed at the slowest hull's speed (most hulls are speed 15), so a speed-60 freighter was valued like a shuttle although it finishes a same-system trip in a quarter of the time. With this on, a same-system route is worth more to a faster hull by this share of its real speed advantage (100 = the full ratio, capped at 4x), and its flight to the buy market counts for less. It changes which ship gets which route and how routes rank for that ship, not the prices or the route board. Cross-system routes are unchanged (jump cooldowns dominate). Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",

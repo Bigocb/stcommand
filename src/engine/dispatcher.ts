@@ -125,7 +125,7 @@ import { RouteBlocks, DEFAULT_BLOCK_POLICY } from "./routeBlocks.js";
 import { learnImpact, type ImpactPolicy, type Learned } from "./lotImpact.js";
 import { routeOutsideReach, systemOfWaypoint, type ShipReach } from "./shipReach.js";
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
-import { DEFAULT_MATCH_POLICY, matchShips, type MatchPolicy } from "./matching.js";
+import { DEFAULT_MATCH_POLICY, holdShare, matchShips, type MatchPolicy } from "./matching.js";
 import { DEFAULT_SPEED_POLICY, scaleSeconds, speedGain, speedReason, type SpeedPolicy } from "./shipSpeed.js";
 import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
 import { goodOfKey, type DispatchExplainSnapshot, type ExplainRejection, type ExplainRoute, type ExplainTrader } from "./dispatchExplain.js";
@@ -970,7 +970,7 @@ export class RouteDispatcher {
    */
   recompute(
     routes: DispatchRoute[],
-    traders: { shipSymbol: string; capacity: number; speed?: number; busy?: boolean; system?: string; waypoint?: string; fuelCapacity?: number; reach?: ShipReach }[],
+    traders: { shipSymbol: string; capacity: number; speed?: number; busy?: boolean; system?: string; waypoint?: string; fuelCapacity?: number; reach?: ShipReach; freeInSec?: number; freeAtWaypoint?: string }[],
     warehouseTargets: WarehouseTarget[] = [],
     haulTargets: HaulTarget[] = [],
     missionBuyTargets: MissionBuyTarget[] = [],
@@ -1030,7 +1030,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; marketRecoveryMin?: number; routeBlockMin?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; marketRecoveryMin?: number; routeBlockMin?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -1667,11 +1667,24 @@ export class RouteDispatcher {
       const tradeItems = work.filter((w) => w.sellAt !== undefined && w.buyAt !== undefined && !usedKeys.has(w.key));
       const byKey = new Map(tradeItems.map((w) => [w.key, w]));
       const traderBySymbol = new Map(idle.map((t) => [t.shipSymbol, t]));
+      // Ships that finish their current trip within `soonFreeSec` join the matching, at the market they will sell at and after the
+      // seconds they still need (clause routeSoonFreeMin). A route they win is held back from the idle ships this cycle, so the best
+      // route is not spent on a small ship a few minutes before the big hull that would earn more from it is free. Same-system only.
+      const soonFree = (tuning?.soonFreeSec ?? 0) > 0
+        ? sorted.filter((t) => t.busy && !this.manual.has(t.shipSymbol) && t.freeInSec !== undefined && t.freeInSec <= tuning!.soonFreeSec! && t.freeAtWaypoint !== undefined && t.system !== undefined)
+        : [];
+      const soonBySymbol = new Map(soonFree.map((t) => [t.shipSymbol, { ...t, waypoint: t.freeAtWaypoint, busy: false }]));
       const matched = matchShips(
         tradeItems.map((w) => ({ key: w.key, profitPerTrip: w.profitPerTrip, rawProfit: w.rawProfit, profitByHold: w.profitByHold, volume: w.volume, tripSeconds: w.tripSeconds, flightBound: !!w.secPerDist })),
-        idle.map((t) => ({ shipSymbol: t.shipSymbol, capacity: t.capacity, speedGain: gainFor(t) })),
+        [...idle, ...soonFree].map((t) => ({ shipSymbol: t.shipSymbol, capacity: t.capacity, speedGain: gainFor(t) })),
         {
           positioningSeconds: (ship, item) => {
+            const soon = soonBySymbol.get(ship.shipSymbol);
+            if (soon) {
+              const w = byKey.get(item.key);
+              if (!w || w.buySystem !== soon.system || !reachableFor(soon, w) || isDeclinedBy(soon.shipSymbol, w)) return undefined;
+              return (soon.freeInSec ?? 0) + (soon.waypoint && w.buyAt && w.secPerDist ? distanceBetween(soon.waypoint, w.buyAt) * w.secPerDist : 0);
+            }
             const t = traderBySymbol.get(ship.shipSymbol);
             const w = byKey.get(item.key);
             if (!t || !w || !reachableFor(t, w) || isDeclinedBy(t.shipSymbol, w)) return undefined;
@@ -1684,6 +1697,12 @@ export class RouteDispatcher {
         matchPolicy,
       );
       for (const note of matched.notes) log?.(note);
+      for (const pair of matched.pairs) {
+        const soon = soonBySymbol.get(pair.ship);
+        if (!soon) continue;
+        usedKeys.add(pair.key);
+        log?.(`dispatch hold: ${pair.key} kept for ${pair.ship}, free in ${Math.round(soon.freeInSec ?? 0)}s at ${soon.waypoint}`);
+      }
       const first = matched.order.flatMap((sym) => traderBySymbol.get(sym) ?? []);
       const firstSet = new Set(matched.order);
       loopOrder = [...first, ...sorted.filter((t) => !firstSet.has(t.shipSymbol))];
@@ -1779,7 +1798,11 @@ export class RouteDispatcher {
         const gain = w.secPerDist ? gainFor(t) : 1;
         const timeScale = (w.tripSeconds ? REFERENCE_TRIP_SECONDS / w.tripSeconds : 1) * gain;
         let penalty = extra * timeScale;
-        let score = w.profitPerTrip * gain - penalty;
+        // A route's profit is priced at the biggest hold in the fleet. With holdAware on a smaller hull is scored on what ITS hold
+        // earns (the route's own figure for that hold, else its share of the units the trip moves), so far routes stop looking as
+        // rich to a small ship as to a big one while the positioning cost is the same for both. Off = the old, hold-blind score.
+        const share = tuning?.holdAware ? holdShare(w, t.capacity) : 1;
+        let score = w.profitPerTrip * share * gain - penalty;
         let positioning = 0;
         if (w.tripSeconds && w.secPerDist && w.buyAt && t.waypoint && t.system !== undefined && w.buySystem === t.system) {
           positioning = scaleSeconds(distanceBetween(t.waypoint, w.buyAt) * w.secPerDist, gain);

@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-30 — Dispatcher: score a route by the ship's own hold (routeHoldAware), plan the next route for ships about to finish (routeSoonFreeMin)
+
+Reviewing why THEO-EE (490 hold) sat on an 8k-a-trip route. (1) `routeHoldAware` (ships off): the dispatcher scored every ship against a
+route's profit at the BIGGEST hold, so a 40-hold ship looked as well placed for a far, rich route as a 490 one while paying the same
+positioning cost. With it on, each ship is scored on what its own hold earns (`holdShare()`, shared with the route matcher): small
+ships stay with nearby work, big hulls are the ones that find far routes worth the trip. (2) `routeSoonFreeMin` (ships off, needs
+`routeMatchTopN`): matching only saw idle ships. A loaded ship on the last leg of its trip, to the very market it sells at, and due free
+within the window joins the matching at that market after its remaining seconds; when it is the best fit for a top route, the route is
+kept from the idle ships this cycle ("dispatch hold: ... kept for ..."). Same-system routes only. `FleetManager.freeSoonFacts()` supplies
+the arrival; `matchShips` now also returns the ship -> route pairs.
+
 ## 2026-10-30 — Route list: drop markets outside our gate network, and stop unflyable routes using up route-matcher places
 
 Two faults found reviewing why THEO-EE (a 490-hold hull at TV37) sat on an 8k-a-trip COPPER route. (1) X1-PK42, another agent's
