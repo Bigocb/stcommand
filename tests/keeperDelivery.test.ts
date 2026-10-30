@@ -13,6 +13,22 @@ const hops: Record<string, number> = { "X1-YF38": 2, "X1-RY50": 2, "X1-BQ86": 2,
 const ctx = (present: (wp: string) => boolean = () => true) => ({ hulls: ["SHIP_PROBE", "SHIP_SURVEYOR"], hopsFrom: (s: string) => hops[s], shipPresentAt: present });
 const on = { ...DEFAULT_DELIVERY_POLICY, maxHops: 3 };
 
+describe("pickDeliveryYard: a much cheaper yard with no ship", () => {
+  const present = (wp: string) => wp === "X1-BQ86-C43"; // 34,255 + 12,000 = 46,255; YF38 costs 37,223 in all
+  it("off (gapRatio 0) says nothing and the pick is unchanged", () => {
+    const p = pickDeliveryYard("X1-DJ38", yards, ctx(present), on)!;
+    assert.equal(p.yard, "X1-BQ86-C43");
+    assert.equal(p.cheaper, undefined);
+  });
+  it("names the cheaper yard only when the gap reaches the ratio, and still buys at the yard with a ship", () => {
+    assert.equal(pickDeliveryYard("X1-DJ38", yards, ctx(present), { ...on, gapRatio: 1.5 })!.cheaper, undefined, "46k vs 37k is under 1.5x");
+    const p = pickDeliveryYard("X1-DJ38", yards, ctx(present), { ...on, gapRatio: 1.2 })!;
+    assert.equal(p.yard, "X1-BQ86-C43");
+    assert.equal(p.cheaper?.yard, "X1-YF38-D10E");
+    assert.match(deliveryNote(p, "X1-DJ38-A1"), /X1-YF38-D10E is much cheaper \(37,223c in all\) but none of our ships is docked there/);
+  });
+});
+
 describe("pickDeliveryYard", () => {
   it("off (maxHops 0, the default) picks nothing", () => {
     assert.equal(pickDeliveryYard("X1-DJ38", yards, ctx(), DEFAULT_DELIVERY_POLICY), undefined);

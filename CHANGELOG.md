@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-30 — Delivered keepers: say when another yard is much cheaper (clause keeperYardGapRatio)
+
+When a probe is delivered across gates, the pick is limited to yards where a ship of ours is docked. Prices differ a lot between
+yards (MG54: 55k vs 124k), and the 2026-10-30 XK5 run showed the price climbing about 2% per probe at one yard (25.4k to 31.0k
+over 11). New clause `keeperYardGapRatio` (ships off): the approval card and log also name a yard within reach with no ship at it
+when its total is at most 1/ratio of the pick's. Advice only: nothing sends a ship there. Gaps under about 20% do not repay the
+trip, so the default ratio is 1.5. `src/engine/keeperDelivery.ts` (`DeliveryPick.cheaper`).
+
 ## 2026-10-30 — Fresh systems: count only the systems that trade (clause freshTradingSells)
 
 The release rule counted a live system toward the target by age alone, so 27 live systems satisfied a target of 8 while only

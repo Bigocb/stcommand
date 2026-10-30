@@ -157,6 +157,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "fleet", defaultAdopted: true,
   },
   {
+    key: "keeperYardGapRatio",
+    name: "Keepers delivered across gates: say when another yard is much cheaper",
+    description: "On = when a probe is delivered from a yard where a ship of ours is docked, the approval card and log also name any yard within reach with no ship of ours that would cost at most 1/this-value as much in all (MG54, 2026-10-09: probes 55k at one yard, 124k at another). Advice only: nothing sends a ship to the cheaper yard, the operator can. Gaps under about 20% do not repay the trip. Off (the default) = no note. Takes effect on the next request.",
+    value: 1.5, min: 1.1, max: 5, step: 0.1, unit: "x",
+    enabled: false, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
     key: "keeperDeliveryHops",
     name: "Keepers delivered across gates",
     description: "A market whose own system has no yard selling a keeper hull (DJ38's only yard lists an interceptor) can get its keeper from a yard in another system: a probe bought there is sent through the gates under a hold and becomes the market's keeper on arrival (2026-10-29: a probe went YF38 to DJ38 for about 13.6k in jumps). This is the most gate jumps allowed between the yard's system and the market's. It picks the cheapest hull-plus-jumps among yards with one of our ships docked, and asks through the usual keeper approval card (its price is the hull plus the expected jumps), or buys without one when the auto-approve keeper rule allows that total. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next keeper queue pass.",

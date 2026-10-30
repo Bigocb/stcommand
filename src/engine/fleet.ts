@@ -5652,7 +5652,7 @@ export class FleetManager {
         },
         shipPresentAt: (wp) => pickShipAtYard(summary, wp) !== undefined,
       },
-      { ...DEFAULT_DELIVERY_POLICY, maxHops },
+      { ...DEFAULT_DELIVERY_POLICY, maxHops, gapRatio: this.doctrine.isEnabledOr("keeperYardGapRatio", false) ? this.doctrine.value("keeperYardGapRatio", 0) : 0 },
     );
   }
 
