@@ -16,6 +16,12 @@ describe("weekCompare: two weeks lined up by hours since the first trade", () =>
     assert.equal(p[3]!.trades, 5);
   });
 
+  it("rate: matched profit per hour averaged over this hour and the two before it, fewer at the start", () => {
+    const rows: HourRow[] = [0, 1, 2, 3, 4].map((hour) => ({ hour, sells: 1, pnl: [300, 600, 900, 0, 1200][hour]!, revenue: 0, purchases: 0, ships: 0, jumps: 0, wallet: null }));
+    const p = toPoints({ hours: rows }, 4);
+    assert.deepEqual(p.map((x) => x.rate), [300, 450, 600, 500, 700]);
+  });
+
   it("totals: profit, per-hour rate over the hours the ledger reaches, best hour, last wallet", () => {
     const t = weekTotals(a);
     assert.equal(t.hoursReached, 3);

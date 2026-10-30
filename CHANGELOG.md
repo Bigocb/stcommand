@@ -9,6 +9,13 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-30 — Compare: profit-per-hour and ships-bought charts
+
+The week-over-week Compare screen (Tower card and Deck Season tab, built 2026-10-29, other agents' weeks included for operators) had a cumulative
+profit chart and a wallet chart. Added a profit-per-hour chart (3-hour trailing average, `Point.rate`) to both, to read the trend through the
+hour-to-hour noise, and a ships-bought-so-far chart to the Deck one. Keepers and live systems are not in the ledger, so they cannot be
+charted for past weeks.
+
 ## 2026-10-30 — Fresh systems: the minimum gap between releases is a clause (freshMinGapMin)
 
 The 30-minute gap between two releases was a constant in `DEFAULT_RELEASE_POLICY`. JZ78 had all its keepers in place at 17:37 and waited until

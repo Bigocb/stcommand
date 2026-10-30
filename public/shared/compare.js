@@ -137,6 +137,8 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
     const gateTable = gateRows.length ? `<div class="cmp-scroll"><table class="cmp-table"><thead><tr><th>Since gate</th><th class="num">${small ? "This week" : h(A.label)}</th><th class="num">${small ? "Other" : h(B.label)}</th><th class="num">${small ? "Diff" : "Difference"}</th></tr></thead><tbody>${gateRows.map((r) => `<tr><td>+${r.hour} h</td><td class="num">${compact(r.a)}</td><td class="num">${compact(r.b)}</td><td class="num ${tone(r.delta)}">${signed(r.delta)}</td></tr>`).join("")}</tbody></table></div>` : "";
     const charts = `<div class="cmp-charts">
       <div class="cmp-chart-box"><div class="cmp-chart-h">Matched profit, cumulative <span class="cmp-legend"><i class="a"></i>${h(A.label)}<i class="b"></i>${h(B.label)}</span></div>${compareChart(A.points, B.points, { key: "cumPnl", gateA: gate(A), gateB: gate(B), label: "matched profit", height: small ? 120 : 160 })}</div>
+      <div class="cmp-chart-box"><div class="cmp-chart-h">Profit per hour, 3-hour average</div>${compareChart(A.points, B.points, { key: "rate", gateA: gate(A), gateB: gate(B), label: "profit per hour", height: small ? 120 : 160 })}</div>
+      ${small ? "" : `<div class="cmp-chart-box"><div class="cmp-chart-h">Ships bought so far</div>${compareChart(A.points, B.points, { key: "ships", gateA: gate(A), gateB: gate(B), label: "ships bought" })}</div>`}
       ${small ? "" : `<div class="cmp-chart-box"><div class="cmp-chart-h">Wallet</div>${compareChart(A.points, B.points, { key: "wallet", gateA: gate(A), gateB: gate(B), label: "wallet" })}</div>`}
     </div>`;
     const rows = data.checkpoints.filter((r) => r.a || r.b).filter((r) => !small || [12, 24, 48, 72].includes(r.hour));

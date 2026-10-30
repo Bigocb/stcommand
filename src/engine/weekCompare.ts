@@ -43,6 +43,8 @@ export interface Point {
   ships: number;
   /** Sells so far. */
   trades: number;
+  /** Matched profit per hour averaged over this hour and the two before it (fewer at the start), to read a trend through the hour-to-hour noise. */
+  rate: number;
 }
 
 /** One point per hour from 0 to `upToHour`, cumulative where a total is cumulative, wallet carried forward. */
@@ -54,7 +56,13 @@ export function toPoints(series: Pick<WeekSeries, "hours">, upToHour: number): P
   for (let h = 0; h <= upToHour; h++) {
     const r = byHour.get(h);
     if (r) { cum += r.pnl; ships += r.ships; trades += r.sells; if (r.wallet !== null) wallet = r.wallet; }
-    out.push({ hour: h, cumPnl: Math.round(cum), pnl: Math.round(r?.pnl ?? 0), wallet, ships, trades });
+    out.push({ hour: h, cumPnl: Math.round(cum), pnl: Math.round(r?.pnl ?? 0), wallet, ships, trades, rate: 0 });
+  }
+  for (let i = 0; i < out.length; i++) {
+    const from = Math.max(0, i - 2);
+    let sum = 0;
+    for (let j = from; j <= i; j++) sum += out[j]!.pnl;
+    out[i]!.rate = Math.round(sum / (i - from + 1));
   }
   return out;
 }
