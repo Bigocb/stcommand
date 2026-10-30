@@ -337,8 +337,8 @@ $("group-list")?.addEventListener("click", (e) => {
 
 /** Open one tab of one group: the screen, narrowed to the pane, sections and segment that tab is about. */
 function openTab(groupKey, tabKey) {
-  // A group's list page (the redesign's landing for Now, Money, Expand and Ships).
-  if (tabKey === LIST_TAB || (tabKey === undefined && groupKey !== "menu")) {
+  // The group's list page, reached from its "‹ Group" link. Opening a group from the bar goes to its last page (or its first).
+  if (tabKey === LIST_TAB) {
     currentGroup = groupKey;
     currentTab = LIST_TAB;
     document.querySelectorAll(".grp-hidden").forEach((el) => el.classList.remove("grp-hidden"));
