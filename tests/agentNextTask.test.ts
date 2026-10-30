@@ -194,6 +194,23 @@ describe("ShipAgent.nextKeeperTask", () => {
     assert.ok(delay > 4.5 * 60_000 && delay <= 5 * 60_000, `expected ~5min backoff after a snapshot, got ${delay}ms`);
   });
 
+  it("a keeper still outside its market's system (a delivered probe) is stepped again in ~30s, not after the market cadence", async () => {
+    const ship = makeShip("KEEPER-2");
+    const here = ship.nav.systemSymbol;
+    const far = `${here}-FAR-A1`;
+    const away = new ShipAgent(ship, { api: { getCallCount: () => 0 } as any, keeperMarket: () => "X1-ELSEWHERE-A1" });
+    (away as any).keeperPoll = async () => true;
+    away.running = true;
+    const d1 = (await away.nextKeeperTask().run()).next!.earliestRunAt - Date.now();
+    assert.ok(d1 > 25_000 && d1 <= 30_000, `away keeper: expected ~30s, got ${d1}ms`);
+    const home = new ShipAgent(makeShip("KEEPER-3"), { api: { getCallCount: () => 0 } as any, keeperMarket: () => `${here}-A1` });
+    (home as any).keeperPoll = async () => true;
+    home.running = true;
+    const d2 = (await home.nextKeeperTask().run()).next!.earliestRunAt - Date.now();
+    assert.ok(d2 > 4.5 * 60_000, `keeper in its own system keeps the cadence, got ${d2}ms`);
+    void far;
+  });
+
   it("no assigned market backs off ~30s", async () => {
     const agent = new ShipAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     (agent as any).keeperPoll = async () => false;

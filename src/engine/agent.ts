@@ -2437,7 +2437,12 @@ export class ShipAgent {
           // An operator hold on a waypoint (such as a delivery walking through the gates) is stepped again in 30 seconds, not after
           // the market's 5 to 30 minute snapshot cadence: each gate hop of a delivery waited that long, so two jumps took an hour.
           const goal = this.intentFor?.()?.goal;
-          const driven = goal?.kind === "hold" && !!goal.waypoint;
+          // A keeper still outside its market's system is on its way there (a delivered probe): it is stepped again in 30 seconds too.
+          // Without this the first poll, which runs a few seconds before the delivery's hold is attached, waited out the market
+          // cadence (19 minutes seen on 2026-10-30, THEO-1D5) before the probe so much as set off for the gate.
+          const market = this.keeperMarket?.();
+          const away = market !== undefined && this.ship.nav.systemSymbol !== market.slice(0, market.lastIndexOf("-"));
+          const driven = (goal?.kind === "hold" && !!goal.waypoint) || away;
           return { actualCalls: this.api.getCallCount() - before, next: this.nextKeeperTask(Date.now() + (snapshotted && !driven ? this.keeperDelayMs() : 30_000)) };
         } catch (err) {
           const actualCalls = this.api.getCallCount() - before;

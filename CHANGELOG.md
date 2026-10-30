@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-30 — Delivered probes start walking at once, not after the market cadence
+
+A probe bought in one system for a market in another (keeperDelivery) waited 19-44 minutes before its first step toward the gate:
+its first keeper poll runs a few seconds before the delivery's hold is attached, saw no hold and scheduled the next one after the
+market's 5-30 minute cadence (THEO-1D5, 2026-10-30: bought 17:39:16, first step 17:58:21). The 2026-10-29 fix that steps a held keeper
+every 30 s only covered the polls after the hold existed. A keeper that is outside its market's system is now always stepped again in
+30 s, hold or not (`ShipAgent.nextKeeperTask`). The rest of a delivery is flight (a probe takes about 23 minutes to cross to a gate
+in its own system) and jump cooldowns, which this does not change.
+
 ## 2026-10-30 — Dispatcher: score a route by the ship's own hold (routeHoldAware), plan the next route for ships about to finish (routeSoonFreeMin)
 
 Reviewing why THEO-EE (490 hold) sat on an 8k-a-trip route. (1) `routeHoldAware` (ships off): the dispatcher scored every ship against a
