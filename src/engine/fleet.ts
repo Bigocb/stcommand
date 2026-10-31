@@ -6287,6 +6287,11 @@ export class FleetManager {
   }
 
   /** For the ops tool: what the engine has parked, the reminders it set itself, and the last decisions. */
+  /** Loaded trips in flight across all traders (for the market spread metric). */
+  tradeLegsInFlight(): { shipSymbol: string; good: string; buyAt: string; sellAt: string; units: number }[] {
+    return [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l })));
+  }
+
   keeperTriageState(): { policy: TriagePolicy; parked: { ship: string; market: string; parkedAt: string; rechecks: number; settled: boolean; parkedNow: boolean }[]; reminders: ReturnType<Reminders["list"]>; log: string[] } {
     return {
       policy: this.triagePolicy(),

@@ -5,6 +5,7 @@ import { explorerReport } from "./explorers.js";
 import { buildKeeperReview } from "../engine/keeperValue.js";
 import { keeperSales, profitByGoodsCount } from "../engine/keeperSales.js";
 import { rivalActivity } from "../engine/rivalActivity.js";
+import { marketSpread } from "../engine/marketSpread.js";
 import { chartRewardReport } from "../engine/chartReward.js";
 import { DEFAULT_CANDIDATE_POLICY } from "../engine/systems/candidates.js";
 import { logBuffer } from "../core/logBuffer.js";
@@ -566,6 +567,20 @@ export const OPS_TOOLS: OpsTool[] = [
     async run(ctx) {
       const [review, trades] = await Promise.all([ctx.w.fleet.keeperReviewData(), ctx.w.store.ledgerTradeByWaypoint(ctx.w.tenantId)]);
       return profitByGoodsCount(review.stationed, trades);
+    },
+  },
+
+  {
+    name: "market_spread",
+    title: "How many markets and goods our ships trade at the same time",
+    description: "Per time bucket (default 15 minutes) over the window: ships active, distinct markets bought from and sold to, distinct markets overall, distinct good-at-market pairs, distinct goods, sells and sales value, and the share of sales value that went to the five biggest markets (near 1 = crowded into few markets, which pushes prices down ~4-5% per lot). Plus 'now': loaded trips in flight, their markets and the busiest market. Read it next to profit per hour: a falling spread with falling profit per unit means ships are crowding the same markets. Read-only. sinceHours defaults to 3 (max 48).",
+    input: { sinceHours: num(3), bucketMin: num(15) },
+    async run(ctx, a) {
+      const hours = Math.min(Math.max(a.sinceHours, 0.25), 48);
+      const nowMs = ctx.now();
+      const sinceMs = nowMs - hours * 3_600_000;
+      const rows = await ctx.w.store.ledgerRowsSince(ctx.w.tenantId, new Date(sinceMs).toISOString());
+      return { sinceHours: hours, ...marketSpread(rows, ctx.w.fleet.tradeLegsInFlight(), { nowMs, sinceMs, bucketMin: Math.min(Math.max(a.bucketMin, 5), 120) }) };
     },
   },
 

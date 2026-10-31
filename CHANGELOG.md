@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — Ops tool market_spread: how many markets and goods our ships trade at once
+
+Operator asked for a metric of how many markets the ships buy in and sell to at the same time, with different items.
+`stcommand_ops_market_spread` (pure module `src/engine/marketSpread.ts`, test `tests/marketSpread.test.ts`) reads the ledger
+per bucket (default 15 minutes): ships active, distinct buy and sell markets, distinct markets overall, distinct
+good-at-market pairs, distinct goods, sells, sales value, and `top5SellShare` (share of sales value going to the five
+biggest markets; near 1 means crowding, which pushes prices down ~4-5% per lot). `now` adds loaded trips in flight, their
+markets, ships per market and the busiest market. Read-only; it does not change routing. Next step if it proves useful:
+show it on Tower beside profit per hour and test whether a falling spread leads a falling yield per unit.
+
 ## 2026-10-31 — Ops tool keeper_goods_profit: what keeper markets earn by goods count
 
 `ledgerTradeByWaypoint` now also returns the realized profit of the sells at each waypoint (`sellPnl`), and the new ops tool `keeper_goods_profit` (`profitByGoodsCount`, keeperSales.ts)
