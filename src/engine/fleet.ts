@@ -4352,6 +4352,10 @@ export class FleetManager {
     } catch (err) {
       this.log(`survey of ${targetSystem} after jump failed, will retry next tick: ${err instanceof Error ? err.message : String(err)}`);
     }
+    // With explorers parked nothing else judges a system a fleet jump enters: the same worth test and intake the remote surveyor applies.
+    if (this.doctrine.isEnabledOr("remoteSurveyIntake", false)) {
+      try { await this.judgeAndIntake(targetSystem, `${shipSymbol} jump`); } catch (err) { this.log(`judging ${targetSystem} after jump failed: ${describeError(err)}`); }
+    }
     // Record this arrival in the durable charted-systems set directly,
     // rather than counting on chartOccupiedSystems()'s next tick to catch
     // it — every jump (manual dashboard jump, mission, exploreSystem())
@@ -5809,6 +5813,23 @@ export class FleetManager {
    * put straight on the keeper list), best first and shipyards first (yardsFirst()). Shared by an explorer's survey and the remote
    * surveyor (clause remoteSurveyIntake). Does nothing unless autoKeeperGoodSystems is on, and never re-queues a system already queued.
    */
+  /**
+   * The worth test a surveyor applies to a system it has read: good ones go to keeper intake, the rest get the durable "rejected"
+   * mark. Shared by the remote surveyor and by a fleet jump that enters a system while explorers are parked. A system already in the
+   * queue has been judged. Returns the verdict text for the log.
+   */
+  private async judgeAndIntake(system: string, who: string): Promise<void> {
+    if (this.systemQueue.get(system)) return;
+    const counts = countWaypoints(this.galaxy.getSystem(system)?.waypoints ?? []);
+    if (counts.markets + counts.shipyards === 0) return;
+    const verdict = judgeSystem(counts, this.exploreWorthPolicy());
+    if (verdict.good) await this.intakeKeeperCandidates(system, who);
+    else {
+      await this.markSystemSurveyed(system, "rejected", { markets: counts.markets, shipyards: counts.shipyards });
+      this.log(`${who}: ${system} not worth covering (${verdict.reason}); marked rejected`);
+    }
+  }
+
   private async intakeKeeperCandidates(target: string, who: string): Promise<void> {
     if (!this.doctrine.isEnabledOr("autoKeeperGoodSystems", false)) return;
     const { add, thin } = await this.keeperCandidatesForSystem(target);
@@ -5979,6 +6000,9 @@ export class FleetManager {
     // A system already in the queue (scouted, staged or live) has been judged and its markets listed: reading it again finds nothing new and
     // costs a call per market (X1-QK80, queued since 11:48 on 2026-10-30, was read again at 02:17 on the 31st and took the pass 98 s).
     for (const q of this.systemQueue.list()) alreadyRead.add(q.system);
+    // A system whose read was saved but whose judging or intake then threw has a retry entry and rows in the directory: without this it
+    // would count as read for ever and never be judged. The retry time still holds it back until due.
+    for (const system of this.remoteSurveyRetry.keys()) if (!this.systemQueue.get(system)) alreadyRead.delete(system);
     const picks = pickRemoteSurveys({ reachable: hops, alreadyRead, retryAt: this.remoteSurveyRetry, nowMs: now }, { ...DEFAULT_REMOTE_SURVEY_POLICY, perPass });
     let timersChanged = false;
     for (const system of picks) {
@@ -6016,13 +6040,14 @@ export class FleetManager {
           this.log(`remote survey: ${system} has no market and no shipyard; marked rejected, not read again`);
         } else if (this.doctrine.isEnabledOr("remoteSurveyIntake", false)) {
           // Without explorers nothing else would queue a system for keepers: the same worth test an explorer's survey applies.
-          const verdict = judgeSystem(counts, this.exploreWorthPolicy());
-          if (verdict.good) await this.intakeKeeperCandidates(system, "remote survey");
-          else {
-            await this.markSystemSurveyed(system, "rejected", { markets: counts.markets, shipyards: counts.shipyards });
-            this.log(`remote survey: ${system} not worth covering (${verdict.reason}); marked rejected`);
-          }
+          await this.judgeAndIntake(system, "remote survey");
         }
+        // A read that finished clears an earlier failure's retry. A system with no market is not in the directory, so it would be
+        // picked again on every pass: leave it alone for 6 hours (its yard list is saved; explorers still owe the visit).
+        if (counts.markets === 0 && counts.shipyards > 0) {
+          this.remoteSurveyRetry.set(system, now + 6 * 3_600_000);
+          timersChanged = true;
+        } else if (waypoints.length && this.remoteSurveyRetry.delete(system)) timersChanged = true;
       } catch (err) {
         this.remoteSurveyRetry.set(system, now + 2 * 3_600_000);
         timersChanged = true;

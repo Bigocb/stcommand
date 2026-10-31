@@ -13,7 +13,7 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 |---|---|---|
 | 1 | **DONE 2026-10-31, check after the redeploy** Scheduler overload: `syncShipClaims` writes only changed claims; contract targets refresh behind the core pass; ops `api_budget` shows total calls a minute. The states and manifests mirrors now write only changes in batches too | Everything slows and rate-limits with it; the fleet is only getting bigger. Cheap first steps, and it gives the numbers items 5 and 8 need. |
 | 2 | ~~Contract reservation: reserve only the units still owed, not the whole good~~ DONE 2026-10-31 | Next week's contracts will close the best routes again for hours. Small change, high value. |
-| 3 | Review: remote-survey gaps (a system a fleet jump enters is never judged; an intake error is never retried) | Next week's exploring depends on it; explorers are parked. |
+| 3 | ~~Review: remote-survey gaps~~ DONE 2026-10-31 | Next week's exploring depends on it; explorers are parked. |
 | 4 | Review: keeper cap and API budget leave out parked keepers; release and unpark check no budget | Protects the 90-call limit; the one budget the whole design rests on. |
 | 5 | Big-ship buying cadence analysis (last week vs this week) | Tomorrow, before the reset: gives next week's opening a buying rule. |
 | 6 | Review: top-up fixes (`keeperMinGoods` off falls back to 5; effective rate 6 an hour not 8; ignores fading and parked systems) | Small, and the top-up was blocked all week, so it needs to be right. |
@@ -582,7 +582,7 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
      no keeper role, so the market stays uncovered and auto-approve buys another probe (the 2026-10-08 double-buy again). Fix: return a result, and split the post-purchase steps out of the buy `try`.
   3. [DONE 2026-10-31] **Staging ignores cash** (confirmed by reading; matters at the start of a week). With `keeperAutoApproveMinCash` 5M every keeper under 5M cash needs an approval card; one card slot, 2 h timeout then deny.
      Auto mode can stage 3 systems (24 markets) at the start of the week and none can be bought. Fix: do not stage while cash is under the auto-approve floor plus the systems' cost.
-  4. Remote survey gaps (plausible/confirmed): a system a fleet jump enters is marked read but never judged or queued while explorers are parked; an exception in intake after the directory write is never retried;
+  4. [DONE 2026-10-31] Remote survey gaps (plausible/confirmed): a system a fleet jump enters is marked read but never judged or queued while explorers are parked; an exception in intake after the directory write is never retried;
      a yard-only system with `remoteSurveyIntake` off is re-surveyed every pass.
   5. [DONE 2026-10-31] `keeperDeliveries` never expires (confirmed): a delivery that cannot progress stays "away" and is stepped every 30 s at trader priority for ever. Fix: give up after N hours and treat the probe as an ordinary keeper.
   6. [DONE 2026-10-31] Idle-trader release (confirmed): 3 idle traders release a ready system on every 5-minute check, ignoring `freshMinGapMin` and the target, so a burst can release every ready system within 15 minutes.

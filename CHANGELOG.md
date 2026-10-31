@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — Remote-survey gaps closed: arrivals are judged, intake failures retried, yard-only systems left alone
+
+Three holes found in the week's review, all with explorers parked. (1) A system a fleet jump entered was surveyed and marked
+charted but never judged or queued; `jumpShip` now runs the same worth test and keeper intake as the remote surveyor
+(`judgeAndIntake`, clause `remoteSurveyIntake`). (2) A read whose directory rows were saved but whose judging or intake then threw
+counted as read for ever; a system with a retry entry is now picked again when due, and a finished read clears the entry. (3) A system
+with yards but no market is not in the market directory, so it was read again on every 5-minute pass; it now waits 6 hours.
+Tests in `tests/remoteSurveyGaps.test.ts` (the jump hook is not covered by a test).
+
 ## 2026-10-31 — A contract good stops closing ordinary routes once carriers hold the units owed
 
 A 77-unit EQUIPMENT contract kept every ordinary EQUIPMENT route refused ("protected good") for hours, including the best
