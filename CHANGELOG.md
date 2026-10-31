@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — Below-floor sales can be approved automatically within a share and a loss cap (clause off)
+
+Overnight nobody answers the `sellBelowFloor` cards, they expire after 30 minutes, and a denied lot leaves the ship holding cargo for
+hours. `floorSaleAutoApprove` (src/engine/floorSaleApproval.ts) approves the sale without a card when the market pays at least
+`autoApproveFloorSale` percent of the cost basis (40) and the loss on that sale is at most `autoApproveFloorSaleMaxLoss` credits
+(600,000). A market paying next to nothing (THEO-9E, 1c on 17,851c) still asks and the ship holds. The clause ships off; the existing 5-minute hold
+before a card is unchanged. Tests in `tests/floorSaleApproval.test.ts`.
+
 ## 2026-10-31 — Idle parking no longer latches: a parked system is re-checked after a window
 
 A system whose keepers were parked for lack of sales had stale prices, so traders saw no routes there and nothing could sell to unpark

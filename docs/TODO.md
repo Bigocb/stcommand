@@ -865,3 +865,7 @@ version) and step 2 (gzip) shipped 2026-10-15; see CHANGELOG.
   super-linear in units). Shipped 2026-10-08: the Tower route card now shows the figure per hold size (`profitByHold`). Still open: price at the
   cargo of the ship the dispatcher would send (it ranks on the biggest-hold figure and never reads a ship's cargo). Also open: the dispatcher allows one seller per (good, sell market), so two 100k routes into the
   same market get one ship.
+
+- [ ] **Auto-buy budget for big hulls (raised 2026-10-31, operator).** Nothing buys while the operator sleeps: a `buy_ship` waits on an approval prompt that a scheduled message can close (the 5 bulk
+  freighters wanted at 05:15 were bought at 13:18-13:26). Add a clause with a total credit budget, a per-ship price cap and a hull type, so the engine buys big hulls on its own until the budget is spent
+  (pure module like `keeperBuy.ts`; ships off). Pairs with the cadence analysis (item 5). Also look at why the worker restarts when a turn runs several long reads.

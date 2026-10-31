@@ -213,6 +213,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "autoApproveFloorSale",
+    name: "Auto-approve below-floor sales: least share of cost",
+    description: "A lot held under its loss floor is sold without an approval card when the market pays at least this percent of its cost basis per unit and the loss stays under the cap below. Added 2026-10-31: nobody was awake to answer the cards overnight and the ships sat on their cargo. A market paying next to nothing (1c on a 17,851c basis) is not sold into: that one still asks, and the ship holds. Off (the default) = every below-floor sale asks the operator, as before. Takes effect on the next held lot.",
+    value: 40, min: 10, max: 100, step: 5, unit: "%",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "autoApproveFloorSaleMaxLoss",
+    name: "Auto-approve below-floor sales: most loss in one sale",
+    description: "The most one automatically approved below-floor sale may lose (cost basis minus price, times units). A bigger loss still asks the operator. Only applies while Auto-approve below-floor sales is on. Takes effect on the next held lot.",
+    value: 600000, min: 10000, max: 5000000, step: 10000, unit: "c",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "contractBuyPriceGuard",
     name: "Contract buy: price ceiling",
     description: "A trader buying goods for a contract refuses a unit that costs more than this percent of what the contract still pays per unit it still needs (the payment owed on completion divided by the units still to deliver; an advance already received does not count). It then looks for a cheaper source. Added 2026-10-25 after 20 FOOD were bought at 4,666c each for a contract worth about 2,800c a unit, which took 93k of the cash and stalled trading. On by default. Off = buy at any price the market snapshot allows, as before. Takes effect on the next contract buy.",

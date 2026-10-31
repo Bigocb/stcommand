@@ -2,6 +2,7 @@ import { approvedSaleAllows } from "./approvedSale.js";
 import { routeTag } from "./routeTag.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
 import { contractBuyVerdict, NO_CONTRACT_BUY_GUARD, type ContractBuyPolicy } from "./contractBuyGuard.js";
+import { floorSaleAutoApprove, NO_FLOOR_AUTO_APPROVE, type FloorSalePolicy } from "./floorSaleApproval.js";
 import { NO_TRADE_BUY_LIMIT, tripBuyBudget, type TradeBuyPolicy } from "./tripBudget.js";
 import { sinkPreflight } from "./sinkPreflight.js";
 import type { SpaceTradersAPI } from "../core/client.js";
@@ -227,6 +228,8 @@ export interface TraderOptions {
   contractReward?: (tradeSymbol: string) => Promise<{ units: number; payout: number }>;
   /** The contract buy guard's current settings; absent = no guard, as before. */
   contractBuyPolicy?: () => ContractBuyPolicy;
+  /** When a below-floor sale may skip the approval card (floorSaleApproval.ts); absent = always ask, as before. */
+  floorSalePolicy?: () => FloorSalePolicy;
   /** How much cash one trade's purchases may use (see tripBudget.ts). Absent = no limit, as before. */
   tradeBuyPolicy?: () => TradeBuyPolicy;
   /**
@@ -362,6 +365,7 @@ export class TraderAgent {
   private readonly contractNeeded?: TraderOptions["contractNeeded"];
   private readonly contractReward?: TraderOptions["contractReward"];
   private readonly contractBuyPolicy?: TraderOptions["contractBuyPolicy"];
+  private readonly floorSalePolicy?: TraderOptions["floorSalePolicy"];
   private readonly tradeBuyPolicy?: TraderOptions["tradeBuyPolicy"];
   private readonly persistHeldRoute?: TraderOptions["persistHeldRoute"];
   private readonly clearPersistedHeldRoute?: TraderOptions["clearPersistedHeldRoute"];
@@ -504,6 +508,7 @@ export class TraderAgent {
     this.contractNeeded = opts.contractNeeded;
     this.contractReward = opts.contractReward;
     this.contractBuyPolicy = opts.contractBuyPolicy;
+    this.floorSalePolicy = opts.floorSalePolicy;
     this.tradeBuyPolicy = opts.tradeBuyPolicy;
     this.persistHeldRoute = opts.persistHeldRoute;
     this.clearPersistedHeldRoute = opts.clearPersistedHeldRoute;
@@ -1382,6 +1387,14 @@ export class TraderAgent {
     this.heldBelowFloorSince.set(good, since);
     if (!this.requestApproval || Date.now() - since < HOLD_BEFORE_FLOOR_APPROVAL_MS) return false;
     const loss = cost !== undefined ? (cost - live) * units : undefined;
+    const auto = floorSaleAutoApprove({ live, cost, units }, this.floorSalePolicy?.() ?? NO_FLOOR_AUTO_APPROVE);
+    if (auto.approve) {
+      this.heldBelowFloorSince.delete(good);
+      this.approvedFloorSale.set(good, { quote: live, at: Date.now() });
+      this.recordDoctrineFire?.("autoApproveFloorSale");
+      this.log(`selling ${units}u ${good} below floor at ${live}c without a card (${auto.reason})`);
+      return true;
+    }
     const decision = await this.requestApproval(`sellBelowFloor:${this.symbol}:${good}`, {
       shipSymbol: this.symbol,
       detail: `${this.symbol} is holding ${units}u ${good} at ${this.ship.nav.waypointSymbol}: market pays ${live}c, cost basis ${cost ?? "?"}c${loss !== undefined ? ` (loss ${loss}c)` : ""}. Approve to sell here now, deny to keep holding for a better price.`,

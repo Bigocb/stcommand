@@ -1579,6 +1579,11 @@ export class FleetManager {
       // good (contract duty), each one's purchase must not count units a fleetmate is already flying in.
       contractNeeded: async (good) => Math.max(0, ((await this.contracts?.outstandingUnitsFor(good)) ?? 0) - this.contractCargoHeldByOthers(good, shipSymbol)),
       contractReward: (good) => this.contracts?.outstandingRewardFor(good) ?? Promise.resolve({ units: 0, payout: 0 }),
+      floorSalePolicy: () => ({
+        enabled: this.doctrine.isEnabledOr("autoApproveFloorSale", false),
+        minSharePct: this.doctrine.value("autoApproveFloorSale", 40),
+        maxLossCredits: this.doctrine.isEnabledOr("autoApproveFloorSaleMaxLoss", true) ? this.doctrine.value("autoApproveFloorSaleMaxLoss", 600000) : 0,
+      }),
       contractBuyPolicy: () => ({
         priceGuardPct: this.doctrine.isEnabledOr("contractBuyPriceGuard", true) ? this.doctrine.value("contractBuyPriceGuard", 110) : 0,
         cashSharePct: this.doctrine.isEnabledOr("contractBuyCashShare", true) ? this.doctrine.value("contractBuyCashShare", 50) : 0,
