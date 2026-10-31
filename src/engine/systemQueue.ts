@@ -30,7 +30,8 @@ export interface QueuedSystem {
   note?: string;
 }
 
-export const MAX_QUEUED = 200;
+/** The queue holds every system the explorers find (about 190 scouted by 2026-10-31) plus the live ones: a cap near that evicted live systems. */
+export const MAX_QUEUED = 1000;
 
 export class SystemQueue {
   private items = new Map<string, QueuedSystem>();
@@ -45,7 +46,10 @@ export class SystemQueue {
     const q: QueuedSystem = { system, state: "scouted", markets: [...markets], addedAt: now, held: false, ...(note ? { note } : {}) };
     this.items.set(system, q);
     if (this.items.size > MAX_QUEUED) {
-      const oldest = [...this.items.values()].filter((x) => x.state === "live").sort((a, b) => a.addedAt - b.addedAt)[0];
+      // Make room from the oldest SCOUTED entry that is not held, never from a live or staged system: at the old cap of 200 every newly found
+      // system evicted the oldest live one, and an explorer that found it again queued it as scouted, which gated a trading system
+      // (HS97 and XK5, 2026-10-31, 229 routes held behind the gate).
+      const oldest = [...this.items.values()].filter((x) => x.state === "scouted" && !x.held && x.system !== system).sort((a, b) => a.addedAt - b.addedAt)[0];
       if (oldest) this.items.delete(oldest.system);
     }
     return q;

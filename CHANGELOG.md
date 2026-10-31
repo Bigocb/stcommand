@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — The fresh-system queue no longer evicts live systems when it fills
+
+`SystemQueue.scout()` capped the queue at 200 and, past the cap, deleted the oldest LIVE entry. The explorers had queued about 190 scouted systems by mid-morning, so
+every further find evicted a live system; when an explorer found one of them again it was queued as scouted, which gated it. HS97 and XK5, both trading with keepers,
+were gated again at 11:32 and the dispatcher held 229 routes behind the gate (58 at 05:13). The cap is now 1,000 and the entry evicted is the oldest scouted one that is
+not held, never a live or staged system. Systems already evicted stay out of the queue until they are found again, so a re-queued live system still needs a manual
+`release_system`. Test in `tests/systemQueue.test.ts`.
+
 ## 2026-10-31 — A jump that went through corrects the gate cache; gate flips are logged
 
 J64 (live since 03:37, 27 markets, 23 ships) had no trade routes: about 9,000 legs a pass were dropped as "outside our gate network" while the game said
