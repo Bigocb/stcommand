@@ -869,3 +869,14 @@ version) and step 2 (gzip) shipped 2026-10-15; see CHANGELOG.
 - [ ] **Auto-buy budget for big hulls (raised 2026-10-31, operator).** Nothing buys while the operator sleeps: a `buy_ship` waits on an approval prompt that a scheduled message can close (the 5 bulk
   freighters wanted at 05:15 were bought at 13:18-13:26). Add a clause with a total credit budget, a per-ship price cap and a hull type, so the engine buys big hulls on its own until the budget is spent
   (pure module like `keeperBuy.ts`; ships off). Pairs with the cadence analysis (item 5). Also look at why the worker restarts when a turn runs several long reads.
+
+- [ ] **Next week, from the 2026-10-31 outside review of the keeper and exploring pipeline (subagent, unverified in places).** Ranked:
+  1. API cost model vs measured: keeper_review models keepers at about 49 calls/min; api_budget measures keeper market polls at 15/min plus 16/min of keeper ship calls (12 of them
+     `hopToward < jumpToward`, keeper delivery walking). The 70 polling ceiling and the top-up gate use the model. Reconcile, then pace delivery walking. The limiter ran at 90 of 90 with
+     the oldest call waiting 46-50 s, and the second tenant (THEOREM) averaged 29 s waits.
+  2. Count never-priced markets as coverage gaps and seed them (MR27 12 of 19 never priced, YU6 6 of 10, CK31 3 of 10): "viable" only counts markets already priced, so the gap can never show
+     (`keeperTopUp.ts`, `remoteSurvey.ts`).
+  3. Release precondition: most of a system's top markets must have a snapshot under 60 min before release (`systemRelease.ts`); 7 of 10 live systems showed 0 recent sells.
+  4. Staging churn: F82, FS40, ZD29 were staged then unstaged within 20-60 min "no finished gate path"; stage only with a confirmed finished-gate path (check `QueueFacts.reachable` timing).
+  5. Rank top-up by keeper value (skip scores under about 1) and slow-poll zero-trade keepers: 227 of 593 keepers sit on markets with no sales.
+  6. Make the keeper cap API-based; `keeperMaxTotal` 700 is not binding.
