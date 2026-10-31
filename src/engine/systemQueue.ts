@@ -61,6 +61,16 @@ export class SystemQueue {
     return true;
   }
 
+  /** staged -> scouted again (its keepers were never bought and cannot be). Returns false unless the system is staged. */
+  unstage(system: string, note?: string): boolean {
+    const q = this.items.get(system);
+    if (!q || q.state !== "staged") return false;
+    q.state = "scouted";
+    delete q.stagedAt;
+    if (note) q.note = note;
+    return true;
+  }
+
   /** staged (or scouted) -> live. A manual release also clears the hold. Returns false when unknown or already live. */
   release(system: string, now: number, note?: string): boolean {
     const q = this.items.get(system);

@@ -41,6 +41,18 @@ describe("system queue (pure)", () => {
     assert.deepEqual(q.get("X1-A")!.markets, ["X1-A-1", "X1-A-9"]);
   });
 
+  it("unstages a staged system back to scouted, and only a staged one", () => {
+    const q = new SystemQueue();
+    q.scout("X1-A", ["X1-A-1"], 10);
+    assert.equal(q.unstage("X1-A", "x"), false, "scouted: nothing to undo");
+    q.stage("X1-A", 20);
+    assert.ok(q.unstage("X1-A", "no gate path"));
+    assert.deepEqual([q.get("X1-A")!.state, q.get("X1-A")!.stagedAt, q.get("X1-A")!.note], ["scouted", undefined, "no gate path"]);
+    assert.ok(q.stage("X1-A", 30), "it can be staged again");
+    q.release("X1-A", 40);
+    assert.equal(q.unstage("X1-A"), false, "live: no");
+  });
+
   it("survives a save and a bad file", () => {
     const q = new SystemQueue();
     q.scout("X1-A", ["X1-A-1"], 10, "found");
@@ -170,6 +182,13 @@ describe("release rule", () => {
     assert.deepEqual(decideReleases(sig({ queue: q, credits: 5_300_000 }), policy).stage.map((s) => s.system), ["X1-NEW"]);
     assert.equal(decideReleases(sig({ queue: q, credits: 800_000 }), auto).stage.length, 1, "floor off: as before");
     assert.equal(decideReleases(sig({ queue: q }), policy).stage.length, 1, "wallet unknown: the test is skipped");
+  });
+
+  it("sends an unreachable staged system with no keeper back to scouted, and leaves one that already has keepers", () => {
+    const d = decideReleases(sig({ queue: [staged("X1-NOGATE", 0, { reachable: false }), staged("X1-PARTLY", 0.5, { reachable: false }), staged("X1-FINE", 0, { reachable: true })] }), auto);
+    assert.deepEqual(d.unstage.map((u) => u.system), ["X1-NOGATE"]);
+    assert.deepEqual(decideReleases(sig({ queue: [staged("X1-NOGATE", 0, { reachable: false })] }), { ...auto, mode: "off" }).unstage, [], "off decides nothing");
+    assert.deepEqual(decideReleases(sig({ queue: [staged("X1-UNKNOWN", 0)] }), auto).unstage, [], "reachability unknown: left alone");
   });
 
   it("advisory returns the same answer as auto (the caller decides whether to act)", () => {

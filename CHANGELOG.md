@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — Unbuyable keeper markets are held back, unreachable staged systems are unstaged, the remote survey no longer loops on a failed read
+
+Found in the 02:18 logs (maintenance pass 148 s; scheduler 461 of 475 tasks overdue; 22 "rate limited, backing off" lines in 3 minutes):
+
+- **Keeper queue, 30 s a pass.** The 18 markets of AV28, BR8 and KN88 (unfinished gates) can never be bought, and each pass tried all of them, each time reading the whole shipyard table. A market with no keeper hull or delivery yard in reach is now held back 15 minutes, one with no ship at its yard 5 minutes (`coolKeeperMarket`, the same cooldown a failed buy uses). The dock-triggered request honours the cooldown too.
+- **Unreachable staged systems are unstaged.** `decideReleases` returns `unstage` for a staged system with no gate path and no keeper in place; `FleetManager.unstageSystem()` puts it back to scouted (`SystemQueue.unstage`) and takes its unbought markets off the keeper priority list (a market with a keeper stays). It is staged again by the normal rule once its gate opens.
+- **No new systems for 2+ hours: the remote survey was stuck.** It reads one system per 5-minute pass, nearest unread first. A read that came back short (X1-QK80: 0 markets read, 6 listed, under rate limiting) saved nothing and set no retry, so the same system stayed first in line and nothing behind it was read. `readIncomplete()` (remoteSurvey.ts): a read under half of the listed markets is not saved and the system waits 20 minutes. Systems already in the queue are no longer re-read at all (their markets are listed already).
+
+Tests: `tests/keeperQueueCooldown.test.ts`, `tests/remoteSurvey.test.ts`, `tests/systemRelease.test.ts`.
+
 ## 2026-10-31 — Five fixes from the independent review of keepers and fresh systems
 
 From the fresh-context review (docs/TODO.md, "Independent review..."), each checked against the code first:

@@ -30,3 +30,11 @@ export function pickRemoteSurveys(ctx: RemoteSurveyContext, policy: RemoteSurvey
     .slice(0, policy.perPass)
     .map(([system]) => system);
 }
+
+/**
+ * Did a read of a system's markets come back far short of what its waypoint traits list? Under half is a failed read, not a small system
+ * (a failed per-market read is skipped, so rate limiting returns what it got). Nothing expected = nothing to compare.
+ */
+export function readIncomplete(expectedMarkets: number, gotMarkets: number): boolean {
+  return expectedMarkets > 0 && gotMarkets * 2 < expectedMarkets;
+}

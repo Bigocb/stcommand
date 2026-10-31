@@ -62,7 +62,7 @@ import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
 import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
 import { DEFAULT_DELIVERY_POLICY, MAX_DELIVERY_MS, deliveryArrived, deliveryExpired, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
-import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys } from "./remoteSurvey.js";
+import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys, readIncomplete } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
 import { pickCheapestKeeperYard, pickKeeperYardWithShip } from "./keeperYard.js";
 import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
@@ -5573,6 +5573,21 @@ export class FleetManager {
     return { system, markets: q.markets, state: "staged" };
   }
 
+  /** Take a staged system back to scouted and its markets off the keeper list (nothing was bought for it). */
+  async unstageSystem(system: string, why: string): Promise<void> {
+    const q = this.systemQueue.get(system);
+    if (!q || q.state !== "staged") return;
+    const markets = new Set(q.markets);
+    this.systemQueue.unstage(system, why);
+    const covered = this.coveredKeeperMarkets();
+    const list = await this.keeperPriorityMarkets();
+    // A market that already has a keeper stays listed: only the ones nothing can be bought for go.
+    await this.setKeeperPriorityMarkets(list.filter((m) => !markets.has(m) || covered.has(m)));
+    await this.saveFreshGate();
+    this.freshNote(`${system} unstaged: ${why}`);
+    this.recordAction(configChangeEvent({ setting: "system_stage", before: { system, state: "staged" }, after: { system, state: "scouted" }, atIso: new Date().toISOString(), reason: why }));
+  }
+
   /** Open a system's gate: unpark its staged keepers and let traders have its routes. The freshness clock starts here. */
   async releaseSystem(system: string, why = "operator"): Promise<{ system: string; unparked: string[]; markets: string[] }> {
     const q = this.systemQueue.get(system);
@@ -5936,6 +5951,9 @@ export class FleetManager {
     // Read already (the directory has rows for it) or judged not worth reading (an explorer's or this surveyor's durable "rejected" mark).
     const alreadyRead = await this.store.directorySystems();
     if (this.tenantId) for (const m of await this.store.recentSystemSurveys(this.tenantId, 2000)) if (m.source === "rejected") alreadyRead.add(m.systemSymbol);
+    // A system already in the queue (scouted, staged or live) has been judged and its markets listed: reading it again finds nothing new and
+    // costs a call per market (X1-QK80, queued since 11:48 on 2026-10-30, was read again at 02:17 on the 31st and took the pass 98 s).
+    for (const q of this.systemQueue.list()) alreadyRead.add(q.system);
     const picks = pickRemoteSurveys({ reachable: hops, alreadyRead, retryAt: this.remoteSurveyRetry, nowMs: now }, { ...DEFAULT_REMOTE_SURVEY_POLICY, perPass });
     let timersChanged = false;
     for (const system of picks) {
@@ -5944,6 +5962,16 @@ export class FleetManager {
         await this.refreshTraitsIfEmpty(system);
         const markets = await this.galaxy.surveyMarkets(system, this.store);
         const yards = await this.galaxy.surveyShipyards(system, this.store);
+        // A read that came back with far fewer markets than the waypoint traits list failed part-way (rate limiting returns what it got): saving
+        // it would mark the system read for good with nothing in it, and a failure before saving left it first in line for the next pass for
+        // ever, so nothing behind it was ever read.
+        const expected = countWaypoints(this.galaxy.getSystem(system)?.waypoints ?? []).markets;
+        if (readIncomplete(expected, markets.length)) {
+          this.remoteSurveyRetry.set(system, now + 20 * 60_000);
+          timersChanged = true;
+          this.log(`remote survey of ${system}: read ${markets.length} of ${expected} markets (rate limited?); not saved, next try in 20 min`);
+          continue;
+        }
         await this.store.recordMarketDirectory(system, markets.map((m) => ({ symbol: m.symbol, imports: m.imports ?? [], exports: m.exports ?? [], exchange: m.exchange ?? [] })));
         await this.store.recordShipyardDirectory(system, yards.map((y) => ({ symbol: y.symbol, shipTypes: y.shipTypes ?? [] })));
         // Keep the in-memory snapshots the keeper scorer reads (surveySystem() does the same), so a remotely read system can be scored.
@@ -6033,6 +6061,9 @@ export class FleetManager {
     }
     if (mode === "auto") await this.applyIdleParking(liveQ.map((q) => q.system), now);
     if (mode !== "auto") return;
+    for (const d of decision.unstage) {
+      try { await this.unstageSystem(d.system, d.reason); } catch (err) { this.freshNote(`unstage ${d.system} failed: ${describeError(err)}`); }
+    }
     for (const d of decision.stage) {
       try { await this.stageSystem(d.system, d.reason); } catch (err) { this.freshNote(`stage ${d.system} failed: ${describeError(err)}`); }
     }
@@ -7413,7 +7444,7 @@ export class FleetManager {
         if (d) { delivery = d; best = { waypointSymbol: d.yard, price: d.price, hull: d.hull }; }
       }
     }
-    if (!best) { this.keeperNote(`mnohull:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: no yard in ${marketSystem} has a stored ${KEEPER_HULL_PREFERENCE.join("/")} (${yards.filter((y) => y.systemSymbol === marketSystem).length} stored yard rows in that system; a yard is stored only when one of our ships reads it)`); return false; } // no shipyard in this system has a cached keeper hull in stock right now
+    if (!best) { await this.coolKeeperMarket(marketWaypoint, 15); this.keeperNote(`mnohull:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: no yard in ${marketSystem} has a stored ${KEEPER_HULL_PREFERENCE.join("/")} (${yards.filter((y) => y.systemSymbol === marketSystem).length} stored yard rows in that system; a yard is stored only when one of our ships reads it)`); return false; } // no shipyard in this system has a cached keeper hull in stock right now
     if (!this.canAfford(best.price)) { this.keeperNote(`mafford:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: ${keeperHullLabel(best.hull)} at ${best.waypointSymbol} costs ${best.price}c, more than the spendable credits`); return false; }
 
     const shipSymbol = `${best.waypointSymbol}|${marketWaypoint}|${best.hull}`;
@@ -7465,6 +7496,7 @@ export class FleetManager {
           }
         }
       }
+      await this.coolKeeperMarket(marketWaypoint, 5);
       this.keeperNote(`mnoship:${marketWaypoint}`, `keeper for ${marketWaypoint} is within the auto-approve cap but none of our ships is docked at ${best.waypointSymbol} to buy through; it goes ahead when one is there (no approval card raised)`);
       return false;
     }

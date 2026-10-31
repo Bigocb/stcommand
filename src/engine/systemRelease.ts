@@ -115,6 +115,8 @@ export interface ReleaseSignals {
 
 export interface ReleaseDecision {
   stage: { system: string; reason: string }[];
+  /** Staged systems that no ship of ours can gate to and that have no keeper: back to scouted, off the keeper list, until a gate opens. */
+  unstage: { system: string; reason: string }[];
   release: { system: string; reason: string }[];
   /** Why nothing (more) was done, for the operator. */
   notes: string[];
@@ -136,7 +138,7 @@ export function idleLive(l: LiveFacts, now: number, p: ReleasePolicy): boolean {
 }
 
 export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDecision {
-  const out: ReleaseDecision = { stage: [], release: [], notes: [] };
+  const out: ReleaseDecision = { stage: [], unstage: [], release: [], notes: [] };
   if (p.mode === "off") return out;
 
   const states = s.live.map((l) => ({ l, st: aliveState(l, s.now, p) }));
@@ -148,6 +150,11 @@ export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDeci
 
   // Stage ahead of need.
   const staged = s.queue.filter((q) => q.state === "staged");
+  // A staged system nothing can reach and nothing was bought for is not waiting, it is stuck: its markets stay on the keeper list and the buy
+  // queue retries all of them every pass (18 markets cost it 30 s a pass on 2026-10-31). Back to scouted; it is staged again when a gate opens.
+  for (const q of staged) {
+    if (q.reachable === false && (q.readyShare ?? 0) === 0) out.unstage.push({ system: q.system, reason: `no finished gate path to it and no keeper in place: back to scouted until its gate opens` });
+  }
   const stuck = (q: QueueFacts): boolean => p.stuckStagedMs > 0 && q.stagedAt !== undefined && s.now - q.stagedAt >= p.stuckStagedMs && (q.readyShare ?? 0) < STUCK_READY_SHARE;
   const stuckStaged = staged.filter((q) => reachable(q) && stuck(q));
   const stagedCount = staged.filter((q) => reachable(q) && !stuck(q)).length;

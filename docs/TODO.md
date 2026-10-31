@@ -576,6 +576,12 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   11. Docs and tests: `store.ts` ~1842 names the wrong table list; a docblock sits above the wrong function in fleet.ts (~5668); the `freshGate` description says 10 minutes, the code 5; no fleet-level tests for
       `maybeTopUpKeepers`, `advanceKeeperDeliveries`, the `purchaseKeeperProbe` delivery branch, `applyIdleParking`, remote-survey intake, or stage-then-cannot-buy.
 
+- [ ] **Contract reservation should cover the quantity owed, not the whole good (raised 2026-10-31).** While a contract needs even a few units of a good, `allProtectedGoods()`
+  (fleet.ts) refuses that good to every ordinary trade fleet-wide. The 77-unit EQUIPMENT contract (373k payout) kept the fleet's best route (EQUIPMENT RC98 B13Z to EB8C, 266k a trip)
+  closed for hours. Reserve only the units still owed (hold them back at the buy, let the rest trade).
+- [ ] **Scheduler overload (2026-10-31).** At 02:19: 475 tasks, 461 overdue, core pass 4.5-5 s (`syncShipClaims` 2.9 s every pass, `computeDispatchRoutes` 1.1 s), a 25.7 s core pass (`computeTargets` 20.8 s),
+  rate-limit backoffs. Look at `syncShipClaims` (cache it), the 20 s `computeTargets` spike, and the total API calls a minute, which no ops tool shows (keeper_review shows only the keepers' share).
+
 - [ ] **Galaxy map: show neighbourhoods, and give the map a face-lift (raised 2026-10-31, operator).** When neighbourhoods (hubs) are built, colour every system
   of one hub the same way on the galaxy map (`public/cartography.html`, `src/http/cartography.ts`, `public/deck-map.js`), with a legend and the hub's home
   system marked. The map itself is dated: today it shows live systems in one yellow on a dense grey field of 500+ nodes with every gate drawn, so it is hard to
