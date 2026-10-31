@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — Ops tool trade_tempo: why an hour dipped (fewer trips, or worse prices per trip)
+
+The ops ledger tool is capped at 300 rows, so a fleet-wide question about a past hour could not be answered from it. A
+per-ship check of five traders showed action gaps did not lengthen after the 20:30 and 21:10 redeploys, which disproved the
+guess that restarts slow traders through the call queue. `stcommand_ops_trade_tempo` (pure module
+`src/engine/tradeTempo.ts`, test `tests/tradeTempo.test.ts`) reads the whole ledger window and reports, per bucket (default
+5 minutes): trips started and ended, ships that traded, ships that only travelled (a JUMP and no trade), ships with no row
+at all, purchase and sales value and matched profit. Few trips starting with many ships travelling means the fleet is bunched
+in transit; normal trips with lower profit per trip means worse prices. Read-only.
+
 ## 2026-10-31 — Ops tool market_spread: how many markets and goods our ships trade at once
 
 Operator asked for a metric of how many markets the ships buy in and sell to at the same time, with different items.

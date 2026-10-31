@@ -6,6 +6,7 @@ import { buildKeeperReview } from "../engine/keeperValue.js";
 import { keeperSales, profitByGoodsCount } from "../engine/keeperSales.js";
 import { rivalActivity } from "../engine/rivalActivity.js";
 import { marketSpread } from "../engine/marketSpread.js";
+import { tradeTempo } from "../engine/tradeTempo.js";
 import { chartRewardReport } from "../engine/chartReward.js";
 import { DEFAULT_CANDIDATE_POLICY } from "../engine/systems/candidates.js";
 import { logBuffer } from "../core/logBuffer.js";
@@ -581,6 +582,20 @@ export const OPS_TOOLS: OpsTool[] = [
       const sinceMs = nowMs - hours * 3_600_000;
       const rows = await ctx.w.store.ledgerRowsSince(ctx.w.tenantId, new Date(sinceMs).toISOString());
       return { sinceHours: hours, ...marketSpread(rows, ctx.w.fleet.tradeLegsInFlight(), { nowMs, sinceMs, bucketMin: Math.min(Math.max(a.bucketMin, 5), 120) }) };
+    },
+  },
+
+  {
+    name: "trade_tempo",
+    title: "Fleet trading tempo: trips started and ended, ships trading, travelling or silent, per bucket",
+    description: "Across every trader (not a capped ledger slice), per time bucket (default 5 minutes): trips started (purchase bursts) and ended (sell bursts), ships that traded, ships that only travelled (a JUMP row, no trade), ships with no ledger row at all, purchase and sales value and matched profit. Use it to tell why an hour dipped: few trips starting with many ships travelling or silent means the fleet is bunched in transit or waiting; trips normal with lower profit per trip means worse prices. knownTraders are ships that traded at least once in the window. Read-only; sinceHours defaults to 3 (max 24).",
+    input: { sinceHours: num(3), bucketMin: num(5) },
+    async run(ctx, a) {
+      const hours = Math.min(Math.max(a.sinceHours, 0.25), 24);
+      const nowMs = ctx.now();
+      const sinceMs = nowMs - hours * 3_600_000;
+      const rows = await ctx.w.store.ledgerRowsSince(ctx.w.tenantId, new Date(sinceMs).toISOString());
+      return { sinceHours: hours, ...tradeTempo(rows, { nowMs, sinceMs, bucketMin: Math.min(Math.max(a.bucketMin, 1), 60) }) };
     },
   },
 
