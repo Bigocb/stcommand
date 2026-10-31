@@ -15,7 +15,7 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 | 2 | ~~Contract reservation: reserve only the units still owed, not the whole good~~ DONE 2026-10-31 | Next week's contracts will close the best routes again for hours. Small change, high value. |
 | 3 | ~~Review: remote-survey gaps~~ DONE 2026-10-31 | Next week's exploring depends on it; explorers are parked. |
 | 4 | ~~Review: keeper cap and API budget leave out parked keepers; release and unpark check no budget~~ DONE 2026-10-31 (triage unpark still unchecked) | Protects the 90-call limit; the one budget the whole design rests on. |
-| 5 | Big-ship buying cadence analysis (last week vs this week) | Tomorrow, before the reset: gives next week's opening a buying rule. |
+| 5 | ~~Big-ship buying cadence analysis~~ DONE 2026-10-31 (this week only; see the playbook) | Tomorrow, before the reset: gives next week's opening a buying rule. |
 | 6 | ~~Review: top-up fixes (`keeperMinGoods` off falls back to 5; effective rate 6 an hour not 8; ignores fading and parked systems)~~ DONE 2026-10-31 | Small, and the top-up was blocked all week, so it needs to be right. |
 | 7 | ~~Review: idle parking can latch (stale prices of a parked system never trigger an unpark)~~ DONE 2026-10-31 (auto-mode-only and new keepers in a parked system remain) | Small; matters over a longer week. |
 | 8 | Swap small hulls for big to save API calls | Needs 1 (calls figure) and 5 (is the big-hull effect real). |

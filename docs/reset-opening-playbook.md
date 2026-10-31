@@ -312,3 +312,34 @@ Result: 151,637,627 credits at the end (the previous week ended at 36.2M), match
   approval is now wired in (see the CHANGELOG, 2026-10-17/18); `maxLossPct` is 10.
 - **Operator's opening (2026-10-18):** the command ship tours only until there are good routes, then goes to `trader` to build cash for the
   fleet; once it has sold its cargo, buy one ship for contracts and one for touring (the tour ship then maps the rest). Cash first, map second.
+
+
+## Hull buying cadence: what 2026-10-31 showed (THEO week of 2026-10-25)
+
+Question (operator, 2026-10-31): do big hulls really drive profit per hour, and in what order and at what pace should they be bought? Evidence from the ledger and
+`ops pnl` windows 16:13-19:13 UTC, a rich stretch (matched profit 7.6M an hour for the fleet). Per-ship figures come from `topShips`, which lists only the top 15, so
+the light-hauler number is a weaker estimate than the others.
+
+| Hull | Cargo | Price | Earned per hull (3 h, n) | Per hour | Payback | Per cargo unit-hour |
+|---|---|---|---|---|---|---|
+| Bulk freighter | 490 | 3.96-4.18M (+1.3% per purchase) | 1.50M (9 hulls) | about 0.50M | about 8 h | about 1.0k |
+| Heavy freighter | 225 | 1.94-2.07M | 1.40M (4 hulls) | about 0.47M | about 4.3 h | about 2.1k |
+| Light hauler | 80 | 0.29-0.45M | about 0.4M (1 listed) | about 0.13-0.2M | about 2-3 h | about 1.6k |
+
+What it says:
+- **Big is not better per credit.** A heavy earns about what a bulk does at half the price. A bulk earns half as much per cargo unit: the markets move against a 490-unit
+  load (the 2026-10-06 market notes), so the extra hold is partly wasted.
+- **Big is better per API call.** A trip costs about the same calls whatever the hold, so when the 90-call limit is the constraint (about 50 calls a minute are keepers) a big hull
+  is the efficient way to add profit. When cash is the constraint, buy the hull with the shortest payback.
+- **The five bulk freighters added about 2.7M an hour** of the fleet's rise from about 5M to 7.6M, and were still earning 0.3-0.8M each in their first full hour, so the routes had not saturated
+  at 30 traders. Route supply was not the limit: 60 routes were on the board, with 11 traders idle at times.
+- **Part of the effect is an artifact.** The best routes go to the biggest hulls, and the premium systems arrived at the same time.
+
+Rule for the opening (to try next week, in this order):
+1. Light haulers first while cash is under about 3M: the shortest payback.
+2. Heavy freighters from about 3M up to about 20M: best payback among the big hulls.
+3. Bulk freighters from about 20M, or earlier when the call budget is the limit: keep buying while a new hull's first hour earns over 0.3M.
+4. Re-check after every 3 purchases. If the newest hulls earn under 0.3M an hour each, stop and look at route supply instead.
+5. Buy while the payback is under half the hours left in the week.
+
+Not measured: last week's per-hull split (run_results keeps only the top 5 ships), so the comparison is one week and one rich stretch.

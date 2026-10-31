@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — Hull buying cadence analysis written into the opening playbook
+
+Per-hull earnings from the week's ledger: bulk freighters about 0.50M an hour for about 4.1M (payback about 8 h), heavy freighters about 0.47M for about 2.0M (about 4.3 h),
+light haulers about 0.13-0.2M for about 0.33M. Big hulls win per API call, not per credit, so the playbook now orders purchases light, heavy, bulk by cash and re-checks after
+each three. See `docs/reset-opening-playbook.md`. One week and one rich stretch only; last week's split was not kept.
+
 ## 2026-10-31 — The fresh-system queue no longer evicts live systems when it fills
 
 `SystemQueue.scout()` capped the queue at 200 and, past the cap, deleted the oldest LIVE entry. The explorers had queued about 190 scouted systems by mid-morning, so
