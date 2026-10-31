@@ -5919,6 +5919,15 @@ export class FleetManager {
    * Add one more worthwhile market of a live system to the keeper list now and then (keeperTopUp.ts). Checked every 5 minutes; the time
    * of the last addition is a persisted timer, so a restart does not hand out an extra one. The usual keeper queue does the buying.
    */
+  /**
+   * Keeper slots in use against keeperMaxTotal: the keepers polling now plus the staged ones waiting parked, which are bought and
+   * come back at release. Idle-parked keepers are not counted (parking them is how slots are freed); their unpark waits for a free
+   * slot instead (applyIdleParking).
+   */
+  private keeperSlotsUsed(): number {
+    return this.keepers.size + this.stagedParked.size;
+  }
+
   private async maybeTopUpKeepers(): Promise<void> {
     if (!this.store || !this.tenantId || !this.doctrine.isEnabledOr("keeperTopUpPerHour", false)) return;
     const now = Date.now();
@@ -5930,7 +5939,7 @@ export class FleetManager {
     const decision = pickTopUp(f.systems, {
       nowMs: now,
       lastAddMs: timers?.book.topUp.get("lastAdd"),
-      keepers: this.keepers.size,
+      keepers: this.keeperSlotsUsed(),
       max: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0,
       keeperCallsPerMin: f.load,
       callsPerKeeper: f.perKeeper,
@@ -5962,7 +5971,7 @@ export class FleetManager {
         perHour: this.doctrine.isEnabledOr("keeperTopUpPerHour", false) ? this.doctrine.value("keeperTopUpPerHour") : 0,
         pollingCeilingCallsPerMin: this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90,
         keeperPollingCallsPerMin: Math.round(f.load * 10) / 10,
-        keepers: this.keepers.size,
+        keepers: this.keeperSlotsUsed(),
         keeperLimit: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0,
         waitingForKeepers: f.pending,
         waitingForKeepersIncludingQueuedSystems: f.listedPending,
@@ -6100,7 +6109,7 @@ export class FleetManager {
 
     const max = this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0;
     const idle = this.idleTraders(now).length;
-    const decision = decideReleases({ now, queue, live, idleTraders: idle, budgetRoom: max > 0 ? Math.max(0, max - this.keepers.size) : null, lastReleaseAt: this.lastFreshReleaseAt, credits: this.credits }, policy);
+    const decision = decideReleases({ now, queue, live, idleTraders: idle, budgetRoom: max > 0 ? Math.max(0, max - this.keeperSlotsUsed()) : null, lastReleaseAt: this.lastFreshReleaseAt, credits: this.credits }, policy);
     this.freshLast = { at: now, mode, decision, queue, live, idleTraders: idle };
 
     const key = JSON.stringify([decision.stage, decision.release, decision.notes]);
@@ -6162,6 +6171,13 @@ export class FleetManager {
     const d = decideIdleParking(facts, now, { hours });
     let changed = false;
     for (const x of d.unpark) {
+      // The keepers poll again once unparked: with the cap full they stay parked until a slot is free.
+      const max = this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0;
+      const coming = [...this.idleParked.values()].filter((sys) => sys === x.system).length;
+      if (max > 0 && this.keeperSlotsUsed() + coming > max) {
+        this.freshNote(`${x.system}: sales are back but its ${coming} parked keeper(s) wait for a free slot (${this.keeperSlotsUsed()} of ${max} in use)`);
+        continue;
+      }
       for (const [ship, sys] of [...this.idleParked]) {
         if (sys !== x.system) continue;
         try { if (this.parkedShips.has(ship)) await this.unparkShip(ship); } catch (err) { this.freshNote(`${ship}: unpark of idle ${sys} failed: ${describeError(err)}`); }
@@ -7188,7 +7204,7 @@ export class FleetManager {
     // The keeper budget (keeperMaxTotal) stops automatic buying, not manual: when it is full an automatic purchase is skipped
     // outright, with no approval card, so the queue does not turn into a stream of cards the operator must refuse one by one.
     if (this.doctrine.isEnabledOr("autoApproveKeeperProbes", false)) {
-      const budget = keeperBudget({ keepers: this.keepers.size, max: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0 });
+      const budget = keeperBudget({ keepers: this.keeperSlotsUsed(), max: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0 });
       if (!budget.allow) return { approve: false, reason: budget.reason, blocked: true };
     }
     return keeperAutoApprove({

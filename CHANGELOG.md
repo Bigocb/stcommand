@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — The keeper cap counts staged keepers, and idle-parked keepers wait for a slot to come back
+
+`keeperMaxTotal` was checked against the keepers polling now. Keepers parked on staged systems are bought and come back at release,
+so staging, top-up and the auto-approve budget saw room that was already spoken for, and a release or an idle unpark could push the
+fleet over the cap. `keeperSlotsUsed()` (polling + staged-parked) now feeds staging's `budgetRoom`, top-up and the auto-approve
+budget. Idle-parked keepers are still not counted (parking them is how slots are freed); when sales return in their system they
+unpark only if the cap has room, otherwise they stay parked and the fresh-gate log says so. Triage-parked keepers are unchanged.
+Tests in `tests/keeperCapUnpark.test.ts`.
+
 ## 2026-10-31 — Remote-survey gaps closed: arrivals are judged, intake failures retried, yard-only systems left alone
 
 Three holes found in the week's review, all with explorers parked. (1) A system a fleet jump entered was surveyed and marked

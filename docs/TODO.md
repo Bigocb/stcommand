@@ -14,7 +14,7 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 | 1 | **DONE 2026-10-31, check after the redeploy** Scheduler overload: `syncShipClaims` writes only changed claims; contract targets refresh behind the core pass; ops `api_budget` shows total calls a minute. The states and manifests mirrors now write only changes in batches too | Everything slows and rate-limits with it; the fleet is only getting bigger. Cheap first steps, and it gives the numbers items 5 and 8 need. |
 | 2 | ~~Contract reservation: reserve only the units still owed, not the whole good~~ DONE 2026-10-31 | Next week's contracts will close the best routes again for hours. Small change, high value. |
 | 3 | ~~Review: remote-survey gaps~~ DONE 2026-10-31 | Next week's exploring depends on it; explorers are parked. |
-| 4 | Review: keeper cap and API budget leave out parked keepers; release and unpark check no budget | Protects the 90-call limit; the one budget the whole design rests on. |
+| 4 | ~~Review: keeper cap and API budget leave out parked keepers; release and unpark check no budget~~ DONE 2026-10-31 (triage unpark still unchecked) | Protects the 90-call limit; the one budget the whole design rests on. |
 | 5 | Big-ship buying cadence analysis (last week vs this week) | Tomorrow, before the reset: gives next week's opening a buying rule. |
 | 6 | Review: top-up fixes (`keeperMinGoods` off falls back to 5; effective rate 6 an hour not 8; ignores fading and parked systems) | Small, and the top-up was blocked all week, so it needs to be right. |
 | 7 | Review: idle parking can latch (stale prices of a parked system never trigger an unpark) | Small; matters over a longer week. |
@@ -586,7 +586,7 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
      a yard-only system with `remoteSurveyIntake` off is re-surveyed every pass.
   5. [DONE 2026-10-31] `keeperDeliveries` never expires (confirmed): a delivery that cannot progress stays "away" and is stepped every 30 s at trader priority for ever. Fix: give up after N hours and treat the probe as an ordinary keeper.
   6. [DONE 2026-10-31] Idle-trader release (confirmed): 3 idle traders release a ready system on every 5-minute check, ignoring `freshMinGapMin` and the target, so a burst can release every ready system within 15 minutes.
-  7. `keeperMaxTotal` and the polling budget leave out parked keepers (confirmed: parking clears the role), and release/unpark add keepers with no budget or call check; only top-up looks at `keeperTopUpMaxCalls`.
+  7. [DONE 2026-10-31, triage unpark excepted] `keeperMaxTotal` and the polling budget leave out parked keepers (confirmed: parking clears the role), and release/unpark add keepers with no budget or call check; only top-up looks at `keeperTopUpMaxCalls`.
      (The reviewer used 0.2 calls/min per keeper; measured is about 0.13, so 500 keepers is about 65 calls/min, not 100.)
   8. Idle parking can latch (plausible): a parked system's prices go stale so no sales trigger an unpark; `applyIdleParking` runs in auto mode only; keepers added to a parked system are not parked.
   9. Top-up: with `keeperMinGoods` off it falls back to the recommended 5 (the description says every market); the 5-minute check against a 7.5-minute gap gives an effective 6 an hour, not 8; it ignores fading and parked state.
