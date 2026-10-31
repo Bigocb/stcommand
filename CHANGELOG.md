@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — A contract good stops closing ordinary routes once carriers hold the units owed
+
+A 77-unit EQUIPMENT contract kept every ordinary EQUIPMENT route refused ("protected good") for hours, including the best
+route of the night (266k a trip). `ContractManager.owedByGood()` now gives the quantity each contract good still owes, and
+`FleetManager.contractCoveredGoods()` lists the goods whose owed units are already in the holds of ships on contract-buy duty.
+`TraderAgent.refusedGoods()` leaves those goods out for ordinary traders (route checks, free choice, buy/sell legs, held-cargo
+delivery); a ship on contract duty keeps the full set, and the sell/jettison guards still use the full protected set so
+contract cargo is never sold. The Routes list stops marking a covered good. A good a gate mission protects is never covered.
+Tests in `tests/trader.test.ts`.
+
 ## 2026-10-31 — The per-pass mirrors write only what changed, in batches
 
 Follow-up to the claim-write fix below, applied to all three steps that wrote every ship's row on every coordinator pass, one transaction per row (544 ships, about 3.5 s of every core pass): ship claims, ship states, cargo manifests.

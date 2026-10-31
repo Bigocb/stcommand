@@ -545,4 +545,21 @@ export class ContractManager {
     }
     return out;
   }
+
+  /**
+   * Units each contract good still owes, summed over the accepted, unfulfilled, non-abandoned contracts. Same
+   * contracts protectedGoods() lists, with the quantity: the fleet compares it with what carriers already hold to decide
+   * whether ordinary routes in that good may run (fleet.contractCoveredGoods()).
+   */
+  owedByGood(): Map<string, number> {
+    const out = new Map<string, number>();
+    for (const c of this.cache?.contracts ?? []) {
+      if (!c.accepted || c.fulfilled || this.abandoned.has(c.id)) continue;
+      for (const d of c.terms.deliver ?? []) {
+        const owed = d.unitsRequired - d.unitsFulfilled;
+        if (owed > 0) out.set(d.tradeSymbol, (out.get(d.tradeSymbol) ?? 0) + owed);
+      }
+    }
+    return out;
+  }
 }

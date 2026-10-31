@@ -1411,3 +1411,27 @@ describe("TraderAgent: a manual pin overrides protection for its own good only",
     assert.equal(((make("auto") as any).refusedGoods() as Set<string>).has("ADVANCED_CIRCUITRY"), true);
   });
 });
+
+describe("TraderAgent: a contract good already covered by carriers is open to ordinary routes", () => {
+  const make = (role: string, covered: string[]) =>
+    new TraderAgent(makeShip([]), {
+      api: { getCallCount: () => 0 } as any,
+      assignedRoute: () => ({ shipSymbol: "SHIP-1", good: "EQUIPMENT", role, buyAt: "X1-A-A1", sellAt: "X1-A-B2", buyPrice: 1, sellPrice: 2, profitPerTrip: 1, source: "auto" }) as any,
+      protectedGoods: () => new Set(["EQUIPMENT", "FAB_MATS"]),
+      contractCovered: () => new Set(covered),
+    });
+
+  it("lets an ordinary trader fly the covered good but keeps the uncovered ones refused", () => {
+    const refused = (make("direct", ["EQUIPMENT"]) as any).refusedGoods() as Set<string>;
+    assert.equal(refused.has("EQUIPMENT"), false);
+    assert.equal(refused.has("FAB_MATS"), true);
+  });
+
+  it("refuses the good while the contract is not covered", () => {
+    assert.equal(((make("direct", []) as any).refusedGoods() as Set<string>).has("EQUIPMENT"), true);
+  });
+
+  it("keeps a ship on contract duty on the full protected set", () => {
+    assert.equal(((make("contractBuy", ["EQUIPMENT"]) as any).refusedGoods() as Set<string>).has("EQUIPMENT"), true);
+  });
+});

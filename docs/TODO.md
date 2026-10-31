@@ -12,7 +12,7 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 | # | Item | Why here |
 |---|---|---|
 | 1 | **DONE 2026-10-31, check after the redeploy** Scheduler overload: `syncShipClaims` writes only changed claims; contract targets refresh behind the core pass; ops `api_budget` shows total calls a minute. The states and manifests mirrors now write only changes in batches too | Everything slows and rate-limits with it; the fleet is only getting bigger. Cheap first steps, and it gives the numbers items 5 and 8 need. |
-| 2 | Contract reservation: reserve only the units still owed, not the whole good | Next week's contracts will close the best routes again for hours. Small change, high value. |
+| 2 | ~~Contract reservation: reserve only the units still owed, not the whole good~~ DONE 2026-10-31 | Next week's contracts will close the best routes again for hours. Small change, high value. |
 | 3 | Review: remote-survey gaps (a system a fleet jump enters is never judged; an intake error is never retried) | Next week's exploring depends on it; explorers are parked. |
 | 4 | Review: keeper cap and API budget leave out parked keepers; release and unpark check no budget | Protects the 90-call limit; the one budget the whole design rests on. |
 | 5 | Big-ship buying cadence analysis (last week vs this week) | Tomorrow, before the reset: gives next week's opening a buying rule. |

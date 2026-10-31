@@ -1456,7 +1456,24 @@ export class FleetManager {
    */
   /** Goods reserved for a gate mission or contract; the Routes lists mark these (ordinary trading refuses them). */
   protectedGoodList(): string[] {
-    return [...this.allProtectedGoods()];
+    const covered = this.contractCoveredGoods();
+    return [...this.allProtectedGoods()].filter((g) => !covered.has(g));
+  }
+
+  /**
+   * Contract goods whose owed units are already in the holds of ships on contract-buy duty. Ordinary routes in such a good
+   * may run: the contract is secured, and keeping every EQUIPMENT route shut for hours over 77 units closed the best
+   * route of the week (2026-10-31). Cargo guards (sell/jettison) still use the full protected set. A good a mission also
+   * protects is never covered.
+   */
+  private contractCoveredGoods(): Set<string> {
+    const out = new Set<string>();
+    const missionGoods = this.missions.protectedGoods();
+    for (const [good, owed] of this.contracts?.owedByGood() ?? []) {
+      if (missionGoods.has(good)) continue;
+      if (this.contractCargoHeldByOthers(good, "") >= owed) out.add(good);
+    }
+    return out;
   }
 
   private allProtectedGoods(): Set<string> {
@@ -1551,6 +1568,7 @@ export class FleetManager {
         if (this.tenantId) await this.store?.deleteHeldRoute(this.tenantId, shipSymbol, good);
       },
       protectedGoods: () => this.allProtectedGoods(),
+      contractCovered: () => this.contractCoveredGoods(),
       blockedGoods: () => this.blockedGoodsCache,
       redirectHops: () => this.redirectHopsLimit(),
       routeResting: (good, buyAt, sellAt) => this.dispatcher.routeCoolOff(good, buyAt, sellAt),

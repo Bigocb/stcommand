@@ -103,6 +103,8 @@ export interface TraderOptions {
   store?: import("../db/store.js").Store;
   /** Trade symbols reserved for missions; the trader must never buy/sell these. */
   protectedGoods?: () => Set<string>;
+  /** Contract goods whose owed units carriers already hold: ordinary routes in them may run (a ship on contract duty still refuses them). */
+  contractCovered?: () => ReadonlySet<string>;
   /** Goods the operator has blocked from margin trading (blockedGoods.ts): no new buys, cargo already aboard is still sold. */
   blockedGoods?: () => ReadonlySet<string>;
   /** Why the dispatcher has this exact route resting now (route cool-off or round limit), or undefined. Asked before a new round
@@ -291,6 +293,7 @@ export class TraderAgent {
   private readonly recordMarket: TraderOptions["recordMarket"];
   private readonly getMarketSnapshots: TraderOptions["getMarketSnapshots"];
   private readonly protectedGoods?: () => Set<string>;
+  private readonly contractCovered?: () => ReadonlySet<string>;
   private readonly blockedGoods?: () => ReadonlySet<string>;
   private readonly redirectHops?: () => number | undefined;
   private readonly routeResting?: TraderOptions["routeResting"];
@@ -453,6 +456,7 @@ export class TraderAgent {
     this.recordMarket = opts.recordMarket;
     this.getMarketSnapshots = opts.getMarketSnapshots;
     this.protectedGoods = opts.protectedGoods;
+    this.contractCovered = opts.contractCovered;
     this.blockedGoods = opts.blockedGoods;
     this.redirectHops = opts.redirectHops;
     this.routeResting = opts.routeResting;
@@ -2311,6 +2315,7 @@ export class TraderAgent {
     const out = new Set(this.protectedGoods?.() ?? []);
     const a = this.assignedRoute?.();
     if (a?.source === "manual" && a.role === "direct" && a.good) out.delete(a.good);
+    if (a?.role !== "contractBuy") for (const g of this.contractCovered?.() ?? []) out.delete(g);
     return out;
   }
 
@@ -2747,7 +2752,7 @@ export class TraderAgent {
     // protectedGoods-listed good on the mission's behalf — the block is
     // there to stop ORDINARY trading from competing for a reserved good,
     // not to stop the mission from sourcing its own material this way.
-    if (!assigned.missionBuy && this.protectedGoods?.().has(assigned.good)) return this.runArbitrage(undefined);
+    if (!assigned.missionBuy && this.refusedGoods().has(assigned.good)) return this.runArbitrage(undefined);
     if (this.deadRoutes.has(`${assigned.good}@${buyAt}`)) return this.runArbitrage(undefined);
     // Cross-system is allowed once the gate to buyAt's system is complete —
     // see systemsConnected()'s own comment.
@@ -2822,7 +2827,7 @@ export class TraderAgent {
     const warehouse = this.getWarehouseShip?.();
     const sellAt = assigned.sellAt;
     if (!warehouse || !sellAt) return this.runArbitrage(undefined);
-    if (this.protectedGoods?.().has(assigned.good)) return this.runArbitrage(undefined);
+    if (this.refusedGoods().has(assigned.good)) return this.runArbitrage(undefined);
     // Cross-system is allowed once the gate to sellAt's system is complete —
     // see systemsConnected()'s own comment.
     if (!this.systemsConnected(this.systemOf(warehouse.waypointSymbol), this.systemOf(sellAt))) return this.runArbitrage(undefined);
