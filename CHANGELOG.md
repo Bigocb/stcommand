@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — A jump that went through corrects the gate cache; gate flips are logged
+
+J64 (live since 03:37, 27 markets, 23 ships) had no trade routes: about 9,000 legs a pass were dropped as "outside our gate network" while the game said
+the HS97 and PP38 gates were finished and a probe had jumped HS97 -> J64 at 04:39. The server's construction cache read both gates incomplete and the proven edge
+was gone (a live "under construction" rejection withdraws every proven edge of a system and marks the gate incomplete, and an unfinished gate is re-read only every
+45 minutes). `GalaxyAtlas.recordJumpCost()` now marks the departure gate complete (a jump through it proves it), which also restores the edge, and the atlas reports
+gate flips through `onGateEvent` (the fleet logs them): "marked NOT complete (a live rejection)" and "cached incomplete but a jump went through". The cause of the
+original rejection is not found yet; the new log line should show it. Tests in `tests/gateCacheHeal.test.ts`.
+
 ## 2026-10-31 — Below-floor sales can be approved automatically within a share and a loss cap (clause off)
 
 Overnight nobody answers the `sellBelowFloor` cards, they expire after 30 minutes, and a denied lot leaves the ship holding cargo for

@@ -732,6 +732,7 @@ export class FleetManager {
     this.doctrine.onChange = (key, before, after) =>
       this.recordAction(configChangeEvent({ setting: `doctrine:${key}`, before, after, atIso: new Date().toISOString() }));
     this.galaxy = new GalaxyAtlas(this.api, opts.store);
+    this.galaxy.onGateEvent = (line) => this.log(line);
     this.registry = new Registry(this.galaxy);
     this.missions = new MissionManager({
       api: this.api,

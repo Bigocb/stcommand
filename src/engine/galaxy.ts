@@ -65,6 +65,9 @@ export class GalaxyAtlas {
     this.store = store;
   }
 
+  /** Where gate-cache changes worth a log line go (the fleet sets it to its own log); silent by default. */
+  onGateEvent?: (line: string) => void;
+
   /**
    * A system's waypoints (and, once scanJumpGates() has run for it, its jump
    * gates) are effectively static for the life of a server reset — confirmed
@@ -712,6 +715,9 @@ export class GalaxyAtlas {
    * live API kept rejecting the jump.
    */
   recordGateNotComplete(gateSymbol: string): void {
+    // A gate flipping from complete to incomplete cut J64 off from the network on 2026-10-31 (its neighbours' gates read unfinished
+    // while the game said they were finished, and a real jump had gone through); say when it happens so the cause can be found.
+    if (this.gateConstruction.get(gateSymbol) !== false) this.onGateEvent?.(`gate ${gateSymbol} marked NOT complete (a live rejection); proven edges of ${GalaxyAtlas.systemOfWaypoint(gateSymbol)} withdrawn`);
     this.withdrawProvenEdges(GalaxyAtlas.systemOfWaypoint(gateSymbol));
     this.gateConstruction.set(gateSymbol, false); this.pathCache.clear();
     this.store?.recordGalaxyGateConstruction?.(gateSymbol, false)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
@@ -791,6 +797,10 @@ export class GalaxyAtlas {
     const existing = this.jumpCosts.get(key) ?? { total: 0, count: 0 };
     this.jumpCosts.set(key, { total: existing.total + totalPrice, count: existing.count + 1 });
     if (this.addProvenEdge(GalaxyAtlas.systemOfWaypoint(fromGate), toSystem)) this.pathCache.clear();
+    // A jump that went through proves the gate it left is finished, whatever the cache said (a rejection earlier, or a read that
+    // lagged the game): correct the cache now rather than wait for the 45-minute re-read of an unfinished gate.
+    if (this.gateConstruction.get(fromGate) === false) this.onGateEvent?.(`gate ${fromGate} was cached incomplete but a jump to ${toSystem} went through: marked complete`);
+    this.noteGateComplete(fromGate);
     this.store?.recordGalaxyJumpCost?.(fromGate, toSystem, totalPrice)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
   }
 
