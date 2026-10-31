@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — Scheduler overload: claim writes, a core pass that no longer waits on the network, and an API budget report
+
+From the 02:19 logs (every core pass 4.5-5 s, one of 25.7 s, scheduler 461 of 475 tasks overdue, 429 backoffs):
+
+- **`syncShipClaims` wrote every ship's claim to the database on every pass** (`ShipRegistry.persistDirtyState`, despite the name), each in its own transaction: 544 ships, about 2.9 s of every core pass. It now remembers what it last saved per ship and writes only claims whose owner, role, intent or since changed; a failed write is not marked saved; claims loaded at boot count as saved. `syncShipManifests` (0.4 s) and `syncShipStates` (0.3 s) have the same "write everything" shape and are still open.
+- **The 20.8 s `computeTargets` spike was the contract buy targets**: a contract list fetch, a gate-path check and market lookups, awaited inside the core pass while the API was rate limiting, so every ship's dispatch waited. They now come from `StaleWhileRevalidate` (`src/engine/staleCache.ts`): the first call waits, later calls get the last value at once and a refresh (30 s TTL) runs behind it; a failed refresh keeps the last good value and logs.
+- **New ops tool `api_budget` (`stcommand_ops_api_budget`)**: the whole process's calls a minute against the 90 cap (the shared limiter, 5-minute window), queue depth and oldest wait, average and worst wait, 429s in the last 60 s, and the top spenders by ship role + call kind, by calling code and by tenant. `keeper_review` only ever showed the keepers' share.
+
+Tests: `tests/shipRegistryWrites.test.ts`, `tests/staleCache.test.ts`.
+
 ## 2026-10-31 — Unbuyable keeper markets are held back, unreachable staged systems are unstaged, the remote survey no longer loops on a failed read
 
 Found in the 02:18 logs (maintenance pass 148 s; scheduler 461 of 475 tasks overdue; 22 "rate limited, backing off" lines in 3 minutes):

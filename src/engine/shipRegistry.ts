@@ -152,11 +152,30 @@ export class ShipRegistry {
     // own claim() call sites are the only ones that ever write it, and they
     // only ever pass a real ShipRole, so this cast just re-asserts that at
     // the read side of the round-trip.
-    for (const row of await store.getAllClaims(tenantId)) this.claims.set(row.shipSymbol, row as Claim);
+    this.persisted.clear();
+    for (const row of await store.getAllClaims(tenantId)) {
+      this.claims.set(row.shipSymbol, row as Claim);
+      this.persisted.set(row.shipSymbol, ShipRegistry.saveKey(row as Claim));
+    }
   }
 
-  /** Writes every currently-tracked claim. Not dirty-tracked (same simplification as syncShipStates/syncShipManifests) — see the class doc comment. */
+  /** What was last saved for each ship (owner, role, intent, since), so an unchanged claim is not written again. */
+  private persisted = new Map<string, string>();
+  private static saveKey(c: Claim): string {
+    return JSON.stringify([c.owner, c.role, c.intent, c.since]);
+  }
+
+  /**
+   * Writes the claims that changed since they were last saved. It used to write every claim on every coordinator tick, each in its own
+   * transaction: 544 ships took about 2.9 s of every core pass (2026-10-31, `syncShipClaims` in the SLOW pass lines), almost all of it
+   * rewriting rows that had not changed. A write that fails is not marked saved, so the next tick tries it again.
+   */
   async persistDirtyState(tenantId: string, store: Store): Promise<void> {
-    for (const claim of this.claims.values()) await store.recordClaim(tenantId, claim);
+    for (const claim of this.claims.values()) {
+      const key = ShipRegistry.saveKey(claim);
+      if (this.persisted.get(claim.shipSymbol) === key) continue;
+      await store.recordClaim(tenantId, claim);
+      this.persisted.set(claim.shipSymbol, key);
+    }
   }
 }

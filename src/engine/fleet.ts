@@ -62,6 +62,7 @@ import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
 import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
 import { DEFAULT_DELIVERY_POLICY, MAX_DELIVERY_MS, deliveryArrived, deliveryExpired, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
+import { StaleWhileRevalidate } from "./staleCache.js";
 import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys, readIncomplete } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
 import { pickCheapestKeeperYard, pickKeeperYardWithShip } from "./keeperYard.js";
@@ -1852,6 +1853,11 @@ export class FleetManager {
    * TraderRole's own comment on why "contractBuy" skips straight to
    * carrying it.
    */
+  /** The contract targets are network work (contract list, gate paths, market lookups): refreshed behind the core pass, never awaited by it (staleCache.ts). */
+  private readonly contractBuyTargetsCache = new StaleWhileRevalidate<ContractBuyTarget[]>(
+    30_000, () => this.computeContractBuyTargets(), [], Date.now, (err) => this.log(`contract buy targets not refreshed: ${describeError(err)}`),
+  );
+
   private async computeContractBuyTargets(): Promise<ContractBuyTarget[]> {
     if (!this.contracts) return [];
     const deliveries = await this.contracts.outstandingDeliveries();
@@ -10548,7 +10554,7 @@ export class FleetManager {
           this.computeWarehouseTargets(routes),
           this.computeHaulTargets(),
           this.computeMissionBuyTargets(),
-          this.computeContractBuyTargets(),
+          this.contractBuyTargetsCache.get(),
         ]));
       if (!winding.active) await this.timed("releaseFulfilledManualContractBuys", () => this.releaseFulfilledManualContractBuys(contractBuyTargets));
       const traders = this.dispatcherTraders();

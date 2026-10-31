@@ -254,6 +254,36 @@ export const OPS_TOOLS: OpsTool[] = [
   },
 
   {
+    name: "api_budget",
+    title: "API budget: calls a minute against the 90 cap, the queue, and who spends it",
+    description:
+      "The shared rate limiter's last 5 minutes: total calls a minute against the 90 the game allows, the queue waiting for a token and how long the oldest has waited, average and worst wait, 429 responses in the last 60 seconds, and the top spenders by ship role + call kind and by calling code. keeper_review shows only the keepers' share; this is the whole process (every tenant on this box shares one limit). Read-only.",
+    input: { top: num(12) },
+    async run(_ctx, a) {
+      const snap = rateLimitMonitor.snapshot();
+      const st = snap.limiter;
+      if (!st) return { note: "the limiter has not reported yet", hits429Last60s: snap.hits60s };
+      const top = (rec: Record<string, { calls: number; avgWaitMs: number }>) =>
+        Object.entries(rec).sort((x, y) => y[1].calls - x[1].calls).slice(0, Math.min(Math.max(a.top, 1), 40)).map(([k, v]) => ({ what: k, calls: v.calls, perMin: Math.round((v.calls / (st.windowMs / 60_000)) * 10) / 10, avgWaitMs: v.avgWaitMs }));
+      return {
+        windowMin: Math.round(st.windowMs / 60_000),
+        callsPerMin: st.callsPerMin,
+        cap: 90,
+        shareOfCap: Math.round((st.callsPerMin / 90) * 100) / 100,
+        queueDepth: st.queueDepth,
+        oldestWaitMs: st.oldestWaitMs,
+        avgWaitMs: st.avgWaitMs,
+        maxWaitMs: st.maxWaitMs,
+        hits429Last60s: snap.hits60s,
+        last429At: snap.lastAt,
+        byRole: top(st.byRole),
+        byCaller: top(st.byCaller),
+        byTenant: top(st.byLabel),
+      };
+    },
+  },
+
+  {
     name: "profile",
     title: "Where the server's CPU and memory go",
     description:
