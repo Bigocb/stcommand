@@ -9,6 +9,10 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — Staging skips systems our ships cannot gate to
+
+The release rule staged the oldest scouted system without asking whether a probe could get there. AV28, BR8 and KN88 (found by the remote survey, jump gates unfinished) were staged between 21:38 and 22:16 on 2026-10-30, could never be delivered keepers, and held all three "staged ahead" places for over two hours: nothing reachable was staged behind them, so no system was ready to release and the routes held behind the gate rose from 40 to 136. `QueueFacts.reachable` (systemRelease.ts) now carries whether the system is in the gate network over finished gates (`galaxy.gateNetwork()`, the set the route filter uses, filled in `maybeManageFreshSystems()`). An unreachable system is never staged or released, and an unreachable staged one does not count toward `stagedAhead`. Reachability unknown (graph not hydrated) behaves as before. Hand-staged RB80, RC98 and J64 to unblock the pipeline. Test in `tests/systemRelease.test.ts`.
+
 ## 2026-10-30 — Delivered keeper probes run in the trader tier
 
 A probe bought in another system walks the gates under a hold, and each step (attach the hold, fly to the gate, jump, jump) is a keeper task re-armed 30 seconds out. All keeper tasks shared priority 3 and the runner takes the oldest-due first, so with ~400 keepers and the call budget spent each step waited 20-40 minutes behind keepers that came due earlier. THEO-1DB (bought 18:09, jumps 20:43 and 21:26, keeping at 21:26) took 3h16m for two jumps whose cooldowns are about 5 minutes. A keeper that is held at a waypoint or still outside its market's system (`keeperDriven()` in `src/engine/agent.ts`) now runs at `KEEPER_DRIVEN_PRIORITY` (2, the trader tier); parked and polling keepers stay at 3. Expect a delivery to take about flight time plus cooldowns. Test in `tests/agentNextTask.test.ts`.

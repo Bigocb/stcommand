@@ -5926,8 +5926,13 @@ export class FleetManager {
     const policy = this.releasePolicy();
 
     const ready = this.keepersInPlaceMarkets();
+    // Where our ships can gate to over finished gates (the same set the route filter uses). A graph too small to mean anything
+    // (not hydrated yet) says nothing, so every system stays eligible.
+    const reach = this.galaxy.gateNetwork([...new Set([this.systemSymbol, ...[...this.traders.values()].map((a) => a.getShip().nav.systemSymbol)].filter((x): x is string => !!x))]);
+    const reachKnown = reach.size >= 5;
     const queue: QueueFacts[] = all.filter((q) => q.state !== "live").map((q) => ({
       system: q.system, state: q.state as "scouted" | "staged", held: q.held, addedAt: q.addedAt, stagedAt: q.stagedAt, markets: q.markets.length,
+      ...(reachKnown ? { reachable: reach.has(q.system) } : {}),
       ...(q.state === "staged" ? { readyShare: q.markets.length ? q.markets.filter((m) => ready.has(m)).length / q.markets.length : 0 } : {}),
     }));
 

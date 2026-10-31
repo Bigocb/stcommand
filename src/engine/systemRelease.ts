@@ -66,6 +66,12 @@ export interface QueueFacts {
   markets: number;
   /** Staged only: keepers stationed (and parked) over markets; 1 = all of them. */
   readyShare?: number;
+  /**
+   * Can our ships gate to it over finished gates? false = no: a keeper probe cannot be delivered, so it is never staged and a
+   * staged one does not hold a "staged ahead" place (2026-10-30: AV28, BR8 and KN88, gates unfinished, sat staged with no keeper for
+   * hours and kept every reachable system out). undefined = not known, treated as reachable.
+   */
+  reachable?: boolean;
 }
 
 export interface LiveFacts {
@@ -117,13 +123,14 @@ export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDeci
   const untraded = states.filter((x) => x.st === "alive" && idleLive(x.l, s.now, p)).length;
   const soon = states.filter((x) => x.st === "fading-soon").length;
   const eligible = (q: QueueFacts) => !q.held;
+  const reachable = (q: QueueFacts) => q.reachable !== false;
 
   // Stage ahead of need.
   const staged = s.queue.filter((q) => q.state === "staged");
-  const stagedCount = staged.length;
+  const stagedCount = staged.filter(reachable).length;
   let budget = s.budgetRoom;
   if (stagedCount < p.stagedAhead) {
-    const next = s.queue.filter((q) => q.state === "scouted" && eligible(q)).sort((a, b) => a.addedAt - b.addedAt)[0];
+    const next = s.queue.filter((q) => q.state === "scouted" && eligible(q) && reachable(q)).sort((a, b) => a.addedAt - b.addedAt)[0];
     if (next) {
       if (budget !== null && budget < next.markets) out.notes.push(`${next.system} is next to stage but needs ${next.markets} keeper slot(s) and ${budget} are free`);
       else {
@@ -131,6 +138,7 @@ export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDeci
         if (budget !== null) budget -= next.markets;
       }
     } else if (!s.queue.some((q) => q.state === "scouted")) out.notes.push("no scouted system waiting to be staged");
+    else if (s.queue.some((q) => q.state === "scouted" && eligible(q))) out.notes.push("no scouted system can be reached over finished gates yet");
     else out.notes.push("every scouted system is held");
   }
 
@@ -148,7 +156,7 @@ export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDeci
     out.notes.push(`last release was ${Math.round(sinceLast / 60_000)} min ago, minimum gap ${Math.round(p.minGapMs / 60_000)} min`);
     return out;
   }
-  const ready = staged.filter((q) => eligible(q) && (q.readyShare ?? 0) >= READY_SHARE).sort((a, b) => (b.readyShare ?? 0) - (a.readyShare ?? 0) || (a.stagedAt ?? 0) - (b.stagedAt ?? 0) || a.addedAt - b.addedAt);
+  const ready = staged.filter((q) => eligible(q) && reachable(q) && (q.readyShare ?? 0) >= READY_SHARE).sort((a, b) => (b.readyShare ?? 0) - (a.readyShare ?? 0) || (a.stagedAt ?? 0) - (b.stagedAt ?? 0) || a.addedAt - b.addedAt);
   const pick = ready[0];
   if (!pick) {
     out.notes.push(

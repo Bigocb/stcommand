@@ -127,6 +127,19 @@ describe("release rule", () => {
     assert.deepEqual(decideReleases(sig({ queue: [staged("X1-ALREADY", 1), ...q] }), auto).stage, [], "one is already staged ahead");
   });
 
+  it("never stages an unreachable system, and one already staged does not hold a staged-ahead place", () => {
+    const q = [scouted("X1-BLOCKED", 1, { reachable: false }), scouted("X1-OPEN", 5, { reachable: true }), staged("X1-STUCK", 0, { reachable: false })];
+    const d = decideReleases(sig({ queue: q, live: [live("X1-L1", 1), live("X1-L2", 2), live("X1-L3", 3)] }), auto);
+    assert.deepEqual(d.stage.map((s) => s.system), ["X1-OPEN"], "the older but unreachable system is skipped, and the stuck staged one does not count as staged ahead");
+    const none = decideReleases(sig({ queue: [scouted("X1-BLOCKED", 1, { reachable: false })] }), auto);
+    assert.deepEqual(none.stage, []);
+    assert.match(none.notes.join(" "), /can be reached over finished gates/);
+    // an unreachable staged system is never released, even at 100%
+    assert.deepEqual(decideReleases(sig({ queue: [staged("X1-STUCK", 1, { reachable: false })], idleTraders: 4 }), auto).release, []);
+    // unknown reachability behaves as before
+    assert.deepEqual(decideReleases(sig({ queue: [scouted("X1-A", 1)] }), auto).stage.map((s) => s.system), ["X1-A"]);
+  });
+
   it("advisory returns the same answer as auto (the caller decides whether to act)", () => {
     const s = sig({ queue: [staged("X1-S", 1)], live: [live("X1-L1", 1)] });
     assert.deepEqual(decideReleases(s, { ...auto, mode: "advisory" }), decideReleases(s, auto));
