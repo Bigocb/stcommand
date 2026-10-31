@@ -9,6 +9,12 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — Ops tool keeper_goods_profit: what keeper markets earn by goods count
+
+`ledgerTradeByWaypoint` now also returns the realized profit of the sells at each waypoint (`sellPnl`), and the new ops tool `keeper_goods_profit` (`profitByGoodsCount`, keeperSales.ts)
+groups every stationed keeper's market by goods count (1-3, 4-5, 6-7, 8-9, 10-12, 13-15, 16+): keepers, how many saw no trade, sells and sales value per keeper, and realized profit per keeper
+and in total. It exists to set `keeperMinGoods` and the keeper count from data for a 1,000-keeper week. Needs a redeploy to be served. Test in `tests/keeperSales.test.ts`.
+
 ## 2026-10-31 — Release waits for priced markets; top-up waits for earlier keepers to price (from the outside review)
 
 Two of the review's findings. (1) `decideReleases` takes `QueueFacts.pricedShare` (share of a staged system's listed markets with a snapshot of any age) and the new clause

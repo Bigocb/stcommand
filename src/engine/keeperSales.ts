@@ -6,7 +6,7 @@
  * current week by the tenant's universe scope).
  */
 
-export interface WaypointTrade { waypoint: string; sells: number; sellUnits: number; sellValue: number; buys: number; buyUnits: number; buyValue: number }
+export interface WaypointTrade { waypoint: string; sells: number; sellUnits: number; sellValue: number; /** Realized profit of the sells at this waypoint (ledger realized_pnl). */ sellPnl?: number; buys: number; buyUnits: number; buyValue: number }
 export interface StationedKeeper { ship: string; market: string; score?: number; goods?: number }
 
 export interface KeeperSalesRow {
@@ -45,4 +45,48 @@ export function keeperSales(keepers: readonly StationedKeeper[], trades: readonl
     noTrade: rows.filter((r) => r.sells === 0 && r.buys === 0).length,
     rows: onlyNoSales ? noSales : rows,
   };
+}
+
+
+export interface GoodsBucketRow {
+  /** Goods the market trades (imports, exports, exchange). */
+  goods: string;
+  keepers: number;
+  /** Keepers whose market saw none of our trades. */
+  noTrade: number;
+  sellsPerKeeper: number;
+  sellValuePerKeeper: number;
+  /** Realized profit of our sells per keeper: what a keeper's market paid us in margin. */
+  profitPerKeeper: number;
+  profitTotal: number;
+}
+
+const BUCKETS: [string, number, number][] = [["1-3", 1, 3], ["4-5", 4, 5], ["6-7", 6, 7], ["8-9", 8, 9], ["10-12", 10, 12], ["13-15", 13, 15], ["16+", 16, Infinity]];
+
+/**
+ * Realized profit and trade at keeper markets, grouped by how many goods the market trades: does a market with more items earn
+ * enough to pay for its keeper's polling? Keepers whose goods count is unknown (no directory row yet) are left out and counted.
+ * Markets that were covered only recently have had less time to trade, so read the buckets with the keepers' age in mind.
+ */
+export function profitByGoodsCount(keepers: readonly StationedKeeper[], trades: readonly WaypointTrade[]): { rows: GoodsBucketRow[]; unknownGoods: number } {
+  const by = new Map(trades.map((t) => [t.waypoint, t]));
+  const rows: GoodsBucketRow[] = [];
+  let known = 0;
+  for (const [label, lo, hi] of BUCKETS) {
+    const ks = keepers.filter((k) => k.goods !== undefined && k.goods >= lo && k.goods <= hi);
+    known += ks.length;
+    if (!ks.length) continue;
+    const t = ks.map((k) => by.get(k.market));
+    const sum = (f: (x: WaypointTrade | undefined) => number): number => t.reduce((n, x) => n + f(x), 0);
+    rows.push({
+      goods: label,
+      keepers: ks.length,
+      noTrade: t.filter((x) => !x || (x.sells === 0 && x.buys === 0)).length,
+      sellsPerKeeper: Math.round((sum((x) => x?.sells ?? 0) / ks.length) * 10) / 10,
+      sellValuePerKeeper: Math.round(sum((x) => x?.sellValue ?? 0) / ks.length),
+      profitPerKeeper: Math.round(sum((x) => x?.sellPnl ?? 0) / ks.length),
+      profitTotal: Math.round(sum((x) => x?.sellPnl ?? 0)),
+    });
+  }
+  return { rows, unknownGoods: keepers.length - known };
 }

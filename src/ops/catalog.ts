@@ -3,7 +3,7 @@ import { gateAtOrBefore, gateBuildTime } from "../engine/agentWatch.js";
 import { systemCandidates } from "./systems.js";
 import { explorerReport } from "./explorers.js";
 import { buildKeeperReview } from "../engine/keeperValue.js";
-import { keeperSales } from "../engine/keeperSales.js";
+import { keeperSales, profitByGoodsCount } from "../engine/keeperSales.js";
 import { rivalActivity } from "../engine/rivalActivity.js";
 import { chartRewardReport } from "../engine/chartReward.js";
 import { DEFAULT_CANDIDATE_POLICY } from "../engine/systems/candidates.js";
@@ -555,6 +555,17 @@ export const OPS_TOOLS: OpsTool[] = [
     async run(ctx, a) {
       const [review, trades] = await Promise.all([ctx.w.fleet.keeperReviewData(), ctx.w.store.ledgerTradeByWaypoint(ctx.w.tenantId)]);
       return keeperSales(review.stationed, trades, a.onlyNoSales);
+    },
+  },
+
+  {
+    name: "keeper_goods_profit",
+    title: "Keeper markets by how many goods they trade, and what they earned",
+    description: "Groups every stationed keeper's market by its goods count (1-3, 4-5, 6-7, 8-9, 10-12, 13-15, 16+) and shows, per bucket, how many keepers, how many saw none of our trades, our sells and sales value per keeper, and the realized profit of those sells per keeper and in total this week. Answers whether a market with more goods earns enough to pay for its keeper's polling (about 0.13 calls a minute each), so the keeperMinGoods threshold and the keeper cap can be set from data. Markets covered only recently have had less time to trade, so the newest buckets read low. Keepers with no goods count yet are counted apart. Read-only.",
+    input: {},
+    async run(ctx) {
+      const [review, trades] = await Promise.all([ctx.w.fleet.keeperReviewData(), ctx.w.store.ledgerTradeByWaypoint(ctx.w.tenantId)]);
+      return profitByGoodsCount(review.stationed, trades);
     },
   },
 

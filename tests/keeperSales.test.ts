@@ -35,3 +35,24 @@ describe("keeperSales", () => {
     assert.equal(r.rows.at(-1)!.sellValue, 5000);
   });
 });
+
+import { profitByGoodsCount } from "../src/engine/keeperSales.js";
+describe("profitByGoodsCount", () => {
+  const keepers = [
+    { ship: "K1", market: "M1", goods: 3 }, { ship: "K2", market: "M2", goods: 3 },
+    { ship: "K3", market: "M3", goods: 12 }, { ship: "K4", market: "M4" },
+  ];
+  const trades = [
+    { waypoint: "M1", sells: 4, sellUnits: 40, sellValue: 1000, sellPnl: 100, buys: 0, buyUnits: 0, buyValue: 0 },
+    { waypoint: "M3", sells: 10, sellUnits: 100, sellValue: 9000, sellPnl: 2000, buys: 2, buyUnits: 20, buyValue: 500 },
+  ];
+  it("buckets by goods count, averages per keeper, counts no-trade keepers and leaves out unknown goods", () => {
+    const r = profitByGoodsCount(keepers, trades);
+    assert.equal(r.unknownGoods, 1);
+    const small = r.rows.find((x) => x.goods === "1-3")!;
+    assert.deepEqual([small.keepers, small.noTrade, small.sellsPerKeeper, small.sellValuePerKeeper, small.profitPerKeeper, small.profitTotal], [2, 1, 2, 500, 50, 100]);
+    const big = r.rows.find((x) => x.goods === "10-12")!;
+    assert.deepEqual([big.keepers, big.noTrade, big.profitTotal], [1, 0, 2000]);
+    assert.equal(r.rows.find((x) => x.goods === "4-5"), undefined);
+  });
+});

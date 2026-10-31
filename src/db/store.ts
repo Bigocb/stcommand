@@ -852,13 +852,14 @@ export class Store {
   }
 
   /** Our trades per waypoint: sells and buys with units and value. Scoped to the tenant's current week by the ledger's row-level policy. */
-  async ledgerTradeByWaypoint(tenantId: string): Promise<{ waypoint: string; sells: number; sellUnits: number; sellValue: number; buys: number; buyUnits: number; buyValue: number; lastTradeAt?: number }[]> {
+  async ledgerTradeByWaypoint(tenantId: string): Promise<{ waypoint: string; sells: number; sellUnits: number; sellValue: number; sellPnl: number; buys: number; buyUnits: number; buyValue: number; lastTradeAt?: number }[]> {
     return withTenant(this.pool, tenantId, async (c) => {
       const r = await c.query(
         `SELECT waypoint_symbol,
                 COUNT(*) FILTER (WHERE type = 'SELL')::int AS sells,
                 COALESCE(SUM(units) FILTER (WHERE type = 'SELL'), 0)::bigint AS sell_units,
                 COALESCE(SUM(total) FILTER (WHERE type = 'SELL'), 0)::bigint AS sell_value,
+                COALESCE(SUM(realized_pnl) FILTER (WHERE type = 'SELL'), 0)::bigint AS sell_pnl,
                 COUNT(*) FILTER (WHERE type = 'PURCHASE')::int AS buys,
                 COALESCE(SUM(units) FILTER (WHERE type = 'PURCHASE'), 0)::bigint AS buy_units,
                 COALESCE(SUM(ABS(total)) FILTER (WHERE type = 'PURCHASE'), 0)::bigint AS buy_value,
@@ -867,7 +868,7 @@ export class Store {
           GROUP BY waypoint_symbol`,
       );
       return r.rows.map((x: any) => ({
-        waypoint: x.waypoint_symbol, sells: Number(x.sells), sellUnits: Number(x.sell_units), sellValue: Number(x.sell_value),
+        waypoint: x.waypoint_symbol, sells: Number(x.sells), sellUnits: Number(x.sell_units), sellValue: Number(x.sell_value), sellPnl: Number(x.sell_pnl),
         buys: Number(x.buys), buyUnits: Number(x.buy_units), buyValue: Number(x.buy_value),
         ...(x.last_trade_at ? { lastTradeAt: new Date(x.last_trade_at).getTime() } : {}),
       }));

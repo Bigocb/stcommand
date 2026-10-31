@@ -880,3 +880,8 @@ version) and step 2 (gzip) shipped 2026-10-15; see CHANGELOG.
   4. Staging churn: F82, FS40, ZD29 were staged then unstaged within 20-60 min "no finished gate path"; stage only with a confirmed finished-gate path (check `QueueFacts.reachable` timing).
   5. Rank top-up by keeper value (skip scores under about 1) and slow-poll zero-trade keepers: 227 of 593 keepers sit on markets with no sales.
   6. Make the keeper cap API-based; `keeperMaxTotal` 700 is not binding.
+
+- [ ] **Keeper strategy for a 1,000-keeper week (raised 2026-10-31, operator).** Next week the gate opens sooner and keepers are expected to reach about 1,000 (a forum player ran about 1,000 probes). The 90-call limit is the
+  constraint, not money. Design points: model and measure the keeper API cost (modelled 49 calls/min vs measured 15 market + 16 ship at 600 keepers), poll by value (zero-trade markets at 30 minutes, high-value at 5), pace delivery
+  walking, and choose which markets get a keeper from realized profit by goods count (ops `keeper_goods_profit`, needs the redeploy; first read of it after the reset gives a clean week). Interim figures from `keeper_sales`, sales revenue per keeper
+  this week by goods count: 1-3 goods 1.95M (32% saw no trade), 4-5 2.39M, 6-7 4.01M, 8-9 1.83M (22% no trade; many are recent keepers), 10-12 3.52M, 13-15 4.83M, 16+ 4.13M (none idle). It is revenue, not profit, and confounded by keeper age.
