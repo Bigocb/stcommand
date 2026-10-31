@@ -5892,16 +5892,19 @@ export class FleetManager {
     const viable = new Map<string, number>();
     // Goods per market come from the market directory (the goods lists a survey reads with no ship there), best first. A market the
     // directory has no row for is not picked: 2026-10-29 the first pick was a 1-good market (BT69-ZB5F) because unknown goods were kept.
-    const minGoods = this.doctrine.isEnabledOr("keeperMinGoods", true) ? this.doctrine.value("keeperMinGoods") : this.doctrine.value("keeperMinGoodsRecommended", 5);
+    const minGoods = this.doctrine.isEnabledOr("keeperMinGoods", true) ? this.doctrine.value("keeperMinGoods") : 1;
     const dir = new Map<string, DirectoryRow[]>();
     for (const r of (await this.store?.marketDirectory()) ?? []) dir.set(r.systemSymbol, [...(dir.get(r.systemSymbol) ?? []), r]);
+    const parkedSystems = new Set(this.idleParked.values());
     for (const q of this.systemQueue.list()) {
       if (q.state !== "live" || q.held) continue;
       const rows = dir.get(q.system) ?? [];
       const ranked = (summarizeDirectory(rows, new Set(), now, minGoods)[0]?.ranked ?? []).filter((m) => m.goods >= minGoods);
       // A market already listed, or with a keeper on it (pinned by hand and never listed), is not a candidate.
       const have = ranked.filter((m) => covered.has(m.market) || listed.has(m.market)).length;
-      systems.push({ system: q.system, covered: have, candidates: ranked.filter((m) => !covered.has(m.market) && !listed.has(m.market)).map((m) => m.market) });
+      // A system whose keepers were parked for want of sales gets no new market: its premium is gone and they would only be parked too.
+      const parked = parkedSystems.has(q.system);
+      systems.push({ system: q.system, covered: have, candidates: parked ? [] : ranked.filter((m) => !covered.has(m.market) && !listed.has(m.market)).map((m) => m.market) });
       viable.set(q.system, ranked.length);
     }
     const polls = [...this.keeperMarkets.values()].map((m) => 60_000 / Math.max(this.keeperPollMs(m), 60_000));
@@ -5931,10 +5934,19 @@ export class FleetManager {
   private async maybeTopUpKeepers(): Promise<void> {
     if (!this.store || !this.tenantId || !this.doctrine.isEnabledOr("keeperTopUpPerHour", false)) return;
     const now = Date.now();
-    if (now - this.lastTopUpCheckAt < 5 * 60_000) return;
+    if (now - this.lastTopUpCheckAt < 60_000) return;
     this.lastTopUpCheckAt = now;
     const timers = this.timers();
     await timers?.load();
+    // Looked at every minute but only when an addition is due (the 5-minute check against a 7.5-minute gap gave 6 an hour, not 8). The
+    // facts read the market directory, so once one is due and nothing is added the next look is 5 minutes on.
+    const gapMs = 3_600_000 / Math.max(1, this.doctrine.value("keeperTopUpPerHour"));
+    const lastAdd = timers?.book.topUp.get("lastAdd");
+    if (lastAdd !== undefined && now - lastAdd < gapMs) {
+      this.topUpLast = { at: now, reason: `last top-up ${Math.round((now - lastAdd) / 60_000)} min ago; one every ${Math.round(gapMs / 60_000)} min` };
+      return;
+    }
+    this.lastTopUpCheckAt = now + 4 * 60_000;
     const f = await this.topUpFacts(now);
     const decision = pickTopUp(f.systems, {
       nowMs: now,

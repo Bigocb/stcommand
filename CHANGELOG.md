@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — Keeper top-up: true hourly rate, every market when the goods filter is off, no markets for parked systems
+
+Three review findings. (1) The check ran every 5 minutes against a 7.5-minute gap, so 8 an hour gave 6; it now looks every minute but
+reads the market directory only once an addition is due (then 5 minutes on if nothing was added). (2) With `keeperMinGoods` off top-up
+fell back to the recommended 5 goods although the clause says "off = every market"; it now takes every market. (3) A live system whose
+keepers were idle-parked for want of sales no longer gets new candidates. Fading systems are still topped up (they still trade).
+Tests in `tests/keeperTopUpCadence.test.ts`; the goods fallback and parked-system filter have no test of their own.
+
 ## 2026-10-31 — The keeper cap counts staged keepers, and idle-parked keepers wait for a slot to come back
 
 `keeperMaxTotal` was checked against the keepers polling now. Keepers parked on staged systems are bought and come back at release,

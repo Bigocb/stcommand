@@ -16,7 +16,7 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 | 3 | ~~Review: remote-survey gaps~~ DONE 2026-10-31 | Next week's exploring depends on it; explorers are parked. |
 | 4 | ~~Review: keeper cap and API budget leave out parked keepers; release and unpark check no budget~~ DONE 2026-10-31 (triage unpark still unchecked) | Protects the 90-call limit; the one budget the whole design rests on. |
 | 5 | Big-ship buying cadence analysis (last week vs this week) | Tomorrow, before the reset: gives next week's opening a buying rule. |
-| 6 | Review: top-up fixes (`keeperMinGoods` off falls back to 5; effective rate 6 an hour not 8; ignores fading and parked systems) | Small, and the top-up was blocked all week, so it needs to be right. |
+| 6 | ~~Review: top-up fixes (`keeperMinGoods` off falls back to 5; effective rate 6 an hour not 8; ignores fading and parked systems)~~ DONE 2026-10-31 | Small, and the top-up was blocked all week, so it needs to be right. |
 | 7 | Review: idle parking can latch (stale prices of a parked system never trigger an unpark) | Small; matters over a longer week. |
 | 8 | Swap small hulls for big to save API calls | Needs 1 (calls figure) and 5 (is the big-hull effect real). |
 | 9 | Neighbourhoods (hubs): pure module first, local commits, not pushed | Wanted for the reset, but not started; talk it through piece by piece. |
@@ -589,7 +589,7 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   7. [DONE 2026-10-31, triage unpark excepted] `keeperMaxTotal` and the polling budget leave out parked keepers (confirmed: parking clears the role), and release/unpark add keepers with no budget or call check; only top-up looks at `keeperTopUpMaxCalls`.
      (The reviewer used 0.2 calls/min per keeper; measured is about 0.13, so 500 keepers is about 65 calls/min, not 100.)
   8. Idle parking can latch (plausible): a parked system's prices go stale so no sales trigger an unpark; `applyIdleParking` runs in auto mode only; keepers added to a parked system are not parked.
-  9. Top-up: with `keeperMinGoods` off it falls back to the recommended 5 (the description says every market); the 5-minute check against a 7.5-minute gap gives an effective 6 an hour, not 8; it ignores fading and parked state.
+  9. [DONE 2026-10-31, fading excepted] Top-up: with `keeperMinGoods` off it falls back to the recommended 5 (the description says every market); the 5-minute check against a 7.5-minute gap gives an effective 6 an hour, not 8; it ignores fading and parked state.
   10. Reset: the in-flight tick can write a fleet flag after the wipe and before the reboot (speculative); `yardWait` keys are never pruned (harmless).
   11. Docs and tests: `store.ts` ~1842 names the wrong table list; a docblock sits above the wrong function in fleet.ts (~5668); the `freshGate` description says 10 minutes, the code 5; no fleet-level tests for
       `maybeTopUpKeepers`, `advanceKeeperDeliveries`, the `purchaseKeeperProbe` delivery branch, `applyIdleParking`, remote-survey intake, or stage-then-cannot-buy.
