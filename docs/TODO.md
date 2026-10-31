@@ -554,6 +554,28 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   by hand via the dashboard, and see whether the price actually moves the
   way the theory predicts before spending effort automating it.
 
+- [ ] **Independent review of the keeper / fresh-system / exploring logic, 2026-10-31 (a fresh-context reviewer; each item checked against the code by the main session).**
+  Do the first five before the next reset; the rest can wait for the in-depth review above.
+  1. **A staged system that cannot be bought for blocks the pipeline** (confirmed). `decideReleases` only checks gate reachability (no hop limit), but keepers can be bought only
+     where a stored yard row or a delivery yard with our ship docked is within `keeperDeliveryHops` (3). Three such staged systems fill `freshStagedAhead` and nothing else is staged.
+     There is no demotion or expiry. Fix: a staged system with almost no keepers after N hours stops counting toward `stagedAhead`.
+  2. **`purchaseKeeperProbe` hides failures** (confirmed). It returns void and catches everything, so callers treat a failed buy as bought and retry the same head market every tick (about 3 calls
+     each). Worse, one `try` covers everything after `purchaseShip`: a throw in the ledger write, `ensureShipTypeRule` or `setShipRole` is logged "failed to buy" with the ship already bought and
+     no keeper role, so the market stays uncovered and auto-approve buys another probe (the 2026-10-08 double-buy again). Fix: return a result, and split the post-purchase steps out of the buy `try`.
+  3. **Staging ignores cash** (confirmed by reading; matters at the start of a week). With `keeperAutoApproveMinCash` 5M every keeper under 5M cash needs an approval card; one card slot, 2 h timeout then deny.
+     Auto mode can stage 3 systems (24 markets) at the start of the week and none can be bought. Fix: do not stage while cash is under the auto-approve floor plus the systems' cost.
+  4. Remote survey gaps (plausible/confirmed): a system a fleet jump enters is marked read but never judged or queued while explorers are parked; an exception in intake after the directory write is never retried;
+     a yard-only system with `remoteSurveyIntake` off is re-surveyed every pass.
+  5. `keeperDeliveries` never expires (confirmed): a delivery that cannot progress stays "away" and is stepped every 30 s at trader priority for ever. Fix: give up after N hours and treat the probe as an ordinary keeper.
+  6. Idle-trader release (confirmed): 3 idle traders release a ready system on every 5-minute check, ignoring `freshMinGapMin` and the target, so a burst can release every ready system within 15 minutes.
+  7. `keeperMaxTotal` and the polling budget leave out parked keepers (confirmed: parking clears the role), and release/unpark add keepers with no budget or call check; only top-up looks at `keeperTopUpMaxCalls`.
+     (The reviewer used 0.2 calls/min per keeper; measured is about 0.13, so 500 keepers is about 65 calls/min, not 100.)
+  8. Idle parking can latch (plausible): a parked system's prices go stale so no sales trigger an unpark; `applyIdleParking` runs in auto mode only; keepers added to a parked system are not parked.
+  9. Top-up: with `keeperMinGoods` off it falls back to the recommended 5 (the description says every market); the 5-minute check against a 7.5-minute gap gives an effective 6 an hour, not 8; it ignores fading and parked state.
+  10. Reset: the in-flight tick can write a fleet flag after the wipe and before the reboot (speculative); `yardWait` keys are never pruned (harmless).
+  11. Docs and tests: `store.ts` ~1842 names the wrong table list; a docblock sits above the wrong function in fleet.ts (~5668); the `freshGate` description says 10 minutes, the code 5; no fleet-level tests for
+      `maybeTopUpKeepers`, `advanceKeeperDeliveries`, the `purchaseKeeperProbe` delivery branch, `applyIdleParking`, remote-survey intake, or stage-then-cannot-buy.
+
 - [ ] **Galaxy map: show neighbourhoods, and give the map a face-lift (raised 2026-10-31, operator).** When neighbourhoods (hubs) are built, colour every system
   of one hub the same way on the galaxy map (`public/cartography.html`, `src/http/cartography.ts`, `public/deck-map.js`), with a legend and the hub's home
   system marked. The map itself is dated: today it shows live systems in one yellow on a dense grey field of 500+ nodes with every gate drawn, so it is hard to
