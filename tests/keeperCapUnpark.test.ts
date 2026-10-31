@@ -11,6 +11,8 @@ function fake(opts: { max: number; polling: number; staged: number; idleParkedIn
     doctrine: { isEnabledOr: () => true, value: (k: string) => (k === "keeperMaxTotal" ? opts.max : 6) },
     freshMature: { at: 0, sells: [{ waypoint: "X1-AA-M1", timestamp: new Date().toISOString() }] },
     idleParked,
+    idleParkedAt: new Map(),
+    idleCheckedAt: new Map(),
     keepers: { size: opts.polling },
     stagedParked: { size: opts.staged },
     parkedShips: new Map(opts.idleParkedIn.map((_, i) => [`K${i}`, {}])),

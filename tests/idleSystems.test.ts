@@ -23,4 +23,13 @@ describe("idle system parking (pure)", () => {
     assert.deepEqual(d.unpark.map((x) => x.system), ["X1-A"]);
     assert.deepEqual(d.park, []);
   });
+  it("opens a system that has stayed parked for the window, even with no sells", () => {
+    const d = decideIdleParking([{ ...f("X1-A", 20, 0, true), parkedAt: NOW - 7 * H }, { ...f("X1-B", 20, 0, true), parkedAt: NOW - 2 * H }], NOW, on);
+    assert.deepEqual(d.unpark.map((x) => x.system), ["X1-A"]);
+    assert.match(d.unpark[0]!.reason, /re-check/);
+  });
+  it("does not park a system again until a window has passed since its re-check", () => {
+    const d = decideIdleParking([{ ...f("X1-A", 20, 0), checkedAt: NOW - 2 * H }, { ...f("X1-B", 20, 0), checkedAt: NOW - 7 * H }], NOW, on);
+    assert.deepEqual(d.park.map((x) => x.system), ["X1-B"]);
+  });
 });

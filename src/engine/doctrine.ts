@@ -495,7 +495,7 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "freshIdleParkHours",
     name: "Fresh systems: park keepers where nothing sells",
-    description: "On = a live system that is this many hours past its release and has had no sells at all in the last this-many hours has its keepers parked: they stay on their markets and still cover them, but stop polling, which frees API calls (about 0.18 a minute each). They are unparked as soon as the system sells again, or when this is turned off. Note that a parked system's prices go stale, so traders see fewer routes there. Off (the default) = keepers always poll. Takes effect on the next check (every 5 minutes).",
+    description: "On = a live system that is this many hours past its release and has had no sells at all in the last this-many hours has its keepers parked: they stay on their markets and still cover them, but stop polling, which frees API calls (about 0.18 a minute each). They are unparked as soon as the system sells again, or when this is turned off. A parked system's prices go stale, so traders see fewer routes there and it may never sell again on its own: after this many hours parked it is opened for one more window as a re-check, and is parked again only if that window also has no sells. Off (the default) = keepers always poll. Takes effect on the next check (every 5 minutes).",
     value: 6, min: 2, max: 24, step: 1, unit: " h",
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },

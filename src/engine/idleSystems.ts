@@ -21,6 +21,10 @@ export interface IdleFacts {
   sells: number;
   /** Its keepers are parked for being idle right now. */
   parked: boolean;
+  /** When they were parked (ms). */
+  parkedAt?: number;
+  /** When they were last unparked for a re-check (ms): no parking again for `hours` after it. */
+  checkedAt?: number;
 }
 
 export interface IdleDecision {
@@ -40,7 +44,10 @@ export function decideIdleParking(facts: readonly IdleFacts[], now: number, p: I
     const ageH = (now - f.releasedAt) / H;
     if (f.parked) {
       if (f.sells > 0) out.unpark.push({ system: f.system, reason: `${f.sells} sell(s) in the last ${p.hours} h` });
-    } else if (ageH >= p.hours && f.sells === 0) {
+      // A parked system's prices go stale, so traders see no routes there and nothing sells to unpark it: after `hours` it is opened for
+      // one more window to show whether its routes are back.
+      else if (f.parkedAt !== undefined && now - f.parkedAt >= p.hours * H) out.unpark.push({ system: f.system, reason: `re-check: parked ${((now - f.parkedAt) / H).toFixed(1)} h, its prices are stale` });
+    } else if (ageH >= p.hours && f.sells === 0 && (f.checkedAt === undefined || now - f.checkedAt >= p.hours * H)) {
       out.park.push({ system: f.system, reason: `live ${ageH.toFixed(1)} h with no sells in the last ${p.hours} h` });
     }
   }

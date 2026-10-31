@@ -9,6 +9,14 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — Idle parking no longer latches: a parked system is re-checked after a window
+
+A system whose keepers were parked for lack of sales had stale prices, so traders saw no routes there and nothing could sell to unpark
+it. `decideIdleParking` now opens a parked system after `freshIdleParkHours` of being parked (reason "re-check") and does not park it
+again until a further window has passed; the park time and the last re-check are saved with the fresh-gate flag (`idleSince`,
+`idleChecked`). A system parked under an older flag counts from the first check after the update. Still open from the review: idle
+parking acts in auto mode only, and keepers added to a parked system are not parked. Tests in `tests/idleSystems.test.ts`.
+
 ## 2026-10-31 — Keeper top-up: true hourly rate, every market when the goods filter is off, no markets for parked systems
 
 Three review findings. (1) The check ran every 5 minutes against a 7.5-minute gap, so 8 an hour gave 6; it now looks every minute but

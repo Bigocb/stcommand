@@ -1160,9 +1160,11 @@ export class FleetManager {
     const freshGateFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "freshGate") : undefined;
     if (freshGateFlag) {
       try {
-        const f = JSON.parse(freshGateFlag) as { stagedParked?: Record<string, string>; idleParked?: Record<string, string>; lastReleaseAt?: number };
+        const f = JSON.parse(freshGateFlag) as { stagedParked?: Record<string, string>; idleParked?: Record<string, string>; idleSince?: Record<string, number>; idleChecked?: Record<string, number>; lastReleaseAt?: number };
         for (const [ship, sys] of Object.entries(f.stagedParked ?? {})) if (typeof sys === "string") this.stagedParked.set(ship, sys);
         for (const [ship, sys] of Object.entries(f.idleParked ?? {})) if (typeof sys === "string") this.idleParked.set(ship, sys);
+        for (const [sys, at] of Object.entries(f.idleSince ?? {})) if (typeof at === "number") this.idleParkedAt.set(sys, at);
+        for (const [sys, at] of Object.entries(f.idleChecked ?? {})) if (typeof at === "number") this.idleCheckedAt.set(sys, at);
         if (typeof f.lastReleaseAt === "number") this.lastFreshReleaseAt = f.lastReleaseAt;
       } catch {
         /* a bad flag is dropped; the parked hulls themselves are restored from fleet_state */
@@ -5529,6 +5531,9 @@ export class FleetManager {
   private readonly stagedParked = new Map<string, string>();
   /** Keepers parked because their live system has no sales (clause freshIdleParkHours): ship -> system. */
   private readonly idleParked = new Map<string, string>();
+  /** When each idle system's keepers were parked, and when it was last opened for a re-check (idleSystems.ts). Saved with the fresh gate. */
+  private readonly idleParkedAt = new Map<string, number>();
+  private readonly idleCheckedAt = new Map<string, number>();
   private lastFreshReleaseAt: number | undefined;
   private lastFreshCheckAt = 0;
   private freshLast?: { at: number; mode: ReleaseMode; decision: ReleaseDecision; queue: QueueFacts[]; live: LiveFacts[]; idleTraders: number };
@@ -5569,7 +5574,7 @@ export class FleetManager {
       if (this.systemQueue.size) await this.store.setFleetFlag(this.tenantId, "systemQueue", this.systemQueue.toJson());
       else await this.store.removeFleetFlag(this.tenantId, "systemQueue");
       if (this.stagedParked.size || this.idleParked.size || this.lastFreshReleaseAt !== undefined) {
-        await this.store.setFleetFlag(this.tenantId, "freshGate", JSON.stringify({ stagedParked: Object.fromEntries(this.stagedParked), idleParked: Object.fromEntries(this.idleParked), lastReleaseAt: this.lastFreshReleaseAt }));
+        await this.store.setFleetFlag(this.tenantId, "freshGate", JSON.stringify({ stagedParked: Object.fromEntries(this.stagedParked), idleParked: Object.fromEntries(this.idleParked), idleSince: Object.fromEntries(this.idleParkedAt), idleChecked: Object.fromEntries(this.idleCheckedAt), lastReleaseAt: this.lastFreshReleaseAt }));
       } else await this.store.removeFleetFlag(this.tenantId, "freshGate");
     } catch (err) {
       this.log(`save fresh-system queue failed: ${describeError(err)}`);
@@ -6177,9 +6182,11 @@ export class FleetManager {
     const sells = new Map<string, number>();
     for (const r of rows) if (r.waypoint && Date.parse(r.timestamp) >= since) { const sys = systemOf(r.waypoint); sells.set(sys, (sells.get(sys) ?? 0) + 1); }
     const parkedSystems = new Set(this.idleParked.values());
+    // Parked before the time was kept (an older flag): count from now, or the re-check would never come.
+    for (const sys of parkedSystems) if (!this.idleParkedAt.has(sys)) this.idleParkedAt.set(sys, now);
     const releasedAt = new Map(this.systemQueue.list().filter((q) => q.releasedAt !== undefined).map((q) => [q.system, q.releasedAt!]));
     // With no sell data (the ledger read failed) nothing is parked: a missing count would read as "no sales".
-    const facts: IdleFacts[] = liveSystems.filter((s) => releasedAt.has(s)).map((s) => ({ system: s, releasedAt: releasedAt.get(s)!, sells: this.freshMature ? (sells.get(s) ?? 0) : 1, parked: parkedSystems.has(s) }));
+    const facts: IdleFacts[] = liveSystems.filter((s) => releasedAt.has(s)).map((s) => ({ system: s, releasedAt: releasedAt.get(s)!, sells: this.freshMature ? (sells.get(s) ?? 0) : 1, parked: parkedSystems.has(s), parkedAt: this.idleParkedAt.get(s), checkedAt: this.idleCheckedAt.get(s) }));
     const d = decideIdleParking(facts, now, { hours });
     let changed = false;
     for (const x of d.unpark) {
@@ -6187,7 +6194,7 @@ export class FleetManager {
       const max = this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0;
       const coming = [...this.idleParked.values()].filter((sys) => sys === x.system).length;
       if (max > 0 && this.keeperSlotsUsed() + coming > max) {
-        this.freshNote(`${x.system}: sales are back but its ${coming} parked keeper(s) wait for a free slot (${this.keeperSlotsUsed()} of ${max} in use)`);
+        this.freshNote(`${x.system}: ${x.reason}, but its ${coming} parked keeper(s) wait for a free slot (${this.keeperSlotsUsed()} of ${max} in use)`);
         continue;
       }
       for (const [ship, sys] of [...this.idleParked]) {
@@ -6195,6 +6202,8 @@ export class FleetManager {
         try { if (this.parkedShips.has(ship)) await this.unparkShip(ship); } catch (err) { this.freshNote(`${ship}: unpark of idle ${sys} failed: ${describeError(err)}`); }
         this.idleParked.delete(ship); changed = true;
       }
+      this.idleParkedAt.delete(x.system);
+      this.idleCheckedAt.set(x.system, now);
       this.freshNote(`${x.system}: keepers unparked (${x.reason})`);
     }
     for (const x of d.park) {
@@ -6204,7 +6213,7 @@ export class FleetManager {
         if (systemOf(market) !== x.system || this.idleParked.has(ship)) continue;
         const st = here.get(ship);
         if (!st || st.nav === "IN_TRANSIT" || st.waypoint !== market) continue;
-        try { await this.parkShip(ship); this.idleParked.set(ship, x.system); n++; changed = true; } catch (err) { this.freshNote(`${ship}: idle parking at ${market} failed: ${describeError(err)}`); }
+        try { await this.parkShip(ship); this.idleParked.set(ship, x.system); if (!this.idleParkedAt.has(x.system)) this.idleParkedAt.set(x.system, now); n++; changed = true; } catch (err) { this.freshNote(`${ship}: idle parking at ${market} failed: ${describeError(err)}`); }
       }
       if (n) this.freshNote(`${x.system}: ${n} keeper(s) parked (${x.reason})`);
     }
