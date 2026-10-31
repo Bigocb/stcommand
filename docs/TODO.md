@@ -576,6 +576,16 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   11. Docs and tests: `store.ts` ~1842 names the wrong table list; a docblock sits above the wrong function in fleet.ts (~5668); the `freshGate` description says 10 minutes, the code 5; no fleet-level tests for
       `maybeTopUpKeepers`, `advanceKeeperDeliveries`, the `purchaseKeeperProbe` delivery branch, `applyIdleParking`, remote-survey intake, or stage-then-cannot-buy.
 
+- [ ] **Big-ship buying cadence: look at last week's and this week's data (raised 2026-10-31, operator; do it tomorrow, before the reset).** Big hulls seem to drive profit per hour up
+  (this week: bulk freighters earned 0.4-0.7M an hour each against about 0.13M for an 80-cargo hauler), but it may be an artifact: the biggest hulls get the best routes, the premium systems
+  arrived at the same time, and the fleet grew at the same time. Method: join the ship purchases (ledger type SHIP, `ship_purchased` fleet events) to the hourly profit
+  (`hourly_snapshot` action events, `run_results`) for both weeks; per-hull earnings per hour and per API call; the same hull on the same route before and after others were added; whether the
+  routes still had spare profit when each big hull arrived (the routes held or unflown at that hour). Output: a buying rule (when, how many, which hull) as a pure module behind a doctrine
+  clause that ships off, so next week's opening can use it. Related: `shipCap:FRAME_*` limits only the auto-buyer; manual buys ignore them.
+- [ ] **Save API calls by swapping small hulls for big ones (raised 2026-10-31, operator; fine to do gradually).** If calls run short, park the 40-cargo shuttles and 80-cargo haulers and buy bulk
+  or heavy freighters in their place, not all at once. Each ship costs the same scheduler slot and about the same calls whatever it carries, so a bulk freighter moves about 6x the cargo of a hauler
+  for the same overhead. Needs: calls per ship per hour by hull (not available today; see the scheduler item below, an ops figure for total calls a minute), a rule for which ships to park first
+  (lowest earnings per hour), and a check that routes can absorb the bigger lots without collapsing prices.
 - [ ] **Contract reservation should cover the quantity owed, not the whole good (raised 2026-10-31).** While a contract needs even a few units of a good, `allProtectedGoods()`
   (fleet.ts) refuses that good to every ordinary trade fleet-wide. The 77-unit EQUIPMENT contract (373k payout) kept the fleet's best route (EQUIPMENT RC98 B13Z to EB8C, 266k a trip)
   closed for hours. Reserve only the units still owed (hold them back at the buy, let the rest trade).
