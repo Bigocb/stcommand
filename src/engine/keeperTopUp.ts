@@ -72,3 +72,31 @@ export function pickTopUp(systems: readonly TopUpSystem[], ctx: TopUpContext, po
   const market = best.candidates[0]!;
   return { market, system: best.system, reason: `${market}: ${best.system} has ${best.covered} of ${best.covered + best.candidates.length} worthwhile markets covered; keepers poll ${ctx.keeperCallsPerMin.toFixed(1)} -> ${after.toFixed(1)} calls/min (ceiling ${policy.maxKeeperCalls})` };
 }
+
+/**
+ * Listed markets that still wait for a keeper and so hold top-up back (TopUpPolicy.maxPending). Markets of a system that is still queued
+ * (scouted or staged) do not count: staging lists its best markets for keepers at once, so with a few systems staged the count sat at
+ * 20 or more and top-up added nothing for hours (2026-10-30, found when the live systems still had only the 6 markets they started with).
+ */
+export function pendingForTopUp(listed: Iterable<string>, covered: ReadonlySet<string>, queuedSystems: ReadonlySet<string>, systemOf: (market: string) => string): number {
+  let n = 0;
+  for (const m of listed) if (!covered.has(m) && !queuedSystems.has(systemOf(m))) n++;
+  return n;
+}
+
+export interface CoverageRow {
+  system: string;
+  /** Markets that pass the goods filter (keeperMinGoods). */
+  viable: number;
+  /** Of those, with a keeper or listed for one. */
+  covered: number;
+  /** Viable markets neither covered nor listed: what top-up has still to add. */
+  uncovered: number;
+}
+
+/** Live systems with the most viable markets still uncovered first (ops tool keeper_coverage). */
+export function coverageRows(systems: readonly TopUpSystem[], viableOf: (system: string) => number): CoverageRow[] {
+  return systems
+    .map((s) => ({ system: s.system, viable: viableOf(s.system), covered: s.covered, uncovered: s.candidates.length }))
+    .sort((a, b) => b.uncovered - a.uncovered || a.system.localeCompare(b.system));
+}

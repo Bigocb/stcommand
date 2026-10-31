@@ -434,6 +434,18 @@ export const OPS_TOOLS: OpsTool[] = [
   },
 
   {
+    name: "keeper_coverage",
+    title: "Keeper coverage: viable markets without a keeper, per live system, and whether top-up is adding them",
+    description: "A fresh system starts with only its best few markets (freshKeepersPerSystem); the keeper top-up is meant to add the rest slowly. This lists each LIVE system with its viable markets (those passing keeperMinGoods), how many have a keeper or are listed for one, and how many are still uncovered, the systems with most uncovered first, plus totals. Also says whether top-up is running: its rate, the polling ceiling against the keepers' current load, the keeper limit, how many listed markets wait for a keeper (staged systems excluded, see waitingForKeepersIncludingQueuedSystems), when it last added a market and the reason of its last check (which names what is holding it back). Read-only. Change the pace with stcommand_set_doctrine on keeperTopUpPerHour, keeperTopUpMaxCalls and keeperMaxTotal.",
+    input: { limit: num(40) },
+    async run(ctx, a) {
+      const d = await ctx.w.fleet.keeperCoverageData();
+      const total = d.rows.reduce((t, r) => ({ viable: t.viable + r.viable, covered: t.covered + r.covered, uncovered: t.uncovered + r.uncovered }), { viable: 0, covered: 0, uncovered: 0 });
+      return { totals: { liveSystems: d.rows.length, ...total, systemsWithGaps: d.rows.filter((r) => r.uncovered > 0).length }, topUp: d.topUp, systems: d.rows.slice(0, Math.min(Math.max(a.limit, 1), 200)) };
+    },
+  },
+
+  {
     name: "agent_watch",
     title: "Agent watch: who registered when, what their start looked like, how fast start gates get built",
     description: "The public agent directory watched every 15 minutes (agent_sightings, agent_samples, gate_progress_samples; kept across resets). Per agent: its faction, start system, how many agents shared that start, when it was FIRST SEEN and how sure that is (source live = it appeared between two scans, so registration is bracketed by priorScanAt..firstSeenAt; snapshot = from the hourly agent snapshots, so within an hour; baseline = already there when the watcher first ran, so firstSeenAt is only an upper bound), credits and ships then and now, and the start gate's progress at first sight (fulfilled/required, complete) and now, with when it finished. The public API shows no registration time, so this is the only source of one. Filter with agent (part of a name, e.g. FIRST for FIRST and FIRST496), system, sinceHours (first seen within the last N hours; baseline rows excluded) and resetDate (a past week). Also gives sightings by source, new agents per hour, and the hours each start gate took from the first sample to complete. Read-only.",

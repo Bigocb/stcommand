@@ -59,7 +59,7 @@ import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { yardsFirst } from "./keeperOrder.js";
 import { PersistedTimers } from "./persistedTimers.js";
-import { DEFAULT_TOPUP_POLICY, pickTopUp, type TopUpSystem } from "./keeperTopUp.js";
+import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
 import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
 import { DEFAULT_DELIVERY_POLICY, deliveryArrived, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
 import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys } from "./remoteSurvey.js";
@@ -5798,6 +5798,40 @@ export class FleetManager {
 
   private lastTopUpCheckAt = 0;
   private topUpNoteAt = "";
+  /** What the last top-up check decided, for the ops tool keeper_coverage. */
+  private topUpLast?: { at: number; reason: string; market?: string };
+
+  /** The live systems with how many of their viable markets are covered, listed or still open, and the load figures top-up decides on. */
+  private async topUpFacts(now: number): Promise<{ systems: TopUpSystem[]; viable: Map<string, number>; pending: number; load: number; perKeeper: number; listedPending: number }> {
+    const covered = this.coveredKeeperMarkets();
+    const listed = new Set(await this.keeperPriorityMarkets());
+    const systems: TopUpSystem[] = [];
+    const viable = new Map<string, number>();
+    // Goods per market come from the market directory (the goods lists a survey reads with no ship there), best first. A market the
+    // directory has no row for is not picked: 2026-10-29 the first pick was a 1-good market (BT69-ZB5F) because unknown goods were kept.
+    const minGoods = this.doctrine.isEnabledOr("keeperMinGoods", true) ? this.doctrine.value("keeperMinGoods") : this.doctrine.value("keeperMinGoodsRecommended", 5);
+    const dir = new Map<string, DirectoryRow[]>();
+    for (const r of (await this.store?.marketDirectory()) ?? []) dir.set(r.systemSymbol, [...(dir.get(r.systemSymbol) ?? []), r]);
+    for (const q of this.systemQueue.list()) {
+      if (q.state !== "live" || q.held) continue;
+      const rows = dir.get(q.system) ?? [];
+      const ranked = (summarizeDirectory(rows, new Set(), now, minGoods)[0]?.ranked ?? []).filter((m) => m.goods >= minGoods);
+      // A market already listed, or with a keeper on it (pinned by hand and never listed), is not a candidate.
+      const have = ranked.filter((m) => covered.has(m.market) || listed.has(m.market)).length;
+      systems.push({ system: q.system, covered: have, candidates: ranked.filter((m) => !covered.has(m.market) && !listed.has(m.market)).map((m) => m.market) });
+      viable.set(q.system, ranked.length);
+    }
+    const polls = [...this.keeperMarkets.values()].map((m) => 60_000 / Math.max(this.keeperPollMs(m), 60_000));
+    const load = polls.reduce((t, c) => t + c, 0);
+    const queued = new Set(this.systemQueue.list().filter((q) => q.state !== "live").map((q) => q.system));
+    return {
+      systems, viable, load,
+      perKeeper: polls.length ? load / polls.length : 0.2,
+      pending: pendingForTopUp(listed, covered, queued, systemOf),
+      listedPending: [...listed].filter((m) => !covered.has(m)).length,
+    };
+  }
+
   /**
    * Add one more worthwhile market of a live system to the keeper list now and then (keeperTopUp.ts). Checked every 5 minutes; the time
    * of the last addition is a persisted timer, so a restart does not hand out an extra one. The usual keeper queue does the buying.
@@ -5809,33 +5843,17 @@ export class FleetManager {
     this.lastTopUpCheckAt = now;
     const timers = this.timers();
     await timers?.load();
-    const covered = this.coveredKeeperMarkets();
-    const listed = new Set(await this.keeperPriorityMarkets());
-    const systems: TopUpSystem[] = [];
-    // Goods per market come from the market directory (the goods lists a survey reads with no ship there), best first. A market the
-    // directory has no row for is not picked: 2026-10-29 the first pick was a 1-good market (BT69-ZB5F) because unknown goods were kept.
-    const minGoods = this.doctrine.isEnabledOr("keeperMinGoods", true) ? this.doctrine.value("keeperMinGoods") : this.doctrine.value("keeperMinGoodsRecommended", 5);
-    const dir = new Map<string, DirectoryRow[]>();
-    for (const r of (await this.store.marketDirectory()) ?? []) dir.set(r.systemSymbol, [...(dir.get(r.systemSymbol) ?? []), r]);
-    for (const q of this.systemQueue.list()) {
-      if (q.state !== "live" || q.held) continue;
-      const rows = dir.get(q.system) ?? [];
-      const ranked = (summarizeDirectory(rows, new Set(), now, minGoods)[0]?.ranked ?? []).filter((m) => m.goods >= minGoods);
-      // A market already listed, or with a keeper on it (pinned by hand and never listed), is not a candidate.
-      const have = ranked.filter((m) => covered.has(m.market) || listed.has(m.market)).length;
-      systems.push({ system: q.system, covered: have, candidates: ranked.filter((m) => !covered.has(m.market) && !listed.has(m.market)).map((m) => m.market) });
-    }
-    const polls = [...this.keeperMarkets.values()].map((m) => 60_000 / Math.max(this.keeperPollMs(m), 60_000));
-    const load = polls.reduce((t, c) => t + c, 0);
-    const decision = pickTopUp(systems, {
+    const f = await this.topUpFacts(now);
+    const decision = pickTopUp(f.systems, {
       nowMs: now,
       lastAddMs: timers?.book.topUp.get("lastAdd"),
       keepers: this.keepers.size,
       max: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0,
-      keeperCallsPerMin: load,
-      callsPerKeeper: polls.length ? load / polls.length : 0.2,
-      pending: [...listed].filter((m) => !covered.has(m)).length,
+      keeperCallsPerMin: f.load,
+      callsPerKeeper: f.perKeeper,
+      pending: f.pending,
     }, { ...DEFAULT_TOPUP_POLICY, perHour: this.doctrine.value("keeperTopUpPerHour"), maxKeeperCalls: this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90 });
+    this.topUpLast = { at: now, reason: decision.reason, market: decision.market };
     if (!decision.market) {
       if (decision.reason !== this.topUpNoteAt) { this.topUpNoteAt = decision.reason; this.keeperNote("topup", `keeper top-up: nothing added (${decision.reason})`); }
       return;
@@ -5845,6 +5863,30 @@ export class FleetManager {
     await timers?.save(now);
     this.topUpNoteAt = "";
     this.log(`keeper top-up: ${decision.market} added to the keeper list (${decision.reason})`);
+  }
+
+  /** For the ops tool keeper_coverage: per live system, its viable markets, how many have a keeper and how many top-up still has to add, and why top-up is or is not adding. */
+  async keeperCoverageData(): Promise<{ rows: CoverageRow[]; topUp: Record<string, unknown> }> {
+    const now = Date.now();
+    const f = await this.topUpFacts(now);
+    const timers = this.timers();
+    await timers?.load();
+    const lastAdd = timers?.book.topUp.get("lastAdd");
+    return {
+      rows: coverageRows(f.systems, (s) => f.viable.get(s) ?? 0),
+      topUp: {
+        enabled: this.doctrine.isEnabledOr("keeperTopUpPerHour", false),
+        perHour: this.doctrine.isEnabledOr("keeperTopUpPerHour", false) ? this.doctrine.value("keeperTopUpPerHour") : 0,
+        pollingCeilingCallsPerMin: this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90,
+        keeperPollingCallsPerMin: Math.round(f.load * 10) / 10,
+        keepers: this.keepers.size,
+        keeperLimit: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0,
+        waitingForKeepers: f.pending,
+        waitingForKeepersIncludingQueuedSystems: f.listedPending,
+        lastAddedAt: lastAdd ? new Date(lastAdd).toISOString() : null,
+        lastCheck: this.topUpLast ? { at: new Date(this.topUpLast.at).toISOString(), reason: this.topUpLast.reason, market: this.topUpLast.market ?? null } : null,
+      },
+    };
   }
 
   /**
