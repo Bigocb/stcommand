@@ -33,6 +33,10 @@ Update this section when the operator states a layout for a following week.
 
 ## Operating the fleet via the stcommand MCP server
 
+**Always use the Tailwinds MCP server** (tools named `mcp__Tailwinds__stcommand_*`) for every fleet read and write.
+The operator has said this repeatedly (2026-10-31). A server named `stcommand` (lowercase) may also be listed; it
+can be suspended or point at another deployment, so never use it, and never report "server down" from it without trying Tailwinds first.
+
 The `stcommand` MCP server's own `initialize` response carries operating
 instructions for its tools — re-read after any MCP reconnect/restart, since
 they can be updated independently of this file. Key points worth keeping
