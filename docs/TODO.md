@@ -7,6 +7,24 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+**Priority order (triaged 2026-10-31, before the reset around 11-01).** Rank = damage to a week of play, then effort. Do 1-6 before the reset; 7-9 early next week; the rest when the engine settles.
+
+| # | Item | Why here |
+|---|---|---|
+| 1 | Scheduler overload: cache `syncShipClaims`, find the 20 s `computeTargets` spike, add an ops figure for total API calls a minute | Everything slows and rate-limits with it; the fleet is only getting bigger. Cheap first steps, and it gives the numbers items 5 and 8 need. |
+| 2 | Contract reservation: reserve only the units still owed, not the whole good | Next week's contracts will close the best routes again for hours. Small change, high value. |
+| 3 | Review: remote-survey gaps (a system a fleet jump enters is never judged; an intake error is never retried) | Next week's exploring depends on it; explorers are parked. |
+| 4 | Review: keeper cap and API budget leave out parked keepers; release and unpark check no budget | Protects the 90-call limit; the one budget the whole design rests on. |
+| 5 | Big-ship buying cadence analysis (last week vs this week) | Tomorrow, before the reset: gives next week's opening a buying rule. |
+| 6 | Review: top-up fixes (`keeperMinGoods` off falls back to 5; effective rate 6 an hour not 8; ignores fading and parked systems) | Small, and the top-up was blocked all week, so it needs to be right. |
+| 7 | Review: idle parking can latch (stale prices of a parked system never trigger an unpark) | Small; matters over a longer week. |
+| 8 | Swap small hulls for big to save API calls | Needs 1 (calls figure) and 5 (is the big-hull effect real). |
+| 9 | Neighbourhoods (hubs): pure module first, local commits, not pushed | Wanted for the reset, but not started; talk it through piece by piece. |
+| 10 | Review: reset race (a late write after the wipe) | Speculative; check the wipe at the next reset instead of building. |
+| 11 | Galaxy map: state colours first (can ship early), hub colours after item 9, then the face-lift | Nice to have; no effect on profit. |
+| 12 | Review: docs and tests gaps (wrong comments, missing fleet-level tests) | Best done inside item 13. |
+| 13 | In-depth code review and refactor | Only once behaviour stops being tuned. |
+
 - [ ] **In-depth code review and refactor, once the engine stops changing (raised 2026-10-30, operator).** A lot of this week's fixes were patches on patches
   (keeper delivery alone has three: the 30 s hold step, the first-poll cadence, the yard choice). When the engine settles, do a full review for code smells and
   patches that should be one straightforward mechanism, and for efficiency: `fleet.ts` and `dispatcher.ts` first (each is thousands of lines with long
