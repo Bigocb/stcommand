@@ -103,13 +103,21 @@ describe("release rule", () => {
 
   it("releases at once for idle traders, ignoring the target and the gap, and never a held or unready system", () => {
     const lives = [live("X1-L1", 1), live("X1-L2", 2), live("X1-L3", 3)];
-    const d = decideReleases(sig({ queue: [staged("X1-S", 1)], live: lives, idleTraders: 4, lastReleaseAt: NOW - 2 * MIN }), auto);
+    const d = decideReleases(sig({ queue: [staged("X1-S", 1)], live: lives, idleTraders: 4, lastReleaseAt: NOW - 20 * MIN }), auto);
     assert.deepEqual(d.release.map((r) => r.system), ["X1-S"]);
     assert.match(d.release[0]!.reason, /4 trader\(s\) idle/);
     assert.deepEqual(decideReleases(sig({ queue: [staged("X1-S", 1, { held: true })], idleTraders: 4 }), auto).release, []);
     const unready = decideReleases(sig({ queue: [staged("X1-S", 0.5)], idleTraders: 4 }), auto);
     assert.deepEqual(unready.release, []);
     assert.match(unready.notes.join(" "), /no staged system is ready.*X1-S 50%/);
+  });
+
+  it("spaces idle-trader releases too, so a burst cannot open every ready system at once", () => {
+    const two = decideReleases(sig({ queue: [staged("X1-S", 1), staged("X1-T", 1)], idleTraders: 4, lastReleaseAt: NOW - 2 * MIN }), auto);
+    assert.deepEqual(two.release, []);
+    assert.match(two.notes.join(" "), /minimum gap 10 min \(idle traders\)/);
+    assert.equal(decideReleases(sig({ queue: [staged("X1-S", 1)], idleTraders: 4, lastReleaseAt: NOW - 11 * MIN }), auto).release.length, 1);
+    assert.equal(decideReleases(sig({ queue: [staged("X1-S", 1)], idleTraders: 4, lastReleaseAt: NOW - 2 * MIN }), { ...auto, idleGapMs: 0 }).release.length, 1, "0 = no gap, as before");
   });
 
   it("keeps a minimum gap between target-driven releases", () => {
@@ -138,6 +146,30 @@ describe("release rule", () => {
     assert.deepEqual(decideReleases(sig({ queue: [staged("X1-STUCK", 1, { reachable: false })], idleTraders: 4 }), auto).release, []);
     // unknown reachability behaves as before
     assert.deepEqual(decideReleases(sig({ queue: [scouted("X1-A", 1)] }), auto).stage.map((s) => s.system), ["X1-A"]);
+  });
+
+  it("a staged system that stays under a quarter ready for 3 hours stops holding a staged-ahead place", () => {
+    const old = (system: string, share: number): QueueFacts => ({ ...staged(system, share), stagedAt: NOW - 4 * H });
+    const three = { ...auto, stagedAhead: 3 };
+    const lives = [live("X1-L1", 1), live("X1-L2", 2), live("X1-L3", 3)];
+    const q = [old("X1-STUCK1", 0), old("X1-STUCK2", 0.1), old("X1-SLOW", 0.5), scouted("X1-NEXT", 5)];
+    const d = decideReleases(sig({ queue: q, live: lives }), three);
+    assert.deepEqual(d.stage.map((s) => s.system), ["X1-NEXT"], "only X1-SLOW counts as staged: 1 of 3 wanted");
+    assert.match(d.notes.join(" "), /X1-STUCK1, X1-STUCK2 staged over 3 h/);
+    assert.equal(decideReleases(sig({ queue: q, live: lives }), { ...three, stuckStagedMs: 0 }).stage.length, 0, "off: three staged, nothing more to stage");
+    // a stuck system that does become ready is still released
+    assert.deepEqual(decideReleases(sig({ queue: [old("X1-LATE", 1)] }), auto).release.map((r) => r.system), ["X1-LATE"]);
+  });
+
+  it("waits to stage until the keepers would be paid above the auto-approve cash floor", () => {
+    const q = [scouted("X1-NEW", 1)];
+    const policy = { ...auto, minCashAfter: 5_000_000, keeperCost: 30_000 };
+    const poor = decideReleases(sig({ queue: q, credits: 800_000 }), policy);
+    assert.deepEqual(poor.stage, []);
+    assert.match(poor.notes.join(" "), /would leave under 5,000,000c/);
+    assert.deepEqual(decideReleases(sig({ queue: q, credits: 5_300_000 }), policy).stage.map((s) => s.system), ["X1-NEW"]);
+    assert.equal(decideReleases(sig({ queue: q, credits: 800_000 }), auto).stage.length, 1, "floor off: as before");
+    assert.equal(decideReleases(sig({ queue: q }), policy).stage.length, 1, "wallet unknown: the test is skipped");
   });
 
   it("advisory returns the same answer as auto (the caller decides whether to act)", () => {

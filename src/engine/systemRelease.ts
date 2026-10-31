@@ -38,7 +38,22 @@ export interface ReleasePolicy {
   minTradingSells: number;
   /** How long after its release a system counts without sells, while traders find it. */
   graceMs: number;
+  /**
+   * A staged system this old that is still under STUCK_READY_SHARE ready no longer holds a "staged ahead" place: keepers cannot be bought
+   * for it (no yard with a ship of ours within delivery range, no cash for the cards), and 3 of them kept every other system out
+   * (2026-10-30). It is still released if it does become ready. 0 = off.
+   */
+  stuckStagedMs: number;
+  /** Fewest ms between two idle-trader releases (the plain gap does not apply to them; with none, every 5-minute check could release one). 0 = no gap. */
+  idleGapMs: number;
+  /** Staging waits until the wallet would still hold this much after buying every keeper of the system; 0 = off. Set from keeperAutoApproveMinCash: below it each keeper needs an approval card, one at a time. */
+  minCashAfter: number;
+  /** What one keeper is expected to cost, for the cash test above. */
+  keeperCost: number;
 }
+
+/** Share of a staged system's keepers in place under which it counts as stuck once it is older than `stuckStagedMs`. */
+export const STUCK_READY_SHARE = 0.25;
 
 const H = 3_600_000;
 
@@ -54,6 +69,10 @@ export const DEFAULT_RELEASE_POLICY: ReleasePolicy = {
   stagedAhead: 1,
   minTradingSells: 0,
   graceMs: 3 * H,
+  stuckStagedMs: 3 * H,
+  idleGapMs: 10 * 60_000,
+  minCashAfter: 0,
+  keeperCost: 35_000,
 };
 
 export interface QueueFacts {
@@ -90,6 +109,8 @@ export interface ReleaseSignals {
   /** Keeper slots left under keeperMaxTotal; null = no limit. */
   budgetRoom: number | null;
   lastReleaseAt?: number;
+  /** The wallet now; unknown = the cash test is skipped. */
+  credits?: number;
 }
 
 export interface ReleaseDecision {
@@ -127,13 +148,18 @@ export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDeci
 
   // Stage ahead of need.
   const staged = s.queue.filter((q) => q.state === "staged");
-  const stagedCount = staged.filter(reachable).length;
+  const stuck = (q: QueueFacts): boolean => p.stuckStagedMs > 0 && q.stagedAt !== undefined && s.now - q.stagedAt >= p.stuckStagedMs && (q.readyShare ?? 0) < STUCK_READY_SHARE;
+  const stuckStaged = staged.filter((q) => reachable(q) && stuck(q));
+  const stagedCount = staged.filter((q) => reachable(q) && !stuck(q)).length;
+  if (stuckStaged.length) out.notes.push(`${stuckStaged.map((q) => q.system).join(", ")} staged over ${Math.round(p.stuckStagedMs / H)} h with under ${Math.round(STUCK_READY_SHARE * 100)}% of keepers in place: not counted as staged ahead`);
   let budget = s.budgetRoom;
   if (stagedCount < p.stagedAhead) {
     const next = s.queue.filter((q) => q.state === "scouted" && eligible(q) && reachable(q)).sort((a, b) => a.addedAt - b.addedAt)[0];
     if (next) {
       if (budget !== null && budget < next.markets) out.notes.push(`${next.system} is next to stage but needs ${next.markets} keeper slot(s) and ${budget} are free`);
-      else {
+      else if (p.minCashAfter > 0 && s.credits !== undefined && s.credits - next.markets * p.keeperCost < p.minCashAfter) {
+        out.notes.push(`${next.system} is next to stage but its ${next.markets} keepers (about ${(next.markets * p.keeperCost).toLocaleString("en-US")}c) would leave under ${p.minCashAfter.toLocaleString("en-US")}c, below which every keeper waits for an approval card`);
+      } else {
         out.stage.push({ system: next.system, reason: `${stagedCount} staged, ${p.stagedAhead} wanted ahead of need; ${next.markets} keeper(s) to buy` });
         if (budget !== null) budget -= next.markets;
       }
@@ -152,8 +178,9 @@ export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDeci
     return out;
   }
   const sinceLast = s.lastReleaseAt === undefined ? Infinity : s.now - s.lastReleaseAt;
-  if (!idle && sinceLast < p.minGapMs) {
-    out.notes.push(`last release was ${Math.round(sinceLast / 60_000)} min ago, minimum gap ${Math.round(p.minGapMs / 60_000)} min`);
+  const gapMs = idle ? p.idleGapMs : p.minGapMs;
+  if (sinceLast < gapMs) {
+    out.notes.push(`last release was ${Math.round(sinceLast / 60_000)} min ago, minimum gap ${Math.round(gapMs / 60_000)} min${idle ? " (idle traders)" : ""}`);
     return out;
   }
   const ready = staged.filter((q) => eligible(q) && reachable(q) && (q.readyShare ?? 0) >= READY_SHARE).sort((a, b) => (b.readyShare ?? 0) - (a.readyShare ?? 0) || (a.stagedAt ?? 0) - (b.stagedAt ?? 0) || a.addedAt - b.addedAt);

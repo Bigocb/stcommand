@@ -61,7 +61,7 @@ import { yardsFirst } from "./keeperOrder.js";
 import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
 import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
-import { DEFAULT_DELIVERY_POLICY, deliveryArrived, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
+import { DEFAULT_DELIVERY_POLICY, MAX_DELIVERY_MS, deliveryArrived, deliveryExpired, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
 import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
 import { pickCheapestKeeperYard, pickKeeperYardWithShip } from "./keeperYard.js";
@@ -5523,6 +5523,8 @@ export class FleetManager {
       minTradingSells: this.doctrine.isEnabledOr("freshTradingSells", false) ? this.doctrine.value("freshTradingSells") : 0,
       leadMs: this.doctrine.value("freshLeadMin") * 60_000,
       fadeMs: this.doctrine.value("freshFadeHours") * 3_600_000,
+      // Below the auto-approve cash floor every keeper waits for an approval card, so staging waits for the cash too.
+      minCashAfter: this.doctrine.isEnabledOr("autoApproveKeeperProbes", false) && this.doctrine.isEnabledOr("keeperAutoApproveMinCash", false) ? this.doctrine.value("keeperAutoApproveMinCash") : 0,
     };
   }
 
@@ -5694,6 +5696,8 @@ export class FleetManager {
   /** Probes bought for a market in another system, walking the gates under a hold: ship -> target market. Persisted (fleet flag keeperDeliveries) so a restart does not lose them. */
   private keeperDeliveries = new Map<string, string>();
   private keeperDeliveriesLoaded = false;
+  /** When each delivery was first seen under way (memory only: a restart starts the clock again), for deliveryExpired(). */
+  private deliverySeenAt = new Map<string, number>();
 
   private async loadKeeperDeliveries(): Promise<void> {
     if (this.keeperDeliveriesLoaded || !this.store || !this.tenantId) return;
@@ -5718,6 +5722,23 @@ export class FleetManager {
       const system = this.shipFor(ship)?.nav.systemSymbol;
       if (system === undefined) { this.keeperDeliveries.delete(ship); changed = true; continue; }   // no longer ours
       if (!deliveryArrived(system, market)) {
+        const seen = this.deliverySeenAt.get(ship) ?? Date.now();
+        this.deliverySeenAt.set(ship, seen);
+        if (deliveryExpired(seen, Date.now())) {
+          // Parked, not left "away": a probe outside its market's system is stepped every 30 s at trader priority for as long as it lives.
+          // The keeper pin is dropped first so the market reads uncovered again and the queue can buy another probe for it.
+          this.log(`${ship}: delivery to ${market} not finished after ${Math.round(MAX_DELIVERY_MS / 3_600_000)} h (now in ${system}); giving it up and parking the probe`);
+          try {
+            this.keeperMarkets.delete(ship);
+            await this.parkShip(ship);
+            this.keeperDeliveries.delete(ship);
+            this.deliverySeenAt.delete(ship);
+            changed = true;
+          } catch (err) {
+            this.log(`${ship}: could not park the expired delivery, will retry: ${describeError(err)}`);
+          }
+          continue;
+        }
         // Still on its way: the hold must name the final market. Anything that re-pinned it (a restart before this fix, a manual jump)
         // is put right, so the walk through the gates carries on.
         if (this.operatorHolds.get(ship) !== market) {
@@ -5734,6 +5755,7 @@ export class FleetManager {
         await this.releaseShip(ship);
         this.log(`${ship}: delivered to ${system}; hold released, now keeping ${market}`);
         this.keeperDeliveries.delete(ship);
+        this.deliverySeenAt.delete(ship);
         changed = true;
       } catch (err) {
         this.log(`${ship}: delivered but release failed, will retry: ${describeError(err)}`);
@@ -6000,7 +6022,7 @@ export class FleetManager {
 
     const max = this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0;
     const idle = this.idleTraders(now).length;
-    const decision = decideReleases({ now, queue, live, idleTraders: idle, budgetRoom: max > 0 ? Math.max(0, max - this.keepers.size) : null, lastReleaseAt: this.lastFreshReleaseAt }, policy);
+    const decision = decideReleases({ now, queue, live, idleTraders: idle, budgetRoom: max > 0 ? Math.max(0, max - this.keepers.size) : null, lastReleaseAt: this.lastFreshReleaseAt, credits: this.credits }, policy);
     this.freshLast = { at: now, mode, decision, queue, live, idleTraders: idle };
 
     const key = JSON.stringify([decision.stage, decision.release, decision.notes]);
@@ -7115,8 +7137,7 @@ export class FleetManager {
     } catch {
       return "failed";
     }
-    await this.purchaseKeeperProbe(yard, target, price, hull);
-    return "bought";
+    return (await this.purchaseKeeperProbe(yard, target, price, hull)) === "failed" ? "failed" : "bought";
   }
 
   /** True while a keeper-probe request that would buy AT exactly this
@@ -7340,6 +7361,7 @@ export class FleetManager {
   private async maybeRequestKeeperProbeForMarket(marketWaypoint: string): Promise<boolean> {
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return false;
     if (this.coveredKeeperMarkets().has(marketWaypoint)) return false; // already covered (a parked keeper still covers it)
+    if (inCooldown(this.keeperQueueCooldown.get(marketWaypoint), Date.now())) return false; // a failed buy or a release for want of a ship: left alone for a while
     const priority = await this.keeperPriorityMarkets();
     if (!priority.includes(marketWaypoint)) return false; // operator hasn't flagged this market as worth a keeper
 
@@ -7426,6 +7448,7 @@ export class FleetManager {
         this.log(`keeper probe for ${marketWaypoint} auto-approved and bought at ${best.waypointSymbol}: ${auto.reason}`);
         return true;
       }
+      if (r === "failed") return false; // the purchase itself failed or the ship could not be reached: the market is held back, the queue goes on
       // Nothing of ours at the cheapest yard: use a yard of the same system where a ship of ours already is (2026-10-28: TV37's probes were
       // at C43 with no ship, while THEO-1F, a keeper, sat at H56 in the same system and could have bought all 22).
       if (r === "no-ship") {
@@ -7442,7 +7465,7 @@ export class FleetManager {
           }
         }
       }
-      this.keeperNote(`mnoship:${marketWaypoint}`, `keeper for ${marketWaypoint} is within the auto-approve cap but none of our ships is ${r === "failed" ? "reachable" : "docked"} at ${best.waypointSymbol} to buy through; it goes ahead when one is there (no approval card raised)`);
+      this.keeperNote(`mnoship:${marketWaypoint}`, `keeper for ${marketWaypoint} is within the auto-approve cap but none of our ships is docked at ${best.waypointSymbol} to buy through; it goes ahead when one is there (no approval card raised)`);
       return false;
     }
     const approved = await this.approvals.request("buyKeeperProbeForMarket", {
@@ -7504,6 +7527,7 @@ export class FleetManager {
   private async advanceKeeperMarketQueue(): Promise<void> {
     if (!this.store || !this.tenantId) return;
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
+    if (this.windDownBlocksBuys()) return;
     await this.timers()?.load();
     const existing = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
     const autoOn = this.doctrine.isEnabledOr("autoApproveKeeperProbes", false);
@@ -7577,8 +7601,8 @@ export class FleetManager {
    * "purchasing SHIP_PROBE" log line at all, ~12 minutes after approval,
    * for exactly this reason.
    */
-  private async purchaseKeeperProbe(waypointSymbol: string, targetMarket: string, price: number, hull: string = "SHIP_PROBE"): Promise<void> {
-    if (this.windDownBlocksBuys()) return;
+  private async purchaseKeeperProbe(waypointSymbol: string, targetMarket: string, price: number, hull: string = "SHIP_PROBE"): Promise<"bought" | "skipped" | "failed"> {
+    if (this.windDownBlocksBuys()) return "skipped";
     // Re-check coverage at the moment of purchase. The target was chosen when
     // the approval was *requested*, possibly minutes earlier, and two request
     // paths (shipyard-triggered and market-triggered) run side by side — so
@@ -7591,11 +7615,11 @@ export class FleetManager {
     // market, and the queue will propose the next uncovered one on its own.
     if (await this.keeperTargetCovered(targetMarket)) {
       this.log(`keeper probe for ${targetMarket} skipped at purchase time: that market already has a keeper (approval was for a duplicate)`);
-      return;
+      return "skipped";
     }
+    let res;
     try {
       this.log(`purchasing ${hull} at ${waypointSymbol} for ${price} credits (destined for ${targetMarket})`);
-      let res;
       try {
         res = await this.api.purchaseShip(hull as Parameters<typeof this.api.purchaseShip>[0], waypointSymbol);
       } catch (err) {
@@ -7609,24 +7633,39 @@ export class FleetManager {
         }
         throw err;
       }
-      await this.doctrine.ensureShipTypeRule(res.ship.frame.symbol);
+    } catch (err) {
+      this.log(`failed to buy keeper probe at ${waypointSymbol} (destined for ${targetMarket}): ${err instanceof Error ? err.message : String(err)}`);
+      // Left alone, the queue would try this same market again on the next tick (2-3 calls each) and starve the ones behind it.
+      await this.coolKeeperMarket(targetMarket, 10);
+      return "failed";
+    }
+    // The hull is bought. Nothing from here on may read as "the purchase failed": that made the next pass buy a second probe for the same
+    // market (2026-10-08, and again in the 2026-10-31 review). Each step is guarded on its own; only the role pin decides whether the
+    // market is held back, because an unpinned hull leaves the market uncovered.
+    const bought = res.ship.symbol;
+    try {
       this.recordLedger?.({
         timestamp: new Date().toISOString(),
-        shipSymbol: res.ship.symbol,
+        shipSymbol: bought,
         waypointSymbol,
         type: "SHIP",
         tradeSymbol: hull,
         total: res.transaction.price,
       });
+    } catch (err) { this.log(`${bought}: ledger write for the keeper purchase failed: ${describeError(err)}`); }
+    try { await this.doctrine.ensureShipTypeRule(res.ship.frame.symbol); } catch (err) { this.log(`${bought}: ship-type rule not added: ${describeError(err)}`); }
+    try {
       await this.discord?.postActivity({
         timestamp: new Date().toISOString(),
         shipSymbol: "fleet",
         kind: "ship",
         detail: targetMarket === waypointSymbol
-          ? `purchased keeper ${keeperHullLabel(hull)} ${res.ship.symbol} at ${waypointSymbol} for ${res.transaction.price}c`
-          : `purchased keeper ${keeperHullLabel(hull)} ${res.ship.symbol} at ${waypointSymbol} for ${res.transaction.price}c, drifting to ${targetMarket}`,
+          ? `purchased keeper ${keeperHullLabel(hull)} ${bought} at ${waypointSymbol} for ${res.transaction.price}c`
+          : `purchased keeper ${keeperHullLabel(hull)} ${bought} at ${waypointSymbol} for ${res.transaction.price}c, drifting to ${targetMarket}`,
         credits: -res.transaction.price,
       });
+    } catch (err) { this.log(`${bought}: activity post failed: ${describeError(err)}`); }
+    try {
       // Pin the keeper role to targetMarket, not the purchase waypoint —
       // these can now differ (nearestUncoveredKeeperMarket() may have picked
       // a different market on the priority list to cover). setShipRole()
@@ -7634,27 +7673,47 @@ export class FleetManager {
       // keeperPoll() (agent.ts) already repositions any keeper that isn't at
       // its pinned market on its own, 0-fuel probes included — see
       // maybeRequestKeeperProbe()'s own comment for why that's safe now.
-      await this.setShipRole(res.ship.symbol, "keeper", targetMarket);
-      // Bought in another system (keeperDelivery.ts): hold it at the target market, which walks it through the gates one hop a tick
-      // like any cross-system hold, and let advanceKeeperDeliveries() release it on arrival.
-      const yardSystem = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
-      if (yardSystem !== targetMarket.slice(0, targetMarket.lastIndexOf("-"))) {
+      await this.setShipRole(bought, "keeper", targetMarket);
+    } catch (err) {
+      this.log(`${bought}: bought for ${targetMarket} but the keeper role could not be set (${describeError(err)}); ${targetMarket} is held for 30 min so a second probe is not bought, and the hull needs a role by hand`);
+      await this.coolKeeperMarket(targetMarket, 30);
+      return "bought";
+    }
+    // Bought in another system (keeperDelivery.ts): hold it at the target market, which walks it through the gates one hop a tick
+    // like any cross-system hold, and let advanceKeeperDeliveries() release it on arrival. The delivery is recorded BEFORE the hold is
+    // set: advanceKeeperDeliveries() puts a missing hold back, so a failure of the hold write heals itself instead of leaving a probe
+    // "away" from its market with nothing walking it there.
+    const yardSystem = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
+    if (yardSystem !== targetMarket.slice(0, targetMarket.lastIndexOf("-"))) {
+      try {
         await this.loadKeeperDeliveries();
-        await this.updateShipManualState(res.ship.symbol, { holdWaypoint: targetMarket, tourDestination: null });
-        this.dispatcher.release(res.ship.symbol);
-        this.shipRegistry.claim(res.ship.symbol, "operator", this.roleOf(res.ship.symbol), {}, { preempt: true });
-        this.keeperDeliveries.set(res.ship.symbol, targetMarket);
+        this.keeperDeliveries.set(bought, targetMarket);
         await this.saveKeeperDeliveries();
-        this.log(`${res.ship.symbol}: bought at ${waypointSymbol} for ${targetMarket} in another system; walking the gates under a hold until it arrives`);
+        await this.updateShipManualState(bought, { holdWaypoint: targetMarket, tourDestination: null });
+        this.dispatcher.release(bought);
+        this.shipRegistry.claim(bought, "operator", this.roleOf(bought), {}, { preempt: true });
+        this.log(`${bought}: bought at ${waypointSymbol} for ${targetMarket} in another system; walking the gates under a hold until it arrives`);
+      } catch (err) {
+        this.log(`${bought}: delivery hold not set yet (${describeError(err)}); the delivery check puts it back`);
       }
+    }
+    try {
       // Durable going forward, not just this one purchase — an operator
       // looking at the Book's keeper priority list should see this market
       // listed, same as any keeper the operator configured by hand.
       const priority = await this.keeperPriorityMarkets();
       if (!priority.includes(targetMarket)) await this.setKeeperPriorityMarkets([...priority, targetMarket]);
-    } catch (err) {
-      this.log(`failed to buy keeper probe at ${waypointSymbol} (destined for ${targetMarket}): ${err instanceof Error ? err.message : String(err)}`);
-    }
+    } catch (err) { this.log(`${bought}: keeper list not updated: ${describeError(err)}`); }
+    return "bought";
+  }
+
+  /** Leave a market alone for a while: the queue and the dock-triggered request both skip it. */
+  private async coolKeeperMarket(market: string, minutes: number): Promise<void> {
+    try {
+      await this.timers()?.load();
+      this.keeperQueueCooldown.set(market, Date.now() + minutes * 60_000);
+      await this.timers()?.save(Date.now());
+    } catch (err) { this.log(`keeper: could not hold ${market} back: ${describeError(err)}`); }
   }
 
   /**

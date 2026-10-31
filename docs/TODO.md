@@ -555,19 +555,19 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   way the theory predicts before spending effort automating it.
 
 - [ ] **Independent review of the keeper / fresh-system / exploring logic, 2026-10-31 (a fresh-context reviewer; each item checked against the code by the main session).**
-  Do the first five before the next reset; the rest can wait for the in-depth review above.
-  1. **A staged system that cannot be bought for blocks the pipeline** (confirmed). `decideReleases` only checks gate reachability (no hop limit), but keepers can be bought only
+  Items 1, 2, 3, 5 and 6 are fixed (CHANGELOG 2026-10-31); the rest can wait for the in-depth review above.
+  1. [DONE 2026-10-31] **A staged system that cannot be bought for blocks the pipeline** (confirmed). `decideReleases` only checks gate reachability (no hop limit), but keepers can be bought only
      where a stored yard row or a delivery yard with our ship docked is within `keeperDeliveryHops` (3). Three such staged systems fill `freshStagedAhead` and nothing else is staged.
      There is no demotion or expiry. Fix: a staged system with almost no keepers after N hours stops counting toward `stagedAhead`.
-  2. **`purchaseKeeperProbe` hides failures** (confirmed). It returns void and catches everything, so callers treat a failed buy as bought and retry the same head market every tick (about 3 calls
+  2. [DONE 2026-10-31] **`purchaseKeeperProbe` hides failures** (confirmed). It returns void and catches everything, so callers treat a failed buy as bought and retry the same head market every tick (about 3 calls
      each). Worse, one `try` covers everything after `purchaseShip`: a throw in the ledger write, `ensureShipTypeRule` or `setShipRole` is logged "failed to buy" with the ship already bought and
      no keeper role, so the market stays uncovered and auto-approve buys another probe (the 2026-10-08 double-buy again). Fix: return a result, and split the post-purchase steps out of the buy `try`.
-  3. **Staging ignores cash** (confirmed by reading; matters at the start of a week). With `keeperAutoApproveMinCash` 5M every keeper under 5M cash needs an approval card; one card slot, 2 h timeout then deny.
+  3. [DONE 2026-10-31] **Staging ignores cash** (confirmed by reading; matters at the start of a week). With `keeperAutoApproveMinCash` 5M every keeper under 5M cash needs an approval card; one card slot, 2 h timeout then deny.
      Auto mode can stage 3 systems (24 markets) at the start of the week and none can be bought. Fix: do not stage while cash is under the auto-approve floor plus the systems' cost.
   4. Remote survey gaps (plausible/confirmed): a system a fleet jump enters is marked read but never judged or queued while explorers are parked; an exception in intake after the directory write is never retried;
      a yard-only system with `remoteSurveyIntake` off is re-surveyed every pass.
-  5. `keeperDeliveries` never expires (confirmed): a delivery that cannot progress stays "away" and is stepped every 30 s at trader priority for ever. Fix: give up after N hours and treat the probe as an ordinary keeper.
-  6. Idle-trader release (confirmed): 3 idle traders release a ready system on every 5-minute check, ignoring `freshMinGapMin` and the target, so a burst can release every ready system within 15 minutes.
+  5. [DONE 2026-10-31] `keeperDeliveries` never expires (confirmed): a delivery that cannot progress stays "away" and is stepped every 30 s at trader priority for ever. Fix: give up after N hours and treat the probe as an ordinary keeper.
+  6. [DONE 2026-10-31] Idle-trader release (confirmed): 3 idle traders release a ready system on every 5-minute check, ignoring `freshMinGapMin` and the target, so a burst can release every ready system within 15 minutes.
   7. `keeperMaxTotal` and the polling budget leave out parked keepers (confirmed: parking clears the role), and release/unpark add keepers with no budget or call check; only top-up looks at `keeperTopUpMaxCalls`.
      (The reviewer used 0.2 calls/min per keeper; measured is about 0.13, so 500 keepers is about 65 calls/min, not 100.)
   8. Idle parking can latch (plausible): a parked system's prices go stale so no sales trigger an unpark; `applyIdleParking` runs in auto mode only; keepers added to a parked system are not parked.

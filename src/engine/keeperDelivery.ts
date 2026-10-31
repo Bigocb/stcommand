@@ -83,3 +83,11 @@ export function deliveryNote(pick: DeliveryPick, targetMarket: string): string {
 export function deliveryArrived(shipSystem: string | undefined, targetMarket: string): boolean {
   return shipSystem !== undefined && shipSystem === targetMarket.slice(0, targetMarket.lastIndexOf("-"));
 }
+
+/** How long a probe may walk the gates toward its market before the delivery is given up (a normal one, 3 hops, is done inside 2 hours). */
+export const MAX_DELIVERY_MS = 6 * 3_600_000;
+
+/** Has this delivery been under way too long? `startedMs` unknown = the clock starts now, so no. */
+export function deliveryExpired(startedMs: number | undefined, nowMs: number, maxMs: number = MAX_DELIVERY_MS): boolean {
+  return maxMs > 0 && startedMs !== undefined && nowMs - startedMs >= maxMs;
+}
