@@ -554,6 +554,13 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   by hand via the dashboard, and see whether the price actually moves the
   way the theory predicts before spending effort automating it.
 
+- [ ] **Galaxy map: show neighbourhoods, and give the map a face-lift (raised 2026-10-31, operator).** When neighbourhoods (hubs) are built, colour every system
+  of one hub the same way on the galaxy map (`public/cartography.html`, `src/http/cartography.ts`, `public/deck-map.js`), with a legend and the hub's home
+  system marked. The map itself is dated: today it shows live systems in one yellow on a dense grey field of 500+ nodes with every gate drawn, so it is hard to
+  read. Ideas to weigh when it is picked up: state colours (live / staged / scouted / unreachable because the gate is unfinished), a filter to our gate network
+  only, fading old gate lines, node size by keeper coverage or recent profit, and hover cards with the system's queue state. Depends on the hubs table; the
+  state-colour part can ship earlier.
+
 ## UI organization — revisit
 
 - [~] Revisit how the UI is organized. Deck SHIPPED 2026-10-16: seven rail groups with sub-tabs
