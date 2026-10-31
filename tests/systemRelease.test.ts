@@ -231,3 +231,23 @@ describe("the gate at the dispatcher", () => {
     assert.equal(d.routeList().length, 3);
   });
 });
+
+describe("release waits for markets to be priced", () => {
+  const base = { now: 100 * 3_600_000, live: [], idleTraders: 5, budgetRoom: null } as const;
+  const staged = (system: string, readyShare: number, pricedShare?: number) => ({ system, state: "staged" as const, held: false, addedAt: 0, stagedAt: 0, markets: 6, readyShare, ...(pricedShare === undefined ? {} : { pricedShare }) });
+  const policy = { ...DEFAULT_RELEASE_POLICY, mode: "auto" as const, target: 3, minPricedShare: 0.8 };
+
+  it("does not release a system whose keepers are in place but whose markets are mostly unpriced, and says why", () => {
+    const d = decideReleases({ ...base, queue: [staged("X1-A", 1, 0.3)] }, policy);
+    assert.deepEqual(d.release, []);
+    assert.ok(d.notes.some((n) => /X1-A has only 30% of its markets priced, 80% needed/.test(n)));
+  });
+  it("releases the next system that is priced, skipping the unpriced one", () => {
+    const d = decideReleases({ ...base, queue: [staged("X1-A", 1, 0.3), staged("X1-B", 1, 1)] }, policy);
+    assert.deepEqual(d.release.map((r) => r.system), ["X1-B"]);
+  });
+  it("test off (0) or share unknown reproduces today's behaviour", () => {
+    assert.equal(decideReleases({ ...base, queue: [staged("X1-A", 1, 0.3)] }, { ...policy, minPricedShare: 0 }).release.length, 1);
+    assert.equal(decideReleases({ ...base, queue: [staged("X1-A", 1)] }, policy).release.length, 1);
+  });
+});

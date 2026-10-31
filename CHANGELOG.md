@@ -9,6 +9,15 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — Release waits for priced markets; top-up waits for earlier keepers to price (from the outside review)
+
+Two of the review's findings. (1) `decideReleases` takes `QueueFacts.pricedShare` (share of a staged system's listed markets with a snapshot of any age) and the new clause
+`releaseMinPricedPct` (80, on): a staged system under it is not released, and the note names it ("X1-A has only 30% of its markets priced, 80% needed"). Share unknown or test off =
+as before. A parked keeper's last read counts as priced (releasing unparks it), so this cannot deadlock a staged system. (2) Top-up skips a live system with
+`keeperTopUpMaxUnpriced` (3, on) or more covered-or-listed markets nobody has priced, and `keeper_coverage` rows carry an `unpriced` count, so a system that looks covered but has
+only a few markets read shows up (MR27 had 12 of 19 never priced). 0 = off. Tests in `tests/systemRelease.test.ts` and `tests/keeperTopUp.test.ts`. The playbook also
+gains the early goal of finding the heavy freighter yard and the unchecked "five or more yards" hypothesis.
+
 ## 2026-10-31 — Hull buying cadence analysis written into the opening playbook
 
 Per-hull earnings from the week's ledger: bulk freighters about 0.50M an hour for about 4.1M (payback about 8 h), heavy freighters about 0.47M for about 2.0M (about 4.3 h),

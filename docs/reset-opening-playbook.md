@@ -343,3 +343,16 @@ Rule for the opening (to try next week, in this order):
 5. Buy while the payback is under half the hours left in the week.
 
 Not measured: last week's per-hull split (run_results keeps only the top 5 ships), so the comparison is one week and one rich stretch.
+
+
+## Early goal once the gate is open: find the heavy freighter yard (operator, 2026-10-31)
+
+Heavy freighters (225 hold, about 2.0M) are the best-payback big hull (see the cadence section above) and they are hard to find: on 2026-10-31, of 146 yards read in the
+galaxy, only 3 sold one (CK31-AX4A 2.18M, SP97-ZD2E 2.13M, TB63-AC2D 1.98M), and 2 sold the bulk freighter (YZ82-FC5D, YA67-ZE2E). The light hauler was at 14 yards.
+Operator's hypothesis: the heavy hulls are sold in systems with five or more shipyards (the last two finds were in systems like that). Not yet checked: the tools do not
+report the yard count per system (`ops systems_candidates` facts have `hullYard` true/false only, `yard_scan` counts yards offering a hull galaxy-wide). SP97 is a many-yard
+system (it sells explorers at several yards), CK31 and TB63 are unconfirmed.
+
+To do once the gate is open: (1) add the yard count per system to the candidate facts and the yard scan, (2) rank systems with 5 or more yards first when the explorers or the
+remote survey pick where to look, (3) note the first heavy and bulk yard found and buy them early in the order set out above. Whether the 5-yard rule holds is the first
+thing to check next week.

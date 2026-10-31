@@ -507,6 +507,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "releaseMinPricedPct",
+    name: "Fresh systems: share of markets priced before release",
+    description: "A staged system is released only when at least this percent of its listed markets have been priced by a keeper at least once (a snapshot of any age; a parked keeper's last read counts, because releasing unparks it). Added 2026-10-31 after systems were released with markets nobody had read, so traders had no routes there for hours. Off = ready when the keepers are in place, as before.",
+    value: 80, min: 10, max: 100, step: 5, unit: "%",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "freshIdleParkHours",
     name: "Fresh systems: park keepers where nothing sells",
     description: "On = a live system that is this many hours past its release and has had no sells at all in the last this-many hours has its keepers parked: they stay on their markets and still cover them, but stop polling, which frees API calls (about 0.18 a minute each). They are unparked as soon as the system sells again, or when this is turned off. A parked system's prices go stale, so traders see fewer routes there and it may never sell again on its own: after this many hours parked it is opened for one more window as a re-check, and is parked again only if that window also has no sells. Off (the default) = keepers always poll. Takes effect on the next check (every 5 minutes).",
@@ -540,6 +547,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     description: "Add this many more worthwhile markets an hour to the keeper list, from systems that are already live, least-covered system first (a fresh system starts with only its best few markets, see Fresh systems: keepers per system). Each one is then bought like any keeper (approval card, or auto-approve under its cap). It adds nothing while the keepers' polling load is at the ceiling below, the keeper limit is reached, or 3 listed markets still wait for a keeper. Off (the default) = live systems keep only the markets they started with. See src/engine/keeperTopUp.ts.",
     value: 2, min: 1, max: 12, step: 1, unit: " per hour",
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
+    key: "keeperTopUpMaxUnpriced",
+    name: "Keepers: top-up waits for earlier keepers to price",
+    description: "Top-up skips a live system that still has this many markets covered or listed but never priced (no keeper has read them yet), and picks the next system instead. More keepers there only queue behind the earlier ones; on 2026-10-31 MR27 had 12 of 19 markets never priced while top-up kept adding to it. Only applies while Keepers: top up live systems is on. Off = no such skip, as before.",
+    value: 3, min: 1, max: 20, step: 1, unit: " markets",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
     key: "keeperTopUpMaxCalls",

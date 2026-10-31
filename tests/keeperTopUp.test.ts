@@ -70,3 +70,24 @@ describe("what holds top-up back", () => {
     assert.equal(r.topUp.perHour, 8);
   });
 });
+
+describe("top-up waits for earlier keepers to price (pure)", () => {
+  const ctx = { nowMs: 10 * 3_600_000, keepers: 10, max: 0, keeperCallsPerMin: 20, callsPerKeeper: 0.2, pending: 0 };
+  const pol = { ...DEFAULT_TOPUP_POLICY, perHour: 8, maxKeeperCalls: 70, maxUnpriced: 3 };
+  it("skips a system with 3 or more covered markets nobody has priced and picks the next", () => {
+    const d = pickTopUp([
+      { system: "X1-MR27", covered: 13, candidates: ["X1-MR27-A"], unpriced: 12 },
+      { system: "X1-OK", covered: 6, candidates: ["X1-OK-B"], unpriced: 0 },
+    ], ctx, pol);
+    assert.equal(d.market, "X1-OK-B");
+  });
+  it("says why when every system with markets left is waiting", () => {
+    const d = pickTopUp([{ system: "X1-MR27", covered: 13, candidates: ["X1-MR27-A"], unpriced: 5 }], ctx, pol);
+    assert.equal(d.market, undefined);
+    assert.match(d.reason, /earlier keepers to price/);
+  });
+  it("0 reproduces today's behaviour", () => {
+    const d = pickTopUp([{ system: "X1-MR27", covered: 13, candidates: ["X1-MR27-A"], unpriced: 12 }], ctx, { ...pol, maxUnpriced: 0 });
+    assert.equal(d.market, "X1-MR27-A");
+  });
+});

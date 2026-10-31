@@ -5564,6 +5564,7 @@ export class FleetManager {
       leadMs: this.doctrine.value("freshLeadMin") * 60_000,
       fadeMs: this.doctrine.value("freshFadeHours") * 3_600_000,
       // Below the auto-approve cash floor every keeper waits for an approval card, so staging waits for the cash too.
+      minPricedShare: this.doctrine.isEnabledOr("releaseMinPricedPct", false) ? this.doctrine.value("releaseMinPricedPct") / 100 : 0,
       minCashAfter: this.doctrine.isEnabledOr("autoApproveKeeperProbes", false) && this.doctrine.isEnabledOr("keeperAutoApproveMinCash", false) ? this.doctrine.value("keeperAutoApproveMinCash") : 0,
     };
   }
@@ -5907,6 +5908,7 @@ export class FleetManager {
     const dir = new Map<string, DirectoryRow[]>();
     for (const r of (await this.store?.marketDirectory()) ?? []) dir.set(r.systemSymbol, [...(dir.get(r.systemSymbol) ?? []), r]);
     const parkedSystems = new Set(this.idleParked.values());
+    const priced = new Set(((await this.store?.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol));
     for (const q of this.systemQueue.list()) {
       if (q.state !== "live" || q.held) continue;
       const rows = dir.get(q.system) ?? [];
@@ -5915,7 +5917,8 @@ export class FleetManager {
       const have = ranked.filter((m) => covered.has(m.market) || listed.has(m.market)).length;
       // A system whose keepers were parked for want of sales gets no new market: its premium is gone and they would only be parked too.
       const parked = parkedSystems.has(q.system);
-      systems.push({ system: q.system, covered: have, candidates: parked ? [] : ranked.filter((m) => !covered.has(m.market) && !listed.has(m.market)).map((m) => m.market) });
+      const unpriced = ranked.filter((m) => (covered.has(m.market) || listed.has(m.market)) && !priced.has(m.market)).length;
+      systems.push({ system: q.system, covered: have, unpriced, candidates: parked ? [] : ranked.filter((m) => !covered.has(m.market) && !listed.has(m.market)).map((m) => m.market) });
       viable.set(q.system, ranked.length);
     }
     const polls = [...this.keeperMarkets.values()].map((m) => 60_000 / Math.max(this.keeperPollMs(m), 60_000));
@@ -5967,7 +5970,7 @@ export class FleetManager {
       keeperCallsPerMin: f.load,
       callsPerKeeper: f.perKeeper,
       pending: f.pending,
-    }, { ...DEFAULT_TOPUP_POLICY, perHour: this.doctrine.value("keeperTopUpPerHour"), maxKeeperCalls: this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90 });
+    }, { ...DEFAULT_TOPUP_POLICY, perHour: this.doctrine.value("keeperTopUpPerHour"), maxKeeperCalls: this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90, maxUnpriced: this.doctrine.isEnabledOr("keeperTopUpMaxUnpriced", true) ? this.doctrine.value("keeperTopUpMaxUnpriced") : 0 });
     this.topUpLast = { at: now, reason: decision.reason, market: decision.market };
     if (!decision.market) {
       if (decision.reason !== this.topUpNoteAt) { this.topUpNoteAt = decision.reason; this.keeperNote("topup", `keeper top-up: nothing added (${decision.reason})`); }
@@ -6104,10 +6107,14 @@ export class FleetManager {
     // (not hydrated yet) says nothing, so every system stays eligible.
     const reach = this.galaxy.gateNetwork([...new Set([this.systemSymbol, ...[...this.traders.values()].map((a) => a.getShip().nav.systemSymbol)].filter((x): x is string => !!x))]);
     const reachKnown = reach.size >= 5;
+    // Markets any keeper has read at least once (a snapshot of any age); unknown when the store cannot say, so the release test is skipped.
+    let pricedSeen: Set<string> | undefined;
+    try { pricedSeen = new Set(((await this.store.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol)); } catch { pricedSeen = undefined; }
     const queue: QueueFacts[] = all.filter((q) => q.state !== "live").map((q) => ({
       system: q.system, state: q.state as "scouted" | "staged", held: q.held, addedAt: q.addedAt, stagedAt: q.stagedAt, markets: q.markets.length,
       ...(reachKnown ? { reachable: reach.has(q.system) } : {}),
       ...(q.state === "staged" ? { readyShare: q.markets.length ? q.markets.filter((m) => ready.has(m)).length / q.markets.length : 0 } : {}),
+      ...(q.state === "staged" && pricedSeen && q.markets.length ? { pricedShare: q.markets.filter((m) => pricedSeen.has(m)).length / q.markets.length } : {}),
     }));
 
     let live: LiveFacts[] = [];

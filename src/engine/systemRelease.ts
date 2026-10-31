@@ -50,6 +50,8 @@ export interface ReleasePolicy {
   minCashAfter: number;
   /** What one keeper is expected to cost, for the cash test above. */
   keeperCost: number;
+  /** A staged system needs at least this share (0..1) of its listed markets priced once before release. 0 = no such test. */
+  minPricedShare: number;
 }
 
 /** Share of a staged system's keepers in place under which it counts as stuck once it is older than `stuckStagedMs`. */
@@ -73,6 +75,7 @@ export const DEFAULT_RELEASE_POLICY: ReleasePolicy = {
   idleGapMs: 10 * 60_000,
   minCashAfter: 0,
   keeperCost: 35_000,
+  minPricedShare: 0,
 };
 
 export interface QueueFacts {
@@ -85,6 +88,8 @@ export interface QueueFacts {
   markets: number;
   /** Staged only: keepers stationed (and parked) over markets; 1 = all of them. */
   readyShare?: number;
+  /** Staged only: share of its listed markets with a price snapshot of any age; undefined = not known (the test is skipped). */
+  pricedShare?: number;
   /**
    * Can our ships gate to it over finished gates? false = no: a keeper probe cannot be delivered, so it is never staged and a
    * staged one does not hold a "staged ahead" place (2026-10-30: AV28, BR8 and KN88, gates unfinished, sat staged with no keeper for
@@ -190,12 +195,14 @@ export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDeci
     out.notes.push(`last release was ${Math.round(sinceLast / 60_000)} min ago, minimum gap ${Math.round(gapMs / 60_000)} min${idle ? " (idle traders)" : ""}`);
     return out;
   }
-  const ready = staged.filter((q) => eligible(q) && reachable(q) && (q.readyShare ?? 0) >= READY_SHARE).sort((a, b) => (b.readyShare ?? 0) - (a.readyShare ?? 0) || (a.stagedAt ?? 0) - (b.stagedAt ?? 0) || a.addedAt - b.addedAt);
+  const priced = (q: QueueFacts): boolean => p.minPricedShare <= 0 || q.pricedShare === undefined || q.pricedShare >= p.minPricedShare;
+  const unpriced = staged.filter((q) => eligible(q) && reachable(q) && (q.readyShare ?? 0) >= READY_SHARE && !priced(q));
+  const ready = staged.filter((q) => eligible(q) && reachable(q) && (q.readyShare ?? 0) >= READY_SHARE && priced(q)).sort((a, b) => (b.readyShare ?? 0) - (a.readyShare ?? 0) || (a.stagedAt ?? 0) - (b.stagedAt ?? 0) || a.addedAt - b.addedAt);
   const pick = ready[0];
   if (!pick) {
     out.notes.push(
       `wanted a release (${idle ? `${s.idleTraders} idle trader(s)` : `${covered} of ${p.target} live premium systems`}) but no staged system is ready` +
-        (staged.some((q) => q.held) ? " (a staged system is held)" : "") + (staged.length ? ` (staged: ${staged.map((q) => `${q.system} ${Math.round((q.readyShare ?? 0) * 100)}%`).join(", ")})` : ""),
+        (staged.some((q) => q.held) ? " (a staged system is held)" : "") + (unpriced.length ? ` (${unpriced.map((q) => `${q.system} has only ${Math.round((q.pricedShare ?? 0) * 100)}% of its markets priced, ${Math.round(p.minPricedShare * 100)}% needed`).join(", ")})` : "") + (staged.length ? ` (staged: ${staged.map((q) => `${q.system} ${Math.round((q.readyShare ?? 0) * 100)}%`).join(", ")})` : ""),
     );
     return out;
   }

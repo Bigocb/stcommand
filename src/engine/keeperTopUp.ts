@@ -18,9 +18,14 @@ export interface TopUpPolicy {
   maxKeeperCalls: number;
   /** Do not add while this many listed markets still wait for a keeper to be bought. */
   maxPending: number;
+  /**
+   * Skip a system that still has this many covered markets no keeper has read yet (listed or bought, never priced): more keepers there
+   * only queue behind the earlier ones (2026-10-31: MR27 had 12 of 19 markets never priced while top-up kept adding to it). 0 = no such skip.
+   */
+  maxUnpriced: number;
 }
 
-export const DEFAULT_TOPUP_POLICY: TopUpPolicy = { perHour: 0, maxKeeperCalls: 60, maxPending: 3 };
+export const DEFAULT_TOPUP_POLICY: TopUpPolicy = { perHour: 0, maxKeeperCalls: 60, maxPending: 3, maxUnpriced: 0 };
 
 export interface TopUpSystem {
   system: string;
@@ -28,6 +33,8 @@ export interface TopUpSystem {
   covered: number;
   /** Worthwhile markets not yet listed, best first. */
   candidates: readonly string[];
+  /** Covered or listed markets that have never been priced (no snapshot of any age): a keeper has not read them yet. */
+  unpriced?: number;
 }
 
 export interface TopUpContext {
@@ -65,8 +72,10 @@ export function pickTopUp(systems: readonly TopUpSystem[], ctx: TopUpContext, po
     return { reason: `no API room: keepers poll ${ctx.keeperCallsPerMin.toFixed(1)} calls/min, one more would make ${after.toFixed(1)} against ${policy.maxKeeperCalls}` };
   }
   // The least-covered system first: the share of its worthwhile markets that already have a keeper.
-  const open = systems.filter((s) => s.candidates.length > 0);
-  if (!open.length) return { reason: "every live system's worthwhile markets are covered" };
+  const candidates = systems.filter((s) => s.candidates.length > 0);
+  if (!candidates.length) return { reason: "every live system's worthwhile markets are covered" };
+  const open = policy.maxUnpriced > 0 ? candidates.filter((s) => (s.unpriced ?? 0) < policy.maxUnpriced) : candidates;
+  if (!open.length) return { reason: `every system with markets left still waits for ${policy.maxUnpriced} or more earlier keepers to price their markets` };
   const share = (s: TopUpSystem): number => s.covered / (s.covered + s.candidates.length);
   const best = [...open].sort((a, b) => share(a) - share(b) || a.system.localeCompare(b.system))[0]!;
   const market = best.candidates[0]!;
@@ -92,11 +101,13 @@ export interface CoverageRow {
   covered: number;
   /** Viable markets neither covered nor listed: what top-up has still to add. */
   uncovered: number;
+  /** Covered or listed markets nobody has priced yet (they look covered but give traders nothing). */
+  unpriced: number;
 }
 
 /** Live systems with the most viable markets still uncovered first (ops tool keeper_coverage). */
 export function coverageRows(systems: readonly TopUpSystem[], viableOf: (system: string) => number): CoverageRow[] {
   return systems
-    .map((s) => ({ system: s.system, viable: viableOf(s.system), covered: s.covered, uncovered: s.candidates.length }))
+    .map((s) => ({ system: s.system, viable: viableOf(s.system), covered: s.covered, uncovered: s.candidates.length, unpriced: s.unpriced ?? 0 }))
     .sort((a, b) => b.uncovered - a.uncovered || a.system.localeCompare(b.system));
 }
