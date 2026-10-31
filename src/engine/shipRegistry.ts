@@ -1,3 +1,4 @@
+import { ChangeTracker } from "./changeTracker.js";
 import type { Store } from "../db/store.js";
 
 /**
@@ -152,30 +153,30 @@ export class ShipRegistry {
     // own claim() call sites are the only ones that ever write it, and they
     // only ever pass a real ShipRole, so this cast just re-asserts that at
     // the read side of the round-trip.
-    this.persisted.clear();
+    this.persisted.reset();
+    const loaded: [string, Omit<Claim, "shipSymbol">][] = [];
     for (const row of await store.getAllClaims(tenantId)) {
       this.claims.set(row.shipSymbol, row as Claim);
-      this.persisted.set(row.shipSymbol, ShipRegistry.saveKey(row as Claim));
+      loaded.push([row.shipSymbol, ShipRegistry.saveValue(row as Claim)]);
     }
+    this.persisted.markSaved(loaded);
   }
 
-  /** What was last saved for each ship (owner, role, intent, since), so an unchanged claim is not written again. */
-  private persisted = new Map<string, string>();
-  private static saveKey(c: Claim): string {
-    return JSON.stringify([c.owner, c.role, c.intent, c.since]);
+  /** What was last saved for each ship, so an unchanged claim is not written again. */
+  private persisted = new ChangeTracker<Omit<Claim, "shipSymbol">>();
+  private static saveValue(c: Claim): Omit<Claim, "shipSymbol"> {
+    return { owner: c.owner, role: c.role, intent: c.intent, since: c.since };
   }
 
   /**
-   * Writes the claims that changed since they were last saved. It used to write every claim on every coordinator tick, each in its own
-   * transaction: 544 ships took about 2.9 s of every core pass (2026-10-31, `syncShipClaims` in the SLOW pass lines), almost all of it
-   * rewriting rows that had not changed. A write that fails is not marked saved, so the next tick tries it again.
+   * Writes the claims that changed since they were last saved, all in one batch. It used to write every claim on every coordinator tick,
+   * each in its own transaction: 544 ships took about 2.9 s of every core pass (2026-10-31, `syncShipClaims` in the SLOW pass lines),
+   * almost all of it rewriting rows that had not changed. A write that fails is not marked saved, so the next tick tries it again.
    */
   async persistDirtyState(tenantId: string, store: Store): Promise<void> {
-    for (const claim of this.claims.values()) {
-      const key = ShipRegistry.saveKey(claim);
-      if (this.persisted.get(claim.shipSymbol) === key) continue;
-      await store.recordClaim(tenantId, claim);
-      this.persisted.set(claim.shipSymbol, key);
-    }
+    const changed = this.persisted.changed([...this.claims.values()].map((c) => [c.shipSymbol, ShipRegistry.saveValue(c)] as const));
+    if (!changed.length) return;
+    await store.recordClaims(tenantId, changed.map(([shipSymbol, v]) => ({ shipSymbol, ...v })));
+    this.persisted.markSaved(changed);
   }
 }

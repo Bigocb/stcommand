@@ -9,6 +9,16 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-10-31 — The per-pass mirrors write only what changed, in batches
+
+Follow-up to the claim-write fix below, applied to all three steps that wrote every ship's row on every coordinator pass, one transaction per row (544 ships, about 3.5 s of every core pass): ship claims, ship states, cargo manifests.
+
+- **`ChangeTracker` (`src/engine/changeTracker.ts`)** remembers what was last written per ship; a pass sends only entries that differ, in one batch. A failed write is not marked saved, so it is sent again on the next pass.
+- **Batch statements** in `Store`: `recordClaims()`, `updateShipStates()` (one `INSERT ... SELECT FROM unnest(...)` per 500 rows) and `deleteManifestPairs()`. The one-row methods stay.
+- **`syncShipManifests` read one manifest row set per ship (544 selects a pass).** It now reads the whole manifest once, compares each hold with it, rewrites only rows whose units, intent or basis changed, and drops sold goods in one delete. A row whose units have not changed keeps its cost basis and costs no price queries; the basis is recomputed when the units change (a purchase).
+- `ship_state.updated_at` now means "in this state since" (it used to be refreshed every pass); the dashboard and `get_ship_state` only display it.
+- Tests: `tests/changeTracker.test.ts`, `tests/batchWrites.test.ts` (real Postgres: the batch SQL, and the two sync steps writing nothing on a second pass); the fake `api` in `tests/shipManifest.test.ts` and `tests/agentStep.test.ts` now has the `onMarket`/`setShipObserver`/`setShipSource` the `FleetManager` constructor calls, so those DB suites run at all.
+
 ## 2026-10-31 — Scheduler overload: claim writes, a core pass that no longer waits on the network, and an API budget report
 
 From the 02:19 logs (every core pass 4.5-5 s, one of 25.7 s, scheduler 461 of 475 tasks overdue, 429 backoffs):

@@ -10,7 +10,7 @@ import { MissionManager } from "./mission.js";
 import { FeedManager } from "./feed.js";
 import type { MarketSnapshot } from "./market.js";
 import type { WaypointPos } from "./agent.js";
-import type { Store, CargoIntent, HeldRouteRow, ShipMovement, ActionEventRecord } from "../db/store.js";
+import type { Store, CargoIntent, HeldRouteRow, ShipMovement, ActionEventRecord, ShipLifecycleState, ManifestRow } from "../db/store.js";
 import { configChangeEvent, gateOpenedEvent, GATE_OPEN_SUBJECT, keeperListChange } from "./actionEvents.js";
 import { ApprovalGate, mootRoleApprovals } from "./approvals.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
@@ -62,6 +62,7 @@ import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
 import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
 import { DEFAULT_DELIVERY_POLICY, MAX_DELIVERY_MS, deliveryArrived, deliveryExpired, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
+import { ChangeTracker } from "./changeTracker.js";
 import { StaleWhileRevalidate } from "./staleCache.js";
 import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys, readIncomplete } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
@@ -9614,34 +9615,40 @@ export class FleetManager {
    * otherwise, falling back to the agent's own reported navigation target
    * when nav data disagrees (mid-flight step vs. a stale cached ship object).
    */
+  /** What was last written to ship_state for each ship: a pass writes only the ships whose state, target or step changed (changeTracker.ts). */
+  private readonly shipStateWrites = new ChangeTracker<{ state: ShipLifecycleState; target?: string; step?: unknown }>();
+
   private async syncShipStates(): Promise<void> {
     if (!this.tenantId || !this.store) return;
     const statuses = this.getShipStatuses();
-    await Promise.all(
-      statuses.map((s) => {
-        const ship = this.shipFor(s.symbol);
-        const step = this.stepFor(s.symbol);
-        const carryingCargo = (ship?.cargo?.units ?? 0) > 0;
-        const state = step.kind === "transacting"
-          ? "transacting"
-          : s.role === "parked"
-            ? "parked"
-            : s.role === "idle"
-            ? "idle"
-            : s.status === "IN_TRANSIT"
-              ? (carryingCargo ? "returning" : "travelling")
-              : s.status === "DOCKED"
-                ? "docked"
-                : "assigned";
-        const target = step.kind === "navigating"
-          ? step.to
+    const entries = statuses.map((s) => {
+      const ship = this.shipFor(s.symbol);
+      const step = this.stepFor(s.symbol);
+      const carryingCargo = (ship?.cargo?.units ?? 0) > 0;
+      const state: ShipLifecycleState = step.kind === "transacting"
+        ? "transacting"
+        : s.role === "parked"
+          ? "parked"
+          : s.role === "idle"
+          ? "idle"
           : s.status === "IN_TRANSIT"
-            ? ship?.nav?.route?.destination?.symbol
-            : ship?.nav?.waypointSymbol;
-        const persistedStep = step.kind === "idle" ? undefined : step;
-        return this.store!.updateShipState(this.tenantId!, s.symbol, state, target, persistedStep);
-      }),
-    );
+            ? (carryingCargo ? "returning" : "travelling")
+            : s.status === "DOCKED"
+              ? "docked"
+              : "assigned";
+      const target = step.kind === "navigating"
+        ? step.to
+        : s.status === "IN_TRANSIT"
+          ? ship?.nav?.route?.destination?.symbol
+          : ship?.nav?.waypointSymbol;
+      const persistedStep = step.kind === "idle" ? undefined : step;
+      return [s.symbol, { state, target, step: persistedStep }] as const;
+    });
+    // Only what changed, in one batch (it was one transaction per ship per pass: 544 of them, about 0.3 s of every core pass).
+    const changed = this.shipStateWrites.changed(entries);
+    if (!changed.length) return;
+    await this.store.updateShipStates(this.tenantId, changed.map(([shipSymbol, v]) => ({ shipSymbol, ...v })));
+    this.shipStateWrites.markSaved(changed);
   }
 
   /**
@@ -9752,38 +9759,51 @@ export class FleetManager {
     // syncShipClaims() uses for committedShips(), and an improvement over
     // this method's previous per-ship-per-good store round trips.
     const marketSnapshots = await store.latestMarketSnapshots();
+    // One read of the whole manifest instead of one per ship (544 round trips a pass), compared with what each hold should now read.
+    const existingByShip = new Map<string, ManifestRow[]>();
+    for (const m of await store.getAllManifestRows(tenantId)) existingByShip.set(m.shipSymbol, [...(existingByShip.get(m.shipSymbol) ?? []), m]);
+    const stale: { shipSymbol: string; goodSymbol: string }[] = [];
+    const upserts: Omit<ManifestRow, "acquiredAt">[] = [];
     for (const s of this.getShipStatuses()) {
       const inventory = this.cargoForShip(s.symbol);
-      const existing = await store.getManifestForShip(tenantId, s.symbol);
+      const existing = existingByShip.get(s.symbol) ?? [];
       const held = new Set(inventory.map((i) => i.symbol));
-      const stale = existing.filter((m) => !held.has(m.goodSymbol)).map((m) => m.goodSymbol);
-      if (stale.length) await store.deleteManifestRows(tenantId, s.symbol, stale);
+      for (const m of existing) if (!held.has(m.goodSymbol)) stale.push({ shipSymbol: s.symbol, goodSymbol: m.goodSymbol });
       if (inventory.length === 0) continue;
 
       const waypoint = this.shipWaypoint(s.symbol);
-      const rows = await Promise.all(
-        inventory.map(async (item) => {
+      for (const item of inventory) {
+        const have = existing.find((m) => m.goodSymbol === item.symbol);
+        // The cost basis only moves when the hold does (a purchase), so a row whose units are unchanged keeps its basis and costs no queries.
+        let costBasis: number;
+        let basisKind: "actual" | "estimated";
+        if (have && have.units === item.units) {
+          costBasis = Number(have.costBasis);
+          basisKind = have.basisKind;
+        } else {
           const actual = await store.lastPurchasePrice(tenantId, s.symbol, item.symbol);
-          const costBasis = actual ?? (await store.avgPurchasePrice(tenantId, item.symbol)) ?? 0;
-          const basisKind = (actual !== undefined ? "actual" : "estimated") as "actual" | "estimated";
+          costBasis = actual ?? (await store.avgPurchasePrice(tenantId, item.symbol)) ?? 0;
+          basisKind = actual !== undefined ? "actual" : "estimated";
+        }
 
-          let intent: CargoIntent;
-          if (s.symbol === warehouseSymbol) {
-            intent = "warehouse-deposit";
-          } else if (committed.has(s.symbol)) {
-            intent = "mission-delivery";
-          } else {
-            const marketRow = marketSnapshots.find((m) => m.waypointSymbol === waypoint && m.goodSymbol === item.symbol);
-            const floor = costBasis * (1 - HELD_POSITION_MAX_LOSS_PCT / 100);
-            const belowFloor = costBasis > 0 && marketRow !== undefined && marketRow.sellPrice < floor;
-            intent = belowFloor ? "held-position" : "resale";
-          }
+        let intent: CargoIntent;
+        if (s.symbol === warehouseSymbol) {
+          intent = "warehouse-deposit";
+        } else if (committed.has(s.symbol)) {
+          intent = "mission-delivery";
+        } else {
+          const marketRow = marketSnapshots.find((m) => m.waypointSymbol === waypoint && m.goodSymbol === item.symbol);
+          const floor = costBasis * (1 - HELD_POSITION_MAX_LOSS_PCT / 100);
+          const belowFloor = costBasis > 0 && marketRow !== undefined && marketRow.sellPrice < floor;
+          intent = belowFloor ? "held-position" : "resale";
+        }
 
-          return { shipSymbol: s.symbol, goodSymbol: item.symbol, units: item.units, costBasis, basisKind, intent };
-        }),
-      );
-      await store.upsertManifestRows(tenantId, rows);
+        if (have && have.units === item.units && have.intent === intent && Number(have.costBasis) === costBasis && have.basisKind === basisKind) continue;
+        upserts.push({ shipSymbol: s.symbol, goodSymbol: item.symbol, units: item.units, costBasis, basisKind, intent });
+      }
     }
+    if (stale.length) await store.deleteManifestPairs(tenantId, stale);
+    if (upserts.length) await store.upsertManifestRows(tenantId, upserts);
   }
 
   /**

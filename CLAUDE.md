@@ -374,6 +374,15 @@ Design and data model: `docs/analysis-engine.md`. Read it before adding a tracke
   before/after comparison is a correlation; it says so with its sample sizes. Using calibration in route ranking comes
   later, behind a doctrine clause that ships off, once the factors prove stable.
 
+## Running the database tests locally
+
+Many tests need Postgres (`tests/*.test.ts` that import `pg`). Without it they fail with connection errors that look like real failures.
+Start it with `pg_ctlcluster 16 main start`, apply the schema with `npm run migrate:test`, and run with the env file:
+`node --env-file=.env.test --import tsx --test tests/<file>.test.ts` (`npm test` does this). Known state on 2026-10-31: about 65 suites / 150 subtests
+fail on a clean checkout (fixtures whose fake `api` lacks methods the `FleetManager` constructor calls, such as `onMarket`, and rows left by other tests).
+The test role bypasses row-level security, so one tenant's query can see other tenants' rows: filter to your own ship symbols. To check a change,
+compare the failing subtests before and after (`git worktree add /tmp/base <commit>`, symlink `node_modules`, copy `.env.test`), not the count.
+
 ## Docs to keep current
 
 - `docs/TODO.md` — open items; move a closed one to `CHANGELOG.md`

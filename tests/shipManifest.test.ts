@@ -105,7 +105,7 @@ function makeFakeAgent(symbol: string, inventory: { symbol: string; units: numbe
 describe("FleetManager.syncShipManifests", () => {
   it("reconciles real cargo into the manifest, tagged resale by default", async () => {
     const tenantId = await makeTenant();
-    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    const fleet = new FleetManager({ api: { onMarket: () => {}, setShipObserver: () => {}, setShipSource: () => {} } as any, store, tenantId });
     (fleet as any).traders.set("TRADER-1", makeFakeAgent("TRADER-1", [{ symbol: "IRON_ORE", units: 20 }]));
 
     await (fleet as any).syncShipManifests();
@@ -121,7 +121,7 @@ describe("FleetManager.syncShipManifests", () => {
 
   it("tags the warehouse ship's own cargo warehouse-deposit instead of resale", async () => {
     const tenantId = await makeTenant();
-    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    const fleet = new FleetManager({ api: { onMarket: () => {}, setShipObserver: () => {}, setShipSource: () => {} } as any, store, tenantId });
     (fleet as any).traders.set("WH-1", makeFakeAgent("WH-1", [{ symbol: "FAB_MATS", units: 30 }]));
     (fleet as any).warehouseShip = { shipSymbol: "WH-1", waypointSymbol: "X1-A-A1" };
 
@@ -143,7 +143,7 @@ describe("FleetManager.syncShipManifests", () => {
       timestamp: new Date().toISOString(), shipSymbol: "TRADER-2", waypointSymbol: "X1-A-A1",
       type: "PURCHASE", tradeSymbol: "GOLD", units: 10, pricePerUnit: 90, total: 900,
     });
-    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    const fleet = new FleetManager({ api: { onMarket: () => {}, setShipObserver: () => {}, setShipSource: () => {} } as any, store, tenantId });
     (fleet as any).traders.set("TRADER-1", makeFakeAgent("TRADER-1", [{ symbol: "GOLD", units: 10 }]));
 
     await (fleet as any).syncShipManifests();
@@ -155,7 +155,7 @@ describe("FleetManager.syncShipManifests", () => {
 
   it("drops a good from the manifest once the ship no longer holds it", async () => {
     const tenantId = await makeTenant();
-    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    const fleet = new FleetManager({ api: { onMarket: () => {}, setShipObserver: () => {}, setShipSource: () => {} } as any, store, tenantId });
     const agent = makeFakeAgent("TRADER-1", [{ symbol: "IRON_ORE", units: 20 }]);
     (fleet as any).traders.set("TRADER-1", agent);
     await (fleet as any).syncShipManifests();
@@ -176,7 +176,7 @@ describe("FleetManager.syncShipManifests", () => {
 
   it("tags a mission-committed ship's cargo mission-delivery instead of resale", async () => {
     const tenantId = await makeTenant();
-    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    const fleet = new FleetManager({ api: { onMarket: () => {}, setShipObserver: () => {}, setShipSource: () => {} } as any, store, tenantId });
     (fleet as any).traders.set("CARRIER-1", makeFakeAgent("CARRIER-1", [{ symbol: "FAB_MATS", units: 40 }]));
     (fleet as any).missions.committedShips = () => new Set(["CARRIER-1"]);
 
@@ -198,7 +198,7 @@ describe("FleetManager.syncShipManifests", () => {
       systemSymbol: "X1-A", waypointSymbol: "X1-A-A1", goodSymbol: "PLATINUM",
       type: "EXPORT", supply: "SCARCE", purchasePrice: 105, sellPrice: 50, tradeVolume: 10,
     });
-    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    const fleet = new FleetManager({ api: { onMarket: () => {}, setShipObserver: () => {}, setShipSource: () => {} } as any, store, tenantId });
     (fleet as any).traders.set("TRADER-1", makeFakeAgent("TRADER-1", [{ symbol: "PLATINUM", units: 10 }]));
 
     await (fleet as any).syncShipManifests();
@@ -218,7 +218,7 @@ describe("FleetManager.syncShipManifests", () => {
       systemSymbol: "X1-A", waypointSymbol: "X1-A-A1", goodSymbol: "PLATINUM",
       type: "EXPORT", supply: "SCARCE", purchasePrice: 105, sellPrice: 98, tradeVolume: 10,
     });
-    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    const fleet = new FleetManager({ api: { onMarket: () => {}, setShipObserver: () => {}, setShipSource: () => {} } as any, store, tenantId });
     (fleet as any).traders.set("TRADER-1", makeFakeAgent("TRADER-1", [{ symbol: "PLATINUM", units: 10 }]));
 
     await (fleet as any).syncShipManifests();
@@ -229,7 +229,7 @@ describe("FleetManager.syncShipManifests", () => {
 
   it("the warehouse ship's own cargo stays warehouse-deposit even if it's also mission-committed or below the loss floor", async () => {
     const tenantId = await makeTenant();
-    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    const fleet = new FleetManager({ api: { onMarket: () => {}, setShipObserver: () => {}, setShipSource: () => {} } as any, store, tenantId });
     (fleet as any).traders.set("WH-1", makeFakeAgent("WH-1", [{ symbol: "FAB_MATS", units: 40 }]));
     (fleet as any).warehouseShip = { shipSymbol: "WH-1", waypointSymbol: "X1-A-A1" };
     (fleet as any).missions.committedShips = () => new Set(["WH-1"]);

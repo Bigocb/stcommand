@@ -8,24 +8,27 @@ import { ShipRegistry } from "../src/engine/shipRegistry.js";
  */
 function fakeStore(failFor?: string) {
   const writes: string[] = [];
+  const batches: string[][] = [];
   const store = {
-    recordClaim: async (_t: string, c: { shipSymbol: string }) => {
-      if (c.shipSymbol === failFor) throw new Error("db down");
-      writes.push(c.shipSymbol);
+    recordClaims: async (_t: string, cs: { shipSymbol: string }[]) => {
+      if (failFor && cs.some((c) => c.shipSymbol === failFor)) throw new Error("db down");
+      batches.push(cs.map((c) => c.shipSymbol));
+      for (const c of cs) writes.push(c.shipSymbol);
     },
     getAllClaims: async () => [{ shipSymbol: "OLD-1", owner: "keeper", role: "keeper", intent: { status: "DOCKED" }, since: "2026-10-31T00:00:00.000Z" }],
   } as any;
-  return { store, writes };
+  return { store, writes, batches };
 }
 
 describe("ShipRegistry.persistDirtyState", () => {
   it("writes a claim once, and again only when its owner, role, intent or since changes", async () => {
-    const { store, writes } = fakeStore();
+    const { store, writes, batches } = fakeStore();
     const reg = new ShipRegistry();
     reg.claim("S-1", "auto", "trader", { status: "DOCKED" });
     reg.claim("S-2", "keeper", "keeper", { status: "DOCKED" });
     await reg.persistDirtyState("t", store);
     assert.deepEqual(writes, ["S-1", "S-2"]);
+    assert.equal(batches.length, 1, "both claims go in one batch, not one transaction each");
     await reg.persistDirtyState("t", store);
     reg.claim("S-1", "auto", "trader", { status: "DOCKED" }, { preempt: true });
     await reg.persistDirtyState("t", store);

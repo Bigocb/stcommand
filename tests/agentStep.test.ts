@@ -183,7 +183,7 @@ describe("ShipAgent step tracking", () => {
 describe("FleetManager.syncShipStates reads real agent step", () => {
   it("a ship whose agent reports 'transacting' persists state='transacting' and the step JSON", async () => {
     const tenantId = await makeTenant();
-    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    const fleet = new FleetManager({ api: { onMarket: () => {}, setShipObserver: () => {}, setShipSource: () => {} } as any, store, tenantId });
     const agent: any = {
       symbol: "SHIP-1",
       getShip: () => ({ symbol: "SHIP-1", nav: { status: "DOCKED", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A" }, cargo: { capacity: 40, units: 0, inventory: [] } }),
@@ -203,7 +203,7 @@ describe("FleetManager.syncShipStates reads real agent step", () => {
 
   it("target comes from the agent's own reported navigation target while step.kind is 'navigating'", async () => {
     const tenantId = await makeTenant();
-    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    const fleet = new FleetManager({ api: { onMarket: () => {}, setShipObserver: () => {}, setShipSource: () => {} } as any, store, tenantId });
     const agent: any = {
       symbol: "SHIP-1",
       getShip: () => ({ symbol: "SHIP-1", nav: { status: "IN_TRANSIT", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A" }, cargo: { capacity: 40, units: 0, inventory: [] } }),
@@ -222,7 +222,7 @@ describe("FleetManager.syncShipStates reads real agent step", () => {
 
   it("an agent without getStep() (older/other test fixtures) doesn't crash and is treated as idle", async () => {
     const tenantId = await makeTenant();
-    const fleet = new FleetManager({ api: {} as any, store, tenantId });
+    const fleet = new FleetManager({ api: { onMarket: () => {}, setShipObserver: () => {}, setShipSource: () => {} } as any, store, tenantId });
     const agent: any = {
       symbol: "SHIP-1",
       getShip: () => ({ symbol: "SHIP-1", nav: { status: "DOCKED", waypointSymbol: "X1-A-A1", systemSymbol: "X1-A" }, cargo: { capacity: 40, units: 0, inventory: [] } }),

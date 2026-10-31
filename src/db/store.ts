@@ -1,3 +1,4 @@
+import { chunks } from "../engine/changeTracker.js";
 import type { DeliveryState, NotifyPrefs } from "../engine/notify/types.js";
 import type { PushSubscriptionRow } from "../engine/notify/store.js";
 import { shipLedgerEvent } from "../engine/shipLedgerEvent.js";
@@ -1674,6 +1675,27 @@ export class Store {
     );
   }
 
+  /** One statement per 500 rows: the changed ship states of a pass in a single transaction (updateShipState() is one transaction each). */
+  async updateShipStates(tenantId: string, rows: { shipSymbol: string; state: ShipLifecycleState; target?: string; step?: unknown }[]): Promise<void> {
+    for (const batch of chunks(rows, 500)) {
+      await withTenant(this.pool, tenantId, (c) =>
+        c.query(
+          `INSERT INTO ship_state (tenant_id, ship_symbol, state, target, step, updated_at)
+           SELECT $1::uuid, t.ship_symbol, t.state, t.target, t.step::jsonb, now()
+           FROM unnest($2::text[], $3::text[], $4::text[], $5::text[]) AS t(ship_symbol, state, target, step)
+           ON CONFLICT (tenant_id, ship_symbol) DO UPDATE SET state = excluded.state, target = excluded.target, step = excluded.step, updated_at = excluded.updated_at`,
+          [
+            tenantId,
+            batch.map((r) => r.shipSymbol),
+            batch.map((r) => r.state),
+            batch.map((r) => r.target ?? null),
+            batch.map((r) => (r.step === undefined ? null : JSON.stringify(r.step))),
+          ],
+        ),
+      );
+    }
+  }
+
   // ── Held routes (durable twin of TraderAgent's heldRoute/heldCost) ─
 
   async getAllHeldRoutes(tenantId: string): Promise<HeldRouteRow[]> {
@@ -1776,6 +1798,19 @@ export class Store {
     );
   }
 
+  /** Drops the given (ship, good) rows in one statement: the other half of a batched reconcile alongside upsertManifestRows(). */
+  async deleteManifestPairs(tenantId: string, pairs: { shipSymbol: string; goodSymbol: string }[]): Promise<void> {
+    for (const batch of chunks(pairs, 500)) {
+      await withTenant(this.pool, tenantId, (c) =>
+        c.query(
+          `DELETE FROM ship_manifest m USING unnest($1::text[], $2::text[]) AS t(ship_symbol, good_symbol)
+           WHERE m.ship_symbol = t.ship_symbol AND m.good_symbol = t.good_symbol`,
+          [batch.map((p) => p.shipSymbol), batch.map((p) => p.goodSymbol)],
+        ),
+      );
+    }
+  }
+
   // ── Ship claims (Greenfield Phase 4: ShipRegistry ownership) ─
 
   async recordClaim(tenantId: string, claim: ClaimRow): Promise<void> {
@@ -1786,6 +1821,21 @@ export class Store {
         [tenantId, claim.shipSymbol, claim.owner, claim.role, JSON.stringify(claim.intent), claim.since],
       ),
     );
+  }
+
+  /** The changed claims of a pass in one transaction per 500 (recordClaim() is one transaction each). */
+  async recordClaims(tenantId: string, claims: ClaimRow[]): Promise<void> {
+    for (const batch of chunks(claims, 500)) {
+      await withTenant(this.pool, tenantId, (c) =>
+        c.query(
+          `INSERT INTO ship_claims (tenant_id, ship_symbol, owner, role, intent, since)
+           SELECT $1::uuid, t.ship_symbol, t.owner, t.role, t.intent::jsonb, t.since::timestamptz
+           FROM unnest($2::text[], $3::text[], $4::text[], $5::text[], $6::text[]) AS t(ship_symbol, owner, role, intent, since)
+           ON CONFLICT (tenant_id, ship_symbol) DO UPDATE SET owner = excluded.owner, role = excluded.role, intent = excluded.intent, since = excluded.since`,
+          [tenantId, batch.map((r) => r.shipSymbol), batch.map((r) => r.owner), batch.map((r) => r.role), batch.map((r) => JSON.stringify(r.intent)), batch.map((r) => r.since)],
+        ),
+      );
+    }
   }
 
   /** Deletes the claim, but only if it's currently held by `owner` — mirrors ShipRegistry.release()'s same-owner-only semantics. */
