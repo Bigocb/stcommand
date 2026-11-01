@@ -167,11 +167,27 @@ should ship in the opening hours.**
   the limiter's class allowances and treat the scheduler's bucket as admission control only; this needs deciding before step 4.
 - **Reads that replace trader-recorded snapshots.** A sweep that re-reads a market a trader just recorded wastes a call. The planner must see last-read times from every source.
 
-## 8. Questions this inventory leaves open
-1. Does a market read need the ship docked, or only present? Keepers show no dock or orbit calls in the window, so they are already
-   in place, but the code docks before every read; measure on a fresh delivery.
-2. Why does the ship list cost 3-11 calls a minute for 809 ships? It pages 20 at a time; a stationary ship could be left out of the
-   frequent refresh entirely.
-3. What share should a tenant opening a week get, and for how long? The first hour of a week is the one time the second tenant
-   is more valuable per call than the first.
-4. Can the explorer/survey class be priced against what it earns (a new live system pays about 1.7x for about 8 hours)?
+## 8. Questions this inventory left open, and what we found (2026-11-01)
+
+1. **Does a market read need the ship docked, or only present? Settled for keepers, open for anything that moves.** A keeper
+   left in orbit docks once (THEO-2EB, NV72-BE5A: `02:05:07 orbit -> dock`, market read at 02:05:39) and then stays docked, so
+   steady-state cost is one call a read and the dock is a one-time call per keeper. The code docks before the first read, so
+   this does not show whether the game would accept a read from orbit; it only matters if a ship is ever used to sweep
+   markets, where it would save one call per stop. Test once on a spare probe if sweeps by ship are ever wanted.
+2. **Why does the ship list cost 3-11 calls a minute for 809 ships? Found.** `refreshState` in `tenantRegistry.ts` runs a fast
+   pass every 20 seconds (one agent read, about 3 calls a minute) and a **full pass every 2 minutes** that pages the game's whole
+   ship list (20 ships a page, 41 calls for 809 ships) plus contracts, at background urgency. If every full pass completed on
+   time it would cost about 20 calls a minute, 23% of the pipe; in practice it completes when the limiter has room, which was
+   10.8 calls a minute before the keeper lane and 3.0 after. Traders do not depend on it (their own state comes back in each
+   action response); it feeds the dashboards and the stuck checks, which is why 13 ships showed "transit overdue" 4-7 minutes
+   after the keeper lane started: a stale list, not stuck ships. **Recommendation:** make the full pass interval a doctrine
+   value (start at 10 minutes), and have the stuck check read the fleet's own ship state for traders, not the polled list.
+   Saves up to about 16 calls a minute at no cost to trading.
+3. **What share should a tenant opening a week get?** Mostly answered by the reset itself: the old agent's token dies at the
+   reset (`fatalAuthError` stops its calls), so THEOREM has the whole pipe from the first minute. A share rule is only needed
+   if two agents run live at once. The early-week constraint is not the pipe (four ships) but the later hours, when the fleet
+   reaches hundreds of hulls; that is covered by the class floors in section 5.2.
+4. **Can exploration be priced against what it earns?** Not yet. The system queue shows recent profit per unit against the
+   mature rate for systems with at least 15 sells: MR27 0.91, XK5 0.58, HS97 0.58 this week, below 1.0 where the plan assumed
+   1.7 for about 8 hours. Most live systems have had no sales at all, partly because their prices were stale for hours. Re-measure
+   after prices have been fresh for a day: profit per system over its first 8 hours, against the keeper and survey calls it used.
