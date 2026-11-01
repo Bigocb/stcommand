@@ -9,6 +9,20 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-11-01 — Route price check: reject a sell price far above that market's own bids (clause off)
+
+THEO-2B0 bought 72 CYBER_IMPLANTS (about 2.4 million, average 33,125) for X1-RB80-A1 on one reading of a 42,430 bid taken at
+23:54. By 00:19 the market read 11,838 and the approval card asked to sell at a loss of 1,532,646. The good's highest bid
+anywhere in the previous 8 hours was 28,065, and no market has paid close to its price. Routes are built from each market's
+newest snapshot, so a single transient or wrong reading is enough to send a hold worth millions. `src/engine/priceSanity.ts`
+(pure) compares the planned sell price with the same market's own median bid over the last 6 hours
+(`Store.bidMediansSince`, cached 10 minutes) and drops the route when it is more than the doctrine ratio above it
+(`routePriceSanityPct`, 200 = twice). It judges a market against itself, not against the good elsewhere, because the best
+buyers are meant to pay more than the median market; it needs 4 readings and passes a market it has not seen. The drop shows in
+`routeBuildReport` as "sell price far above that market's own recent bids" and the first three each pass are logged with their
+numbers. Off by default (`enabled: false`): the route list is then built exactly as before. Tests: `tests/priceSanity.test.ts`,
+`tests/bidMedians.test.ts`. Not covered: a trader choosing its own route without a dispatcher assignment.
+
 ## 2026-11-01 — Keepers get their own scheduler lane: none had polled for hours
 
 Found 2026-11-01 00:45 UTC. Prices in most live systems were 3-8 hours old even with keepers standing at the markets; the API

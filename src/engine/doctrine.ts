@@ -514,6 +514,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "routePriceSanityPct",
+    name: "Routes: reject a sell price far above the market's own bids",
+    description: "On = a route is dropped when the bid it expects at the sell market is more than this percent of that market's own median bid over the last 6 hours (200 = more than twice). Needs at least 4 readings of that market and good. Added 2026-11-01 after THEO-2B0 bought 72 CYBER_IMPLANTS (about 2.4 million) on a single reading of 42,430 at X1-RB80-A1, whose bids sat between 10,900 and 28,000, and sold for 11,838 (loss 1.53 million). It compares a market with itself, so the best buyers of a good are not penalised for paying more than other markets. Off (the default) = routes are built from the newest snapshot alone, as before.",
+    value: 200, min: 120, max: 500, step: 10, unit: "%",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "keeperLaneWorkers",
     name: "Keepers: tasks run beside the trader loop",
     description: "How many keeper and survey tasks may run at the same time as the trader loop. The scheduler used to run one task at a time, traders first, and cut each pass after 5 seconds; with about 30 busy traders the pass never reached the keepers, and for hours none of the 600 polled a market (2026-11-01: prices in most live systems 3-8 hours old, so traders had no routes there). With this on, keepers run in their own lane and the API limiter still serves traders first. 0 or off = the old single loop. Takes effect within a second.",

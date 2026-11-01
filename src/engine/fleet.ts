@@ -31,6 +31,7 @@ import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, ty
 import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
 import { decideIdleParking, type IdleFacts } from "./idleSystems.js";
 import { BootWatch, assignmentKey } from "./bootWatch.js";
+import { bidKey, sellPriceVerdict, type BidStat } from "./priceSanity.js";
 import { hourOf, hourlySnapshotEvent } from "./hourlySnapshot.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
 import type { FleetState } from "./state.js";
@@ -2257,6 +2258,17 @@ export class FleetManager {
     return { goods, sinks };
   }
 
+  /** Each market's median bid per good over the last 6 hours, refreshed every 10 minutes (priceSanity.ts). */
+  private bidStatsMemo?: { at: number; stats: Map<string, BidStat> };
+  private async bidStats(): Promise<Map<string, BidStat>> {
+    const now = Date.now();
+    if (this.bidStatsMemo && now - this.bidStatsMemo.at < 10 * 60_000) return this.bidStatsMemo.stats;
+    const rows = (await this.store?.bidMediansSince(new Date(now - 6 * 3_600_000).toISOString(), 4)) ?? [];
+    const stats = new Map<string, BidStat>(rows.map((r) => [bidKey(r.waypoint, r.good), { median: r.median, samples: r.samples }]));
+    this.bidStatsMemo = { at: now, stats };
+    return stats;
+  }
+
   async computeDispatchRoutes(): Promise<DispatchRoute[]> {
     this.tripCostMemo.clear();
     this.hopsMemo.clear();
@@ -2285,6 +2297,10 @@ export class FleetManager {
       drops.set(reason, (drops.get(reason) ?? 0) + 1);
       if (dropSample.length < 80) dropSample.push({ reason, good, buyAt, sellAt, profitPerTrip });
     };
+    const sanityOn = this.doctrine.isEnabledOr("routePriceSanityPct", false);
+    const bidStats = sanityOn ? await this.bidStats().catch(() => undefined) : undefined;
+    const sanityPolicy = { maxOverMedian: this.doctrine.value("routePriceSanityPct", 0) / 100, minSamples: 4 };
+    let sanityLogged = 0;
     const storedLegs = (await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin())) ?? [];
     // Where our ships can gate to: from the home system and wherever a trader stands. A graph too small to mean anything (not
     // hydrated yet) filters nothing.
@@ -2483,7 +2499,15 @@ export class FleetManager {
       })
       .filter((r): r is DispatchRoute => {
         if (r === null) return false;
-        if (r.profitPerTrip > 0) return true;
+        if (r.profitPerTrip > 0) {
+          const verdict = bidStats ? sellPriceVerdict(r, bidStats, sanityPolicy) : undefined;
+          if (verdict && !verdict.ok) {
+            drop("sell price far above that market's own recent bids", r.good, r.buyAt, r.sellAt, r.profitPerTrip);
+            if (sanityLogged++ < 3) this.log(`route price check: dropped ${r.good} ${r.buyAt}>${r.sellAt}: ${verdict.reason}`);
+            return false;
+          }
+          return true;
+        }
         drop("not profitable after fuel, slippage and jump costs", r.good, r.buyAt, r.sellAt, r.profitPerTrip);
         return false;
       })

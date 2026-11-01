@@ -2342,6 +2342,19 @@ export class Store {
    * snapshot was taken.
    */
   /** Every market snapshot row since `sinceIso`, slimmed to what the keeper cadence seed needs (see cadenceSeeds()). */
+  /** Each market's median bid (what it pays us) per good since `sinceIso`, with the number of readings, for pairs with at least `minSamples`. */
+  async bidMediansSince(sinceIso: string, minSamples: number): Promise<{ waypoint: string; good: string; median: number; samples: number }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ waypoint_symbol: string; good_symbol: string; med: number; n: string }>(
+        `SELECT waypoint_symbol, good_symbol, percentile_cont(0.5) WITHIN GROUP (ORDER BY sell_price) AS med, COUNT(*) AS n
+         FROM market_snapshots WHERE timestamp >= $1::timestamptz AND sell_price > 0
+         GROUP BY waypoint_symbol, good_symbol HAVING COUNT(*) >= $2`,
+        [sinceIso, minSamples],
+      );
+      return res.rows.map((r) => ({ waypoint: r.waypoint_symbol, good: r.good_symbol, median: Number(r.med), samples: Number(r.n) }));
+    });
+  }
+
   async marketSnapshotsSince(sinceIso: string): Promise<{ waypoint: string; good: string; ts: number; purchasePrice: number; sellPrice: number; supply: string }[]> {
     return withPool(this.pool, async (c) => {
       const res = await c.query<{ waypoint_symbol: string; good_symbol: string; ts: Date; purchase_price: number; sell_price: number; supply: string }>(
