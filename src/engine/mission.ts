@@ -1,4 +1,4 @@
-import { maxPriceFor, mergeMaxPriceBy } from "./missionCeiling.js";
+import { lotUnitsFor, maxPriceFor, mergeBuyLotUnitsBy, mergeMaxPriceBy } from "./missionCeiling.js";
 import { PRICE_IMPACT_PER_LOT } from "./routeEconomics.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
@@ -71,6 +71,9 @@ export function nextChunkWithinCeiling(lastPaid: number, lastUnits: number, trad
 export interface MissionPacing {
   /** Max units per purchase transaction (still capped by the market's own trade volume). */
   buyLotUnits?: number;
+  /** A lot size per material, in units per purchase; it overrides `buyLotUnits` for that material only (see missionCeiling.ts).
+   *  A gate's bulk material and its dear one rarely want the same lot (40 FAB_MATS is about 60k, 40 ADVANCED_CIRCUITRY about 150k). */
+  buyLotUnitsBy?: Record<string, number>;
   /** Minimum minutes between purchases of the same material by this mission (all carriers). */
   buyGapMin?: number;
   /** Cumulative price ceiling, percent above the market's trailing-24h low (default 40). */
@@ -497,7 +500,7 @@ export class MissionManager {
    */
   /** Merge pacing settings into a mission. A key set to null (or 0 for the lot and gap) clears it
    *  back to the default; keys not mentioned keep their value. */
-  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; maxPrice?: number | null; maxPriceBy?: Record<string, number | null> | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null }): Promise<MissionPacing | null> {
+  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyLotUnitsBy?: Record<string, number | null> | null; buyGapMin?: number | null; maxInflationPct?: number | null; maxPrice?: number | null; maxPriceBy?: Record<string, number | null> | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null }): Promise<MissionPacing | null> {
     const mission = this.active.get(waypointSymbol);
     if (!mission) throw new Error(`no active mission at ${waypointSymbol}`);
     const next: MissionPacing = { ...(mission.pacing ?? {}) };
@@ -519,6 +522,10 @@ export class MissionManager {
     // number; the ceiling is a pacing preference, not a safety limit.
     apply("maxInflationPct", patch.maxInflationPct, 1, Number.POSITIVE_INFINITY);
     apply("maxPrice", patch.maxPrice, 1, 100_000_000);
+    if (patch.buyLotUnitsBy !== undefined) {
+      const merged = mergeBuyLotUnitsBy(next.buyLotUnitsBy, patch.buyLotUnitsBy, mission.materials.map((m) => m.tradeSymbol));
+      if (merged) next.buyLotUnitsBy = merged; else delete next.buyLotUnitsBy;
+    }
     if (patch.maxPriceBy !== undefined) {
       const merged = mergeMaxPriceBy(next.maxPriceBy, patch.maxPriceBy, mission.materials.map((m) => m.tradeSymbol));
       if (merged) next.maxPriceBy = merged; else delete next.maxPriceBy;
@@ -1096,7 +1103,7 @@ export class MissionManager {
         // Respect the market's per-transaction trade volume limit (e.g. FAB_MATS
         // caps at 20u/tx) — buying more than that fails the whole purchase.
         const volumeCap = buyer?.tradeVolume && buyer.tradeVolume > 0 ? buyer.tradeVolume : toBuy;
-        const lotCap = mission.pacing?.buyLotUnits ?? Infinity;
+        const lotCap = lotUnitsFor(mission.pacing, material) ?? Infinity;
         // A lot larger than the market's per-transaction volume is bought as several transactions in the same stop.
         // Confirmed live 2026-10-07: D44 sells ADVANCED_CIRCUITRY 20u/tx, so a 40u lot bought 20 and THEO-1 flew a
         // ~40 minute round trip half empty. Later chunks stop at the price ceiling or the cash floor.

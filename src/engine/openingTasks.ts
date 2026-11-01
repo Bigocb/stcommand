@@ -30,7 +30,7 @@ export type Step =
   | { kind: "contractDuty"; ship: ShipRef; on: boolean }
   | { kind: "setDoctrine"; key: string; value?: number; enabled?: boolean }
   /** Start the home gate's construction mission (idempotent). paused: true leaves it created but not buying, so its materials are protected and the chain is visible; false lets it buy (the engine's own producer-activity and recovery guards still apply). Pacing fields are the mission's own (see setMissionPacing). */
-  | { kind: "startGateMission"; paused?: boolean; buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number; maxPrice?: number; maxPriceBy?: Record<string, number>; recoverPct?: number; onlyMaterials?: string[]; cashFloor?: number; cashResume?: number }
+  | { kind: "startGateMission"; paused?: boolean; buyLotUnits?: number; buyLotUnitsBy?: Record<string, number>; buyGapMin?: number; maxInflationPct?: number; maxPrice?: number; maxPriceBy?: Record<string, number>; recoverPct?: number; onlyMaterials?: string[]; cashFloor?: number; cashResume?: number }
   /** Start a feeder tier: a crew that sources `good` and sells it into `waypoint`. carrier: a ship symbol to crew it, so the engine's own picker (biggest empty hold first) cannot take a better-placed hull. */
   | { kind: "startFeed"; waypoint: string; good: string; mine?: boolean; carrierTarget?: number; buyAt?: string; stopAtSupply?: "MODERATE" | "HIGH" | "ABUNDANT"; maxLossPerUnit?: number; carrier?: string }
   /** Does nothing itself: the task waits here until the trigger is met, then carries on with the next step. */
@@ -145,6 +145,15 @@ function validateGateMissionStep(s: any): string | undefined {
   if (s.buyGapMin !== undefined && !posInt(s.buyGapMin, 0, 1440)) return "buyGapMin must be a whole number 0 to 1440";
   if (s.maxInflationPct !== undefined && !posInt(s.maxInflationPct, 0, 500)) return "maxInflationPct must be a whole number 0 to 500";
   if (s.maxPrice !== undefined && !posInt(s.maxPrice, 0, 100_000_000)) return "maxPrice must be a whole number 0 to 100,000,000 (0 clears it)";
+  if (s.buyLotUnitsBy !== undefined) {
+    if (typeof s.buyLotUnitsBy !== "object" || s.buyLotUnitsBy === null || Array.isArray(s.buyLotUnitsBy)) return "buyLotUnitsBy must be an object of trade symbol to units";
+    const entries = Object.entries(s.buyLotUnitsBy as Record<string, unknown>);
+    if (entries.length > 10) return "buyLotUnitsBy can hold up to 10 materials";
+    for (const [m, v] of entries) {
+      if (!/^[A-Z0-9_]{2,40}$/.test(m)) return "buyLotUnitsBy keys must be trade symbols like FAB_MATS";
+      if (!posInt(v, 1, 1000)) return "buyLotUnitsBy " + m + " must be a whole number 1 to 1000";
+    }
+  }
   if (s.maxPriceBy !== undefined) {
     if (typeof s.maxPriceBy !== "object" || s.maxPriceBy === null || Array.isArray(s.maxPriceBy)) return "maxPriceBy must be an object of trade symbol to price";
     const entries = Object.entries(s.maxPriceBy as Record<string, unknown>);

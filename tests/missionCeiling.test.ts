@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { maxPriceFor, mergeMaxPriceBy } from "../src/engine/missionCeiling.js";
+import { lotUnitsFor, maxPriceFor, mergeBuyLotUnitsBy, mergeMaxPriceBy } from "../src/engine/missionCeiling.js";
 import { validateTaskSpec } from "../src/engine/openingTasks.js";
 
 const MATERIALS = ["FAB_MATS", "ADVANCED_CIRCUITRY", "QUANTUM_STABILIZERS"];
@@ -52,5 +52,40 @@ describe("opening step validation", () => {
     assert.equal(validateTaskSpec(spec({ FAB_MATS: 0 })).ok, false);
     assert.equal(validateTaskSpec(spec({ "fab mats": 5 })).ok, false);
     assert.equal(validateTaskSpec(spec([1])).ok, false);
+  });
+});
+
+describe("lotUnitsFor", () => {
+  it("uses the material's own lot, then the mission-wide one, then nothing", () => {
+    const pacing = { buyLotUnits: 40, buyLotUnitsBy: { ADVANCED_CIRCUITRY: 20 } };
+    assert.equal(lotUnitsFor(pacing, "ADVANCED_CIRCUITRY"), 20);
+    assert.equal(lotUnitsFor(pacing, "FAB_MATS"), 40);
+    assert.equal(lotUnitsFor({ buyLotUnitsBy: { ADVANCED_CIRCUITRY: 20 } }, "FAB_MATS"), undefined);
+    assert.equal(lotUnitsFor(null, "FAB_MATS"), undefined);
+  });
+});
+
+describe("mergeBuyLotUnitsBy", () => {
+  it("sets, clears and keeps, like the ceilings", () => {
+    let cur = mergeBuyLotUnitsBy(undefined, { FAB_MATS: 40, ADVANCED_CIRCUITRY: 20 }, MATERIALS);
+    assert.deepEqual(cur, { FAB_MATS: 40, ADVANCED_CIRCUITRY: 20 });
+    cur = mergeBuyLotUnitsBy(cur, { ADVANCED_CIRCUITRY: null }, MATERIALS);
+    assert.deepEqual(cur, { FAB_MATS: 40 });
+    assert.equal(mergeBuyLotUnitsBy(cur, null, MATERIALS), undefined);
+  });
+  it("rejects an unknown material and a lot outside 1 to 1,000", () => {
+    assert.throws(() => mergeBuyLotUnitsBy(undefined, { IRON: 5 }, MATERIALS), /buyLotUnitsBy: the mission has no material IRON/);
+    assert.throws(() => mergeBuyLotUnitsBy(undefined, { FAB_MATS: 5000 }, MATERIALS), /between 1 and 1,000/);
+    assert.throws(() => mergeBuyLotUnitsBy(undefined, { FAB_MATS: -1 }, MATERIALS), /between 1 and 1,000/);
+  });
+});
+
+describe("opening step validation: buyLotUnitsBy", () => {
+  const spec = (buyLotUnitsBy: unknown) => ({ key: "g", name: "n", trigger: { kind: "always" }, steps: [{ kind: "startGateMission", buyLotUnitsBy }] });
+  it("accepts per-material lots and rejects bad ones", () => {
+    assert.equal(validateTaskSpec(spec({ FAB_MATS: 40, ADVANCED_CIRCUITRY: 20 })).ok, true);
+    assert.equal(validateTaskSpec(spec({ FAB_MATS: 0 })).ok, false);
+    assert.equal(validateTaskSpec(spec({ FAB_MATS: 1001 })).ok, false);
+    assert.equal(validateTaskSpec(spec({ "fab mats": 5 })).ok, false);
   });
 });

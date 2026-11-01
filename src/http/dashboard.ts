@@ -1470,9 +1470,12 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       const om = req.body?.onlyMaterials;
       const onlyMaterials = om === null ? null : Array.isArray(om) && om.every((x: unknown) => typeof x === "string") ? (om as string[]) : undefined;
       // maxPriceBy: { MATERIAL: credits | null } sets or clears one material's ceiling; null clears them all; absent leaves them alone.
+      // buyLotUnitsBy: same shape, units per purchase per material.
+      const lb = req.body?.buyLotUnitsBy;
+      const buyLotUnitsBy = lb === null ? null : lb && typeof lb === "object" && !Array.isArray(lb) ? Object.fromEntries(Object.entries(lb as Record<string, unknown>).map(([k, v]) => [k, v === null ? null : Number(v)])) : undefined;
       const mb = req.body?.maxPriceBy;
       const maxPriceBy = mb === null ? null : mb && typeof mb === "object" && !Array.isArray(mb) ? Object.fromEntries(Object.entries(mb as Record<string, unknown>).map(([k, v]) => [k, v === null ? null : Number(v)])) : undefined;
-      await w.fleet.setMissionPacing(waypoint, { buyLotUnits: pick("buyLotUnits"), buyGapMin: pick("buyGapMin"), maxInflationPct: pick("maxInflationPct"), maxPrice: pick("maxPrice"), maxPriceBy, recoverPct: pick("recoverPct"), onlyMaterials, cashFloor: pick("cashFloor"), cashResume: pick("cashResume") });
+      await w.fleet.setMissionPacing(waypoint, { buyLotUnits: pick("buyLotUnits"), buyGapMin: pick("buyGapMin"), maxInflationPct: pick("maxInflationPct"), maxPrice: pick("maxPrice"), maxPriceBy, buyLotUnitsBy, recoverPct: pick("recoverPct"), onlyMaterials, cashFloor: pick("cashFloor"), cashResume: pick("cashResume") });
       res.json({ ok: true, missions: await w.fleet.getMissions() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });

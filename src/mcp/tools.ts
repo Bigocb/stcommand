@@ -943,6 +943,7 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
         buyGapMin: z.number().int().nullable().optional(),
         maxInflationPct: z.number().int().nullable().optional(),
         maxPrice: z.number().int().nullable().optional().describe("Absolute ceiling in credits per unit: no purchase while the ask is above it. The lower of this and maxInflationPct applies."),
+        buyLotUnitsBy: z.record(z.string(), z.number().int().nullable()).nullable().optional().describe("A lot size per material, e.g. {\"FAB_MATS\": 40, \"ADVANCED_CIRCUITRY\": 20}: units per purchase, overriding buyLotUnits for that material only. A material set to null (or 0) is cleared; the whole field null clears them all; materials not mentioned keep theirs."),
         maxPriceBy: z.record(z.string(), z.number().int().nullable()).nullable().optional().describe("A ceiling per material, e.g. {\"FAB_MATS\": 2000, \"ADVANCED_CIRCUITRY\": 4000}: it overrides maxPrice for that material only. A material set to null (or 0) is cleared; the whole field null clears them all; materials not mentioned keep theirs."),
         recoverPct: z.number().int().nullable().optional(),
         cashFloor: z.number().int().nullable().optional().describe("Hold purchases while the agent's credits are under this; null clears."),
@@ -951,9 +952,9 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
-    async ({ waypoint, buyLotUnits, buyGapMin, maxInflationPct, maxPrice, maxPriceBy, recoverPct, onlyMaterials, cashFloor, cashResume }) => {
+    async ({ waypoint, buyLotUnits, buyLotUnitsBy, buyGapMin, maxInflationPct, maxPrice, maxPriceBy, recoverPct, onlyMaterials, cashFloor, cashResume }) => {
       try {
-        const pacing = await w.fleet.setMissionPacing(waypoint, { buyLotUnits, buyGapMin, maxInflationPct, maxPrice, maxPriceBy, recoverPct, onlyMaterials, cashFloor, cashResume });
+        const pacing = await w.fleet.setMissionPacing(waypoint, { buyLotUnits, buyLotUnitsBy, buyGapMin, maxInflationPct, maxPrice, maxPriceBy, recoverPct, onlyMaterials, cashFloor, cashResume });
         await recordMcpAction(w, "mission_pacing", waypoint, `pacing ${pacing ? JSON.stringify(pacing) : "cleared"}`);
         return textResult({ ok: true, waypoint, pacing });
       } catch (err) {
