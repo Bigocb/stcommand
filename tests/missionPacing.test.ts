@@ -223,3 +223,30 @@ describe("maxPrice replaces the percentage ceiling", () => {
     assert.deepEqual(await runWithBaseline({ maxPrice: 4000 }, 5000), []);
   });
 });
+
+describe("MissionPacing.maxPriceBy: a ceiling per material", () => {
+  async function run(pacing: Record<string, unknown>, ask: number) {
+    const h = harness({ price: ask, tradeVolume: 20 });
+    await h.mgr.startConstruction("X1-A-I1");
+    await h.mgr.assignCarrier("X1-A-I1", "SHIP-1");
+    await h.mgr.setPacing("X1-A-I1", { buyLotUnits: 20, maxInflationPct: 100_000, ...pacing } as never);
+    await h.mgr.tick();
+    return h.bought;
+  }
+  it("setPacing sets, merges and clears a material's ceiling, and rejects an unknown material", async () => {
+    const { mgr } = harness();
+    await mgr.startConstruction("X1-A-I1", [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 } as never]);
+    assert.deepEqual(await mgr.setPacing("X1-A-I1", { maxPriceBy: { FAB_MATS: 2000 } }), { maxPriceBy: { FAB_MATS: 2000 } });
+    assert.deepEqual(await mgr.setPacing("X1-A-I1", { maxPrice: 3000 }), { maxPrice: 3000, maxPriceBy: { FAB_MATS: 2000 } });
+    assert.deepEqual(await mgr.setPacing("X1-A-I1", { maxPriceBy: { FAB_MATS: null } }), { maxPrice: 3000 });
+    await assert.rejects(() => mgr.setPacing("X1-A-I1", { maxPriceBy: { ADVANCED_CIRCUITRY: 4000 } }), /no material ADVANCED_CIRCUITRY/);
+  });
+  it("a material's own ceiling beats the mission-wide one, in either direction", async () => {
+    assert.deepEqual(await run({ maxPrice: 1000, maxPriceBy: { FAB_MATS: 5000 } }, 4000), [20], "own ceiling higher: buys");
+    assert.deepEqual(await run({ maxPrice: 7000, maxPriceBy: { FAB_MATS: 4000 } }, 5000), [], "own ceiling lower: holds");
+  });
+  it("with no per-material ceiling the mission-wide one applies, as before", async () => {
+    assert.deepEqual(await run({ maxPrice: 4000 }, 5000), []);
+    assert.deepEqual(await run({ maxPrice: 6000 }, 5000), [20]);
+  });
+});

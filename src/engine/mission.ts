@@ -1,3 +1,4 @@
+import { maxPriceFor, mergeMaxPriceBy } from "./missionCeiling.js";
 import { PRICE_IMPACT_PER_LOT } from "./routeEconomics.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
@@ -80,6 +81,9 @@ export interface MissionPacing {
    *  saw would silently override it (2026-10-27: max price 7,000 set, ask 5,386, nothing bought because the default
    *  40% cap was 1,740). */
   maxPrice?: number;
+  /** An absolute ceiling per material, in credits per unit; it overrides `maxPrice` for that material only (see missionCeiling.ts).
+   *  Lets a cheap bulk material and a dear one each keep their own limit. */
+  maxPriceBy?: Record<string, number>;
   /** Buy the next lot only once the ask has come back to within this percent of what it was before the previous
    *  lot: a sawtooth that paces buying by the market's own refill rather than by the clock. Unset = no such gate. */
   recoverPct?: number;
@@ -493,7 +497,7 @@ export class MissionManager {
    */
   /** Merge pacing settings into a mission. A key set to null (or 0 for the lot and gap) clears it
    *  back to the default; keys not mentioned keep their value. */
-  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; maxPrice?: number | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null }): Promise<MissionPacing | null> {
+  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; maxPrice?: number | null; maxPriceBy?: Record<string, number | null> | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null }): Promise<MissionPacing | null> {
     const mission = this.active.get(waypointSymbol);
     if (!mission) throw new Error(`no active mission at ${waypointSymbol}`);
     const next: MissionPacing = { ...(mission.pacing ?? {}) };
@@ -515,6 +519,10 @@ export class MissionManager {
     // number; the ceiling is a pacing preference, not a safety limit.
     apply("maxInflationPct", patch.maxInflationPct, 1, Number.POSITIVE_INFINITY);
     apply("maxPrice", patch.maxPrice, 1, 100_000_000);
+    if (patch.maxPriceBy !== undefined) {
+      const merged = mergeMaxPriceBy(next.maxPriceBy, patch.maxPriceBy, mission.materials.map((m) => m.tradeSymbol));
+      if (merged) next.maxPriceBy = merged; else delete next.maxPriceBy;
+    }
     apply("recoverPct", patch.recoverPct, 1, 100);
     apply("cashFloor", patch.cashFloor, 1, 1_000_000_000);
     apply("cashResume", patch.cashResume, 1, 1_000_000_000);
@@ -1036,7 +1044,7 @@ export class MissionManager {
           }
         }
         // The operator's own price in credits, if set: simpler to reason about than a percent over a baseline they never saw.
-        const maxPrice = mission.pacing?.maxPrice;
+        const maxPrice = maxPriceFor(mission.pacing, material);
         if (maxPrice !== undefined && price > maxPrice) {
           if (this.yieldToOtherMaterial(mission, t, material, ship.cargo.inventory, PACING_RECHECK_MS)) {
             this.log(`mission ${mission.targetWaypoint}: ${material} at ${market} is ${price}c, over the ${maxPrice}c max price — buying another material meanwhile`);

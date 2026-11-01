@@ -69,6 +69,7 @@ import { ChangeTracker } from "./changeTracker.js";
 import { StaleWhileRevalidate } from "./staleCache.js";
 import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys, readIncomplete } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
+import { maxPriceFor } from "./missionCeiling.js";
 import { pickCheapestKeeperYard, pickKeeperYardWithShip, preferYardWithShip } from "./keeperYard.js";
 import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
 import { chooseHopMethod, cruiseNeedFromGame, DEFAULT_WARP_POLICY, parseFuelShortfall, pickWarpArrival, warpDriveRange, warpRouteKey, type WarpHopChoice, type WarpPolicy } from "./warpTour.js";
@@ -8331,7 +8332,7 @@ export class FleetManager {
           const low = mat.priceBaselines?.[p.waypoint]?.price ?? null;
           (p as ChainProducer).low24h = low;
           const pctCeiling = low !== null ? Math.round(low * (1 + ceilingPct / 100)) : null;
-          (p as ChainProducer).ceiling = m.pacing?.maxPrice ?? pctCeiling;
+          (p as ChainProducer).ceiling = maxPriceFor(m.pacing, mat.tradeSymbol) ?? pctCeiling;
         }
         materials.push({
           tradeSymbol: mat.tradeSymbol,
@@ -8361,7 +8362,7 @@ export class FleetManager {
    * place before any buying: start, pause, set pacing, resume. `paused: true` stops after the pacing and leaves it created but
    * not buying. Idempotent: an existing mission keeps its progress and just gets the pacing and the paused/resumed state.
    */
-  async startHomeGateMission(opts: { paused?: boolean; buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number; maxPrice?: number; recoverPct?: number; onlyMaterials?: string[]; cashFloor?: number; cashResume?: number }): Promise<void> {
+  async startHomeGateMission(opts: { paused?: boolean; buyLotUnits?: number; buyGapMin?: number; maxInflationPct?: number; maxPrice?: number; maxPriceBy?: Record<string, number>; recoverPct?: number; onlyMaterials?: string[]; cashFloor?: number; cashResume?: number }): Promise<void> {
     const gate = this.galaxy.getSystem(this.systemSymbol)?.waypoints.find((w) => w.type === "JUMP_GATE");
     if (!gate) throw new Error(`no jump gate known in ${this.systemSymbol}`);
     if (this.homeGateOpen()) return; // nothing left to build
@@ -8442,7 +8443,7 @@ export class FleetManager {
   /** Per-mission buy pacing (lot size, minimum gap, price ceiling) — see MissionPacing. */
   async setMissionPacing(
     waypointSymbol: string,
-    patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; maxPrice?: number | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null },
+    patch: { buyLotUnits?: number | null; buyGapMin?: number | null; maxInflationPct?: number | null; maxPrice?: number | null; maxPriceBy?: Record<string, number | null> | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null },
   ) {
     return this.missions.setPacing(waypointSymbol, patch);
   }
