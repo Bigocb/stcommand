@@ -626,6 +626,9 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Design docs written, no implementation decision made
 
+- [ ] `docs/api-budget-controller.md` (2026-11-01) — one controller that divides the 90 calls a minute between execution, market
+  intel, bookkeeping and exploration, with a wave scheduler for keeper reads and measured headroom for top-up. Measured
+  inventory included. Only the observe-only step is safe before the 2026-11-01 reset; the rest after the opening settles.
 - [ ] `docs/api-request-priority-plan.md` — thread Scheduler Task
   priority into `RateLimiter.acquire()`. Not urgent; latent until the
   shared limiter is actually contended.
