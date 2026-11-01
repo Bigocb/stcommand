@@ -30,6 +30,7 @@ import { gateFromJumpRejection } from "./jumpRejection.js";
 import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, type QueueFacts, type ReleaseDecision, type ReleaseMode, type ReleasePolicy } from "./systemRelease.js";
 import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
 import { decideIdleParking, type IdleFacts } from "./idleSystems.js";
+import { BootWatch, assignmentKey } from "./bootWatch.js";
 import { hourOf, hourlySnapshotEvent } from "./hourlySnapshot.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
 import type { FleetState } from "./state.js";
@@ -415,6 +416,8 @@ export class FleetManager {
   readonly missions: MissionManager;
   readonly feeds: FeedManager;
   private readonly log: (msg: string) => void;
+  /** What the fleet does in the minutes after this process started (docs: CHANGELOG, ops boot_watch). */
+  readonly bootWatch = new BootWatch(Date.now());
   private readonly recordLedger: FleetOptions["recordLedger"];
   private readonly recordMovement: FleetOptions["recordMovement"];
   private readonly recordActionEvent: FleetOptions["recordActionEvent"];
@@ -1135,6 +1138,7 @@ export class FleetManager {
         this.log(`restore dispatch commitments failed: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+    this.bootWatch.noteRestored(ships.map((s) => ({ ship: s.symbol, key: assignmentKey(this.dispatcher.assignmentFor(s.symbol)) })));
     const circuitFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "dispatchCircuits") : undefined;
     if (circuitFlag) {
       try {
@@ -1525,8 +1529,8 @@ export class FleetManager {
       api: this.api,
       intentFor: () => this.intents.current(shipSymbol),
       log: (m) => this.log(`${shipSymbol}: ${m}`),
-      recordLedger: this.recordLedger,
-      onActivity: (kind, detail, credits) => this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol),
+      recordLedger: this.recordLedger ? (entry) => { if (entry.type === "JUMP") this.bootWatch.noteAction(Date.now(), shipSymbol, "jump"); this.recordLedger?.(entry); } : undefined,
+      onActivity: (kind, detail, credits) => { this.bootWatch.noteAction(Date.now(), shipSymbol, kind); this.onActivity?.(kind, `${shipSymbol} ${detail}`, credits, shipSymbol); },
       // Traders price their buys off the snapshot, so they only skip one taken in the last minute (the duplicate a dock
       // and an explicit record a moment apart used to cost).
       recordMarket: (wp) => this.traderRecordMarket(wp),
@@ -1676,6 +1680,25 @@ export class FleetManager {
    * fleet's most profitable route away for hours behind a ship parked at a
    * building site, doing nothing with it.
    */
+  /** Boot diagnostic: record each trader's route after a dispatcher cycle, and save the summary once the window is over. */
+  private watchBoot(traders: { shipSymbol: string; busy: boolean }[]): void {
+    const now = Date.now();
+    if (this.bootWatch.active(now)) {
+      this.bootWatch.observe(now, traders.map((t) => ({ ship: t.shipSymbol, key: assignmentKey(this.dispatcher.assignmentFor(t.shipSymbol)), loaded: t.busy })));
+    } else if (this.bootWatch.due(now) && this.tenantId) {
+      this.bootWatch.markPersisted();
+      this.store?.setFleetFlag(this.tenantId, "bootWatchLast", JSON.stringify(this.bootWatch.summary(now))).catch((err) => this.log(`boot watch save failed: ${err instanceof Error ? err.message : String(err)}`));
+    }
+  }
+
+  /** The boot diagnostic's current summary and the one saved after the previous process's window (ops boot_watch). */
+  async bootWatchReport(): Promise<{ thisBoot: ReturnType<BootWatch["summary"]>; previousBoot?: unknown }> {
+    const saved = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "bootWatchLast") : undefined;
+    let previousBoot: unknown;
+    try { previousBoot = saved ? JSON.parse(saved) : undefined; } catch { previousBoot = undefined; }
+    return { thisBoot: this.bootWatch.summary(Date.now()), ...(previousBoot !== undefined ? { previousBoot } : {}) };
+  }
+
   private dispatcherTraders(): { shipSymbol: string; capacity: number; speed: number; busy: boolean; system: string; waypoint: string; fuelCapacity: number; reach?: ShipReach }[] {
     // "auto" is the weakest owner in ShipRegistry's precedence, so
     // availableFor("auto") answers exactly "not held, not suspended, not
@@ -10723,6 +10746,7 @@ export class FleetManager {
         { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), holdAware: this.doctrine.isEnabledOr("routeHoldAware", false), soonFreeSec: this.doctrine.isEnabledOr("routeSoonFreeMin", false) ? this.doctrine.value("routeSoonFreeMin") * 60 : 0, matchTopN: this.doctrine.value("routeMatchTopN", 0), speedWeight: this.doctrine.isEnabledOr("shipSpeedWeight", false) ? this.doctrine.value("shipSpeedWeight", 0) : 0, modelSpeed: this.routeModelSpeed(), coolOffMin: this.doctrine.value("routeCoolOffMin", 0), roundsMax: this.doctrine.value("routeRoundsMax", 0), buyRoundsMax: this.doctrine.value("buyMarketRoundsMax", 0), marketRecoveryMin: this.doctrine.isEnabledOr("marketRecoveryMin", false) ? this.doctrine.value("marketRecoveryMin", 0) : 0, routeBlockMin: this.doctrine.isEnabledOr("deadRouteShareMin", false) ? this.doctrine.value("deadRouteShareMin", 0) : 0 },
         [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l }))),
       ));
+      this.watchBoot(traders);
       // Keep each trader's trip and commitment across a restart, so a ship flying to its buy market is not re-routed.
       const commitmentJson = this.dispatcher.commitmentsSnapshot();
       if (commitmentJson !== undefined && this.tenantId) {

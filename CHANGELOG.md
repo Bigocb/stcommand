@@ -9,6 +9,17 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-11-01 — Ops tool boot_watch: what the fleet does in the minutes after a restart
+
+Every redeploy is followed by about ten minutes with almost nothing bought or sold while jumps roughly double; the cause was
+not known (trade_tempo showed trips started falling to a third of normal, sells falling too, and the ledger showed jumps near
+23 per 5 minutes against 12-13 normally, with the wallet unchanged for minutes). `stcommand_ops_boot_watch` (pure module
+`src/engine/bootWatch.ts`, test `tests/bootWatch.test.ts`, thin hooks in `FleetManager`) records, for 12 minutes after the
+process starts: each trader's saved trip against the route the dispatcher gives it on the first cycle (kept, changed,
+dropped, fresh, and how many changed ones carried cargo), route churn on later cycles, buys, sells and jumps per minute since
+boot, and the time to each ship's first trade. The summary is saved as fleet flag `bootWatchLast` when the window ends, so
+`previousBoot` survives the next restart. Log-only: it changes no routing. Read it a few minutes after the next batched deploy.
+
 ## 2026-10-31 — Ops tool trade_tempo: why an hour dipped (fewer trips, or worse prices per trip)
 
 The ops ledger tool is capped at 300 rows, so a fleet-wide question about a past hour could not be answered from it. A

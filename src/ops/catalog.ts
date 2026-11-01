@@ -586,6 +586,16 @@ export const OPS_TOOLS: OpsTool[] = [
   },
 
   {
+    name: "boot_watch",
+    title: "What the fleet did in the minutes after the last restart",
+    description: "A diagnostic for the pause that follows every redeploy. For 12 minutes after the process starts it records, for every trader: the route it had saved before the restart against the one the dispatcher gave it on the first cycle (kept, changed, dropped, fresh, and how many of the changed ones were carrying cargo), how many ships changed route on each later cycle, buys, sells and jumps per minute since boot, and how long each ship took to make its first trade. thisBoot is the live window; previousBoot is the summary saved when the previous process's window ended, so it survives the next restart. Read-only. Read it a few minutes after a deploy.",
+    input: {},
+    async run(ctx) {
+      return ctx.w.fleet.bootWatchReport();
+    },
+  },
+
+  {
     name: "trade_tempo",
     title: "Fleet trading tempo: trips started and ended, ships trading, travelling or silent, per bucket",
     description: "Across every trader (not a capped ledger slice), per time bucket (default 5 minutes): trips started (purchase bursts) and ended (sell bursts), ships that traded, ships that only travelled (a JUMP row, no trade), ships with no ledger row at all, purchase and sales value and matched profit. Use it to tell why an hour dipped: few trips starting with many ships travelling or silent means the fleet is bunched in transit or waiting; trips normal with lower profit per trip means worse prices. knownTraders are ships that traded at least once in the window. Read-only; sinceHours defaults to 3 (max 24).",
