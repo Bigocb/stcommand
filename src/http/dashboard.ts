@@ -1475,7 +1475,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       const buyLotUnitsBy = lb === null ? null : lb && typeof lb === "object" && !Array.isArray(lb) ? Object.fromEntries(Object.entries(lb as Record<string, unknown>).map(([k, v]) => [k, v === null ? null : Number(v)])) : undefined;
       const mb = req.body?.maxPriceBy;
       const maxPriceBy = mb === null ? null : mb && typeof mb === "object" && !Array.isArray(mb) ? Object.fromEntries(Object.entries(mb as Record<string, unknown>).map(([k, v]) => [k, v === null ? null : Number(v)])) : undefined;
-      await w.fleet.setMissionPacing(waypoint, { buyLotUnits: pick("buyLotUnits"), buyGapMin: pick("buyGapMin"), maxInflationPct: pick("maxInflationPct"), maxPrice: pick("maxPrice"), maxPriceBy, buyLotUnitsBy, recoverPct: pick("recoverPct"), onlyMaterials, cashFloor: pick("cashFloor"), cashResume: pick("cashResume") });
+      // yieldToTrading: true/false sets it, null clears, absent leaves it alone.
+      const yt = req.body?.yieldToTrading;
+      const yieldToTrading = yt === undefined ? undefined : yt === null ? null : Boolean(yt);
+      await w.fleet.setMissionPacing(waypoint, { yieldToTrading, buyLotUnits: pick("buyLotUnits"), buyGapMin: pick("buyGapMin"), maxInflationPct: pick("maxInflationPct"), maxPrice: pick("maxPrice"), maxPriceBy, buyLotUnitsBy, recoverPct: pick("recoverPct"), onlyMaterials, cashFloor: pick("cashFloor"), cashResume: pick("cashResume") });
       res.json({ ok: true, missions: await w.fleet.getMissions() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });

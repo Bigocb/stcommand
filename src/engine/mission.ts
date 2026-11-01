@@ -1,4 +1,5 @@
 import { lotUnitsFor, maxPriceFor, mergeBuyLotUnitsBy, mergeMaxPriceBy } from "./missionCeiling.js";
+import { missionYieldView, mayRelease, mayTake, type YieldDecision } from "./missionYield.js";
 import { PRICE_IMPACT_PER_LOT } from "./routeEconomics.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
@@ -98,6 +99,10 @@ export interface MissionPacing {
    *  climb back to `cashResume` (default floor + 25%) so it doesn't flap on every lot. */
   cashFloor?: number;
   cashResume?: number;
+  /** Yield mode (missionYield.ts): the mission holds a trader only while some outstanding material can be bought at or under its
+   *  ceiling (`maxPriceBy` / `maxPrice`). It then takes the next free trader; when every material is over its ceiling it gives the
+   *  carrier back to trading (never one holding mission cargo). Off (unset) = the carrier waits at the market as before. */
+  yieldToTrading?: boolean;
 }
 
 export interface Mission {
@@ -252,6 +257,12 @@ export class MissionManager {
    *  for missions with no crew yet (so it's throttled the same way a real
    *  carrier's own maybeDiscover() call is, instead of firing every tick). */
   private preAssignDiscoverRetry = new Map<string, number>();
+  /** Yield mode (MissionPacing.yieldToTrading), all in memory: when each carrier was taken (`${waypoint}|${ship}`), when the
+   *  mission last gave one back, and the latest one-line verdict shown on the mission card. A restart forgets them, which
+   *  only restarts the hold timers. */
+  private carrierSince = new Map<string, number>();
+  private yieldReleasedAt = new Map<string, number>();
+  private yieldNote = new Map<string, { decision: YieldDecision; reason: string }>();
 
   constructor(opts: MissionOptions) {
     this.api = opts.api;
@@ -338,6 +349,11 @@ export class MissionManager {
       waiting: t.retryAt > now ? t.waitReason : undefined,
       nextCheckAt: t.retryAt > now ? new Date(t.retryAt).toISOString() : undefined,
     }));
+  }
+
+  /** Yield mode's latest verdict for a mission ("released: FAB_MATS 2,485 over 2,000", "can buy: ..."), or undefined when the mode is off. */
+  yieldStatus(waypointSymbol: string): { decision: YieldDecision; reason: string } | undefined {
+    return this.yieldNote.get(waypointSymbol);
   }
 
   async list(): Promise<Mission[]> {
@@ -500,7 +516,7 @@ export class MissionManager {
    */
   /** Merge pacing settings into a mission. A key set to null (or 0 for the lot and gap) clears it
    *  back to the default; keys not mentioned keep their value. */
-  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyLotUnitsBy?: Record<string, number | null> | null; buyGapMin?: number | null; maxInflationPct?: number | null; maxPrice?: number | null; maxPriceBy?: Record<string, number | null> | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null }): Promise<MissionPacing | null> {
+  async setPacing(waypointSymbol: string, patch: { buyLotUnits?: number | null; buyLotUnitsBy?: Record<string, number | null> | null; buyGapMin?: number | null; maxInflationPct?: number | null; maxPrice?: number | null; maxPriceBy?: Record<string, number | null> | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null; yieldToTrading?: boolean | null }): Promise<MissionPacing | null> {
     const mission = this.active.get(waypointSymbol);
     if (!mission) throw new Error(`no active mission at ${waypointSymbol}`);
     const next: MissionPacing = { ...(mission.pacing ?? {}) };
@@ -529,6 +545,10 @@ export class MissionManager {
     if (patch.maxPriceBy !== undefined) {
       const merged = mergeMaxPriceBy(next.maxPriceBy, patch.maxPriceBy, mission.materials.map((m) => m.tradeSymbol));
       if (merged) next.maxPriceBy = merged; else delete next.maxPriceBy;
+    }
+    if (patch.yieldToTrading !== undefined) {
+      if (patch.yieldToTrading) next.yieldToTrading = true; else delete next.yieldToTrading;
+      if (!patch.yieldToTrading) { this.yieldNote.delete(waypointSymbol); this.yieldReleasedAt.delete(waypointSymbol); }
     }
     apply("recoverPct", patch.recoverPct, 1, 100);
     apply("cashFloor", patch.cashFloor, 1, 1_000_000_000);
@@ -727,7 +747,22 @@ export class MissionManager {
     // level higher: this is the gate that decides whether to assign a
     // carrier in the first place, so getting it wrong here means the
     // carrier-level fix never even gets a chance to run.
-    if (mission.assignedShips.length < mission.carrierTarget) {
+    // Yield mode: take a ship only while something can be bought, and give the carrier back when nothing can.
+    let yieldAllowsCrew = true;
+    if (mission.pacing?.yieldToTrading) {
+      const view = await this.yieldVerdict(mission);
+      this.yieldNote.set(mission.targetWaypoint, view);
+      if (view.decision === "yield") {
+        yieldAllowsCrew = false;
+        for (const ship of [...mission.assignedShips]) await this.yieldCarrier(mission, ship, view.reason);
+      } else {
+        yieldAllowsCrew = mayTake(Date.now(), this.yieldReleasedAt.get(mission.targetWaypoint));
+      }
+    } else if (this.yieldNote.has(mission.targetWaypoint)) {
+      this.yieldNote.delete(mission.targetWaypoint);
+    }
+
+    if (yieldAllowsCrew && mission.assignedShips.length < mission.carrierTarget) {
       const outstanding = mission.materials.filter((m) => m.fulfilled < m.required);
       let sourceable: MissionMaterial | undefined;
       for (const m of outstanding) {
@@ -743,6 +778,7 @@ export class MissionManager {
         const carrier = await this.pickCarrier?.(this.committedShips(), mission.targetWaypoint);
         if (carrier) {
           mission.assignedShips.push(carrier);
+          this.carrierSince.set(`${mission.targetWaypoint}|${carrier}`, Date.now());
           shipTasks.set(carrier, { step: "source", currentMaterial: undefined, market: undefined, retryAt: 0 });
           await this.suspend?.(carrier);
           this.log(`mission ${mission.targetWaypoint}: assigned carrier ${carrier} (${mission.assignedShips.length}/${mission.carrierTarget})`);
@@ -766,6 +802,39 @@ export class MissionManager {
         this.log(`mission ${mission.targetWaypoint}: ${shipSymbol} step error: ${err instanceof Error ? err.message : String(err)}`);
       }
     }
+  }
+
+  /** Yield mode: the cheapest known ask for each outstanding material in the mission's system, judged by missionYieldView(). */
+  private async yieldVerdict(mission: Mission): Promise<{ decision: YieldDecision; reason: string }> {
+    const quotes: { material: string; ask: number | undefined }[] = [];
+    for (const m of mission.materials) {
+      if (m.fulfilled >= m.required) continue;
+      const buyers = (await this.listBuyers?.(m.tradeSymbol, mission.targetSystem)) ?? [];
+      const asks = buyers.map((b) => b.purchasePrice).filter((p) => p > 0);
+      quotes.push({ material: m.tradeSymbol, ask: asks.length ? Math.min(...asks) : undefined });
+    }
+    return missionYieldView(mission.materials, mission.pacing, quotes);
+  }
+
+  /** Yield mode: hand one carrier back to trading, unless it has been on the mission under the minimum hold or still carries
+   *  material the site needs (that is delivered first). The mission stays active and its carrier target is unchanged. */
+  private async yieldCarrier(mission: Mission, shipSymbol: string, reason: string): Promise<void> {
+    const key = `${mission.targetWaypoint}|${shipSymbol}`;
+    let since = this.carrierSince.get(key);
+    if (since === undefined) { since = Date.now(); this.carrierSince.set(key, since); } // first sight (after a restart): start the hold now
+    if (!mayRelease(Date.now(), since)) return;
+    const cargo = await this.api.getShipCargo(shipSymbol);
+    const needed = mission.materials.filter((m) => m.fulfilled < m.required).map((m) => m.tradeSymbol);
+    if (cargo.inventory.some((i) => i.units > 0 && needed.includes(i.symbol))) return;
+    this.resume?.(shipSymbol);
+    const idx = mission.assignedShips.indexOf(shipSymbol);
+    if (idx !== -1) mission.assignedShips.splice(idx, 1);
+    this.tasks.get(mission.targetWaypoint)?.delete(shipSymbol);
+    this.carrierSince.delete(key);
+    this.yieldReleasedAt.set(mission.targetWaypoint, Date.now());
+    await this.persist(mission);
+    this.log(`mission ${mission.targetWaypoint}: ${shipSymbol} given back to trading (yield mode): ${reason}`);
+    this.onActivity?.("mission", `${shipSymbol} released to trading: ${reason}`, 0, shipSymbol);
   }
 
   /** When sourcing is blocked, survey unknown markets for `tradeSymbol` before

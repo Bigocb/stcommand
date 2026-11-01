@@ -1962,6 +1962,8 @@ function renderOps() {
                 <input class="field-input mp-floor" type="number" min="1" placeholder="off" value="${m.pacing?.cashFloor ?? ""}" aria-label="Cash floor" /></label>
               <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em" title="Resume purchases once credits are back above this (default floor + 25%)">Resume at
                 <input class="field-input mp-resume" type="number" min="1" placeholder="floor+25%" value="${m.pacing?.cashResume ?? ""}" aria-label="Cash resume" /></label>
+              <label style="display:flex;align-items:center;gap:6px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em" title="When every material is over its max price, give the carrier back to trading; when one can be bought, take the next free trader"><input class="mp-yield" type="checkbox" ${m.pacing?.yieldToTrading ? "checked" : ""} aria-label="Yield to trading" /> Yield to trading when over price</label>
+              ${m.yielding ? `<div style="flex-basis:100%;font-size:11px;color:var(--dim)">Yield mode: ${m.yielding.decision === "yield" ? "released" : m.yielding.decision === "run" ? "holding a ship" : "waiting for prices"} — ${escapeHtml(m.yielding.reason)}</div>` : ""}
               ${perItemMaterials(m).map((r) => `<label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em" title="Never pay more than this for ${escapeAttr(r.material)}; replaces the mission-wide max price for this material only">${escapeHtml(r.material)} max (c)
                 <input class="field-input mpb-max" data-mat="${escapeAttr(r.material)}" type="number" min="1" placeholder="mission" value="${r.max}" aria-label="${escapeAttr(r.material)} maximum price per unit" /></label>
               <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em" title="Units per purchase of ${escapeAttr(r.material)}; replaces the mission-wide lot for this material only">${escapeHtml(r.material)} units per buy
@@ -2048,7 +2050,7 @@ $("ops-missions").addEventListener("click", async (e) => {
   try {
     if (act === "save-pacing") {
       const val = (cls) => { const v = card.querySelector(cls).value.trim(); return v === "" ? null : Number(v); };
-      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), maxPrice: val(".mp-max"), recoverPct: val(".mp-rec"), cashFloor: val(".mp-floor"), cashResume: val(".mp-resume"), ...perItemPatch(readPerItemRows(card)) });
+      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), maxPrice: val(".mp-max"), recoverPct: val(".mp-rec"), cashFloor: val(".mp-floor"), cashResume: val(".mp-resume"), yieldToTrading: card.querySelector(".mp-yield")?.checked ? true : null, ...perItemPatch(readPerItemRows(card)) });
     } else if (act === "toggle-material") {
       const next = toggledOnlyMaterials(wp, b.dataset.material);
       if (next === undefined) { alert("That would hold every material — use Stop to pause the whole mission."); b.disabled = false; return; }

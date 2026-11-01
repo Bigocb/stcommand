@@ -8349,7 +8349,7 @@ export class FleetManager {
   }
 
   async getMissions() {
-    return (await this.missions.list()).map((m) => ({ ...m, paused: this.missions.isPaused(m.targetWaypoint), carriers: this.missions.carrierStatus(m.targetWaypoint) }));
+    return (await this.missions.list()).map((m) => ({ ...m, paused: this.missions.isPaused(m.targetWaypoint), carriers: this.missions.carrierStatus(m.targetWaypoint), yielding: this.missions.yieldStatus(m.targetWaypoint) }));
   }
 
   /** Start a construction-supply mission for a waypoint under construction. */
@@ -8443,7 +8443,7 @@ export class FleetManager {
   /** Per-mission buy pacing (lot size, minimum gap, price ceiling) — see MissionPacing. */
   async setMissionPacing(
     waypointSymbol: string,
-    patch: { buyLotUnits?: number | null; buyLotUnitsBy?: Record<string, number | null> | null; buyGapMin?: number | null; maxInflationPct?: number | null; maxPrice?: number | null; maxPriceBy?: Record<string, number | null> | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null },
+    patch: { buyLotUnits?: number | null; buyLotUnitsBy?: Record<string, number | null> | null; buyGapMin?: number | null; maxInflationPct?: number | null; maxPrice?: number | null; maxPriceBy?: Record<string, number | null> | null; recoverPct?: number | null; onlyMaterials?: string[] | null; cashFloor?: number | null; cashResume?: number | null; yieldToTrading?: boolean | null },
   ) {
     return this.missions.setPacing(waypointSymbol, patch);
   }

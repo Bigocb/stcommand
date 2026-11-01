@@ -946,15 +946,16 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
         buyLotUnitsBy: z.record(z.string(), z.number().int().nullable()).nullable().optional().describe("A lot size per material, e.g. {\"FAB_MATS\": 40, \"ADVANCED_CIRCUITRY\": 20}: units per purchase, overriding buyLotUnits for that material only. A material set to null (or 0) is cleared; the whole field null clears them all; materials not mentioned keep theirs."),
         maxPriceBy: z.record(z.string(), z.number().int().nullable()).nullable().optional().describe("A ceiling per material, e.g. {\"FAB_MATS\": 2000, \"ADVANCED_CIRCUITRY\": 4000}: it overrides maxPrice for that material only. A material set to null (or 0) is cleared; the whole field null clears them all; materials not mentioned keep theirs."),
         recoverPct: z.number().int().nullable().optional(),
+        yieldToTrading: z.boolean().nullable().optional().describe("Yield mode: the mission holds a trader only while some outstanding material can be bought at or under its ceiling (maxPriceBy / maxPrice). It then takes the next free trader; when every material is over its ceiling it gives the carrier back to trading (never one holding mission cargo), with a 10 min minimum hold and 5 min before it takes another. false or null turns it off."),
         cashFloor: z.number().int().nullable().optional().describe("Hold purchases while the agent's credits are under this; null clears."),
         cashResume: z.number().int().nullable().optional().describe("Resume purchases once credits are back above this (default floor + 25%)."),
         onlyMaterials: z.array(z.string()).nullable().optional().describe("Source ONLY these materials for now (e.g. [\"FAB_MATS\"]); null clears. Prevents the fallback to an expensive secondary material while the primary is paused by the inflation guard."),
       },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
-    async ({ waypoint, buyLotUnits, buyLotUnitsBy, buyGapMin, maxInflationPct, maxPrice, maxPriceBy, recoverPct, onlyMaterials, cashFloor, cashResume }) => {
+    async ({ waypoint, buyLotUnits, buyLotUnitsBy, buyGapMin, maxInflationPct, maxPrice, maxPriceBy, recoverPct, yieldToTrading, onlyMaterials, cashFloor, cashResume }) => {
       try {
-        const pacing = await w.fleet.setMissionPacing(waypoint, { buyLotUnits, buyLotUnitsBy, buyGapMin, maxInflationPct, maxPrice, maxPriceBy, recoverPct, onlyMaterials, cashFloor, cashResume });
+        const pacing = await w.fleet.setMissionPacing(waypoint, { buyLotUnits, buyLotUnitsBy, buyGapMin, maxInflationPct, maxPrice, maxPriceBy, recoverPct, yieldToTrading, onlyMaterials, cashFloor, cashResume });
         await recordMcpAction(w, "mission_pacing", waypoint, `pacing ${pacing ? JSON.stringify(pacing) : "cleared"}`);
         return textResult({ ok: true, waypoint, pacing });
       } catch (err) {
