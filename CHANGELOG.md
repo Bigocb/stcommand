@@ -9,6 +9,26 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-11-01 — Keepers get their own scheduler lane: none had polled for hours
+
+Found 2026-11-01 00:45 UTC. Prices in most live systems were 3-8 hours old even with keepers standing at the markets; the API
+budget breakdown showed no keeper calls at all, no "keeper: snapshot" line had been logged for 45 minutes, and the scheduler
+heartbeat read `queue=622 ready=604 tokens=5.00` (a full bucket) with only 5-17 tasks run per 33 seconds. The scheduler runs
+one task at a time, traders (priority 2) before keepers (3), and ends each pass 5 seconds after the first task (PASS_MAX_MS,
+added 2026-10-07 so slow keepers could not hold traders). With about 30 busy traders, each task taking several seconds behind a
+loaded API limiter, a pass never got past the traders, so keeper tasks were never started. That is why NV72 and UP85 (released
+with unread markets) had no sales for 4-5 hours, why premium systems fell to zero, and part of why trips planned on old prices
+went wrong.
+
+`Scheduler` now takes `lowPriorityWorkers` (doctrine `keeperLaneWorkers`, default 4, 0 or off = the old single loop). Tasks at
+priority 3 and above run in a lane beside the main loop, up to that many at once, oldest due first, sharing the same token
+budget; the API limiter still serves traders first. A halted fleet starts none of them. `tests/schedulerLane.test.ts` covers the
+lane, the off state, the paused state and a failing task. The older scheduler suites are unchanged and pass.
+
+Also on this date: doctrine `releaseMinPricedPct` (added 2026-10-31, 96fcf89) was switched off. It required 80% of a staged
+system's markets to have been priced, but staged keepers are parked and cannot read, so no staged system could ever pass: no
+release for 4 h 45 min after it went live. It stays off until staged systems get a first read some other way.
+
 ## 2026-11-01 — Ops tool boot_watch: what the fleet does in the minutes after a restart
 
 Every redeploy is followed by about ten minutes with almost nothing bought or sold while jumps roughly double; the cause was

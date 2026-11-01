@@ -73,6 +73,9 @@ const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 /** How long one runOnce() pass may keep working through its ready list before re-sorting — see runOnce(). */
 export const PASS_MAX_MS = 5_000;
 
+/** Tasks at this priority number or higher (3 keeper/survey, 4 telemetry) are the ones a keeper lane runs beside the main loop. */
+export const LOW_PRIORITY_FROM = 3;
+
 /**
  * One per tenant. Holds a priority queue of `Task`s and a `SchedulerBudget`;
  * `run()` is a coordinator-style loop (same `while (running) { ...; await
@@ -112,8 +115,11 @@ export class Scheduler {
   private starved = new Set<string>();
   private lastHeartbeat = Date.now();
   private lastRanAt = Date.now();
+  /** How many priority-3-and-lower-urgency tasks (keepers, survey) may run side by side with the main loop; 0 or unset keeps them in the main loop. */
+  private readonly lowPriorityWorkers: () => number;
+  private lowInFlight = 0;
 
-  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void; runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>, shipSymbol?: string) => Promise<T> } = {}) {
+  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void; runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>, shipSymbol?: string) => Promise<T>; lowPriorityWorkers?: () => number } = {}) {
     // Matches Client's own RateLimiter (see client.ts's comment) — admitting
     // tasks faster than the transport layer can actually sustain just means
     // more of them arrive at the real 429 ceiling instead of waiting here.
@@ -132,6 +138,7 @@ export class Scheduler {
     this.heartbeatMs = opts.heartbeatMs ?? 30_000;
     this.setClientPriority = opts.setClientPriority;
     this.runWithPriority = opts.runWithPriority;
+    this.lowPriorityWorkers = opts.lowPriorityWorkers ?? (() => 0);
   }
 
   enqueue(task: Task): void {
@@ -146,9 +153,13 @@ export class Scheduler {
   async runOnce(): Promise<number> {
     const now = Date.now();
     const paused = this.isPaused();
+    // With a keeper lane the low-priority tasks run beside this loop (startLowPriority), so a long run of trader tasks
+    // can no longer use up every pass before the first keeper is reached (2026-11-01: 600 keepers due, none run for hours).
+    const laneOn = this.lowPriorityWorkers() > 0;
     const ready = this.queue
       .filter((t) => t.earliestRunAt <= now)
       .filter((t) => (paused ? t.priority === 0 : true))
+      .filter((t) => !(laneOn && t.priority >= LOW_PRIORITY_FROM))
       .sort((a, b) => a.priority - b.priority || a.earliestRunAt - b.earliestRunAt);
 
     let ran = 0;
@@ -172,43 +183,70 @@ export class Scheduler {
       }
       this.skips.delete(task.id);
       this.queue.splice(this.queue.indexOf(task), 1);
-      // Ambient priority, not threaded through every call site: the Task
-      // already knows how urgent it is (that's what got it admitted ahead of
-      // lower-priority work above), but every HTTP call it makes underneath
-      // still hit the shared RateLimiter at flat routine priority — a
-      // priority-0 rescue task and a priority-4 telemetry poll, once both
-      // admitted, queued as equals at the wire. Setting the tenant's Client
-      // to this task's own priority for the duration of run() closes that
-      // gap the same way boot priority already works (setPriority(0) before,
-      // setPriority(1) after) — see docs/api-request-priority-plan.md. Always
-      // restored in `finally`, run() throwing included, so a failing task
-      // can never leave the Client parked at a boosted priority for whatever
-      // runs after it.
-      if (!this.runWithPriority) this.setClientPriority?.(task.priority);
-      try {
-        const result = this.runWithPriority ? await this.runWithPriority(task.priority, () => task.run(), task.shipSymbol) : await task.run();
-        this.budget.consumeTokens(result.actualCalls);
-        ran += 1;
-        this.stats.ran += 1;
-        this.lastRanAt = Date.now();
-        if (result.actualCalls === 0) this.stats.yielded += 1;
-        if (result.next) this.enqueue(result.next);
-      } catch (err) {
-        // Without this the whole runner dies on one bad task: runOnce()
-        // rejects, run()'s loop unwinds, and every ship in the tenant stops
-        // for good behind a single log line. A task is allowed to fail; the
-        // scheduler is not allowed to fail with it.
-        this.stats.failed += 1;
-        this.log(`scheduler: task ${task.id} threw — ${err instanceof Error ? err.message : String(err)}`);
-        // Re-enqueue with a small backoff so a persistently failing task
-        // cannot spin the runner, and cannot silently vanish either.
-        this.enqueue({ ...task, earliestRunAt: Date.now() + 5_000 });
-      } finally {
-        if (!this.runWithPriority) this.setClientPriority?.(1);
-      }
+      if (await this.execute(task)) ran += 1;
     }
-    this.heartbeat(ready.length);
+    this.heartbeat(ready.length + (laneOn ? this.queue.filter((t) => t.earliestRunAt <= now && t.priority >= LOW_PRIORITY_FROM).length : 0));
     return ran;
+  }
+
+  /** Run one task already taken off the queue, true if it ran to completion. Shared by the main loop and the low-priority lane. */
+  private async execute(task: Task): Promise<boolean> {
+    // Ambient priority, not threaded through every call site: the Task
+    // already knows how urgent it is (that's what got it admitted ahead of
+    // lower-priority work above), but every HTTP call it makes underneath
+    // still hit the shared RateLimiter at flat routine priority — a
+    // priority-0 rescue task and a priority-4 telemetry poll, once both
+    // admitted, queued as equals at the wire. Setting the tenant's Client
+    // to this task's own priority for the duration of run() closes that
+    // gap the same way boot priority already works (setPriority(0) before,
+    // setPriority(1) after) — see docs/api-request-priority-plan.md. Always
+    // restored in `finally`, run() throwing included, so a failing task
+    // can never leave the Client parked at a boosted priority for whatever
+    // runs after it.
+    if (!this.runWithPriority) this.setClientPriority?.(task.priority);
+    try {
+      const result = this.runWithPriority ? await this.runWithPriority(task.priority, () => task.run(), task.shipSymbol) : await task.run();
+      this.budget.consumeTokens(result.actualCalls);
+      this.stats.ran += 1;
+      this.lastRanAt = Date.now();
+      if (result.actualCalls === 0) this.stats.yielded += 1;
+      if (result.next) this.enqueue(result.next);
+      return true;
+    } catch (err) {
+      // Without this the whole runner dies on one bad task: runOnce()
+      // rejects, run()'s loop unwinds, and every ship in the tenant stops
+      // for good behind a single log line. A task is allowed to fail; the
+      // scheduler is not allowed to fail with it.
+      this.stats.failed += 1;
+      this.log(`scheduler: task ${task.id} threw — ${err instanceof Error ? err.message : String(err)}`);
+      // Re-enqueue with a small backoff so a persistently failing task
+      // cannot spin the runner, and cannot silently vanish either.
+      this.enqueue({ ...task, earliestRunAt: Date.now() + 5_000 });
+      return false;
+    } finally {
+      if (!this.runWithPriority) this.setClientPriority?.(1);
+    }
+  }
+
+  /**
+   * Start due low-priority tasks (keepers, survey) up to the configured number at once, oldest due first. They share the
+   * token budget with the main loop but never wait for it to finish a pass, and the API limiter still serves traders first.
+   * A halted fleet runs none of them (only rescue work runs while paused).
+   */
+  private startLowPriority(): void {
+    const workers = this.lowPriorityWorkers();
+    if (workers <= 0 || this.isPaused()) return;
+    const now = Date.now();
+    const due = this.queue
+      .filter((t) => t.priority >= LOW_PRIORITY_FROM && t.earliestRunAt <= now)
+      .sort((a, b) => a.priority - b.priority || a.earliestRunAt - b.earliestRunAt);
+    for (const task of due) {
+      if (this.lowInFlight >= workers) break;
+      if (task.estimatedCalls > this.budget.availableTokens()) break;
+      this.queue.splice(this.queue.indexOf(task), 1);
+      this.lowInFlight += 1;
+      void this.execute(task).finally(() => { this.lowInFlight -= 1; });
+    }
   }
 
   /**
@@ -284,6 +322,7 @@ export class Scheduler {
     let ticks = 0;
     while (this.running && ticks < maxTicks) {
       ticks += 1;
+      this.startLowPriority();
       await this.runOnce();
       await sleep(pollIntervalMs);
     }

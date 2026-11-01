@@ -514,6 +514,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperLaneWorkers",
+    name: "Keepers: tasks run beside the trader loop",
+    description: "How many keeper and survey tasks may run at the same time as the trader loop. The scheduler used to run one task at a time, traders first, and cut each pass after 5 seconds; with about 30 busy traders the pass never reached the keepers, and for hours none of the 600 polled a market (2026-11-01: prices in most live systems 3-8 hours old, so traders had no routes there). With this on, keepers run in their own lane and the API limiter still serves traders first. 0 or off = the old single loop. Takes effect within a second.",
+    value: 4, min: 0, max: 12, step: 1, unit: "",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "freshIdleParkHours",
     name: "Fresh systems: park keepers where nothing sells",
     description: "On = a live system that is this many hours past its release and has had no sells at all in the last this-many hours has its keepers parked: they stay on their markets and still cover them, but stop polling, which frees API calls (about 0.18 a minute each). They are unparked as soon as the system sells again, or when this is turned off. A parked system's prices go stale, so traders see fewer routes there and it may never sell again on its own: after this many hours parked it is opened for one more window as a re-check, and is parked again only if that window also has no sells. Off (the default) = keepers always poll. Takes effect on the next check (every 5 minutes).",
