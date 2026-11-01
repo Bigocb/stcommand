@@ -36,6 +36,7 @@ import { renderMarkdown } from "/shared/markdown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { jobKind, JOB_KINDS, setHtml } from "/shared/domain.js";
+import { perItemMaterials, readPerItemRows, perItemPatch } from "/shared/missionPerItem.js";
 import { keeperCoverage, cargoValueText, cargoValueTitle, walletPlusHolds, walletForHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE, fmt, signed, escapeHtml, escapeAttr, countdown, shortWp, chainNote, worstConditionPct, shipTransitLerp, shipHeadingDeg, roleMismatchReason, fmtTime, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, routeScope, getRouteScope, setRouteScope, routeScopeBar, tripLabel, skipReasonHtml, runsLeftHtml } from "/shared/domain.js";
 
 function fmTag(flightMode) {
@@ -2041,6 +2042,8 @@ function renderMoreMissions() {
         <label class="mp-field" title="Buy the next lot only once the ask is back within this % of its level before the previous lot"><span>recover %</span><input type="number" class="mp-rec" min="1" placeholder="off" value="${m.pacing?.recoverPct ?? ""}" aria-label="Recovery percent"></label>
         <label class="mp-field" title="Hold purchases while credits are under this"><span>cash floor</span><input type="number" class="mp-floor" min="1" placeholder="off" value="${m.pacing?.cashFloor ?? ""}" aria-label="Cash floor"></label>
         <label class="mp-field" title="Resume once credits are back above this (default floor + 25%)"><span>resume</span><input type="number" class="mp-resume" min="1" placeholder="+25%" value="${m.pacing?.cashResume ?? ""}" aria-label="Cash resume"></label>
+        ${perItemMaterials(m).length ? `<div class="detail" style="grid-column:1/-1">Per item — a material's own max price and lot replace the mission-wide ones for that material only. Blank = use the mission-wide value.</div>` : ""}
+        ${perItemMaterials(m).map((r) => `<label class="mp-field"><span>${escapeHtml(r.material)} max (c)</span><input type="number" class="mpb-max" data-mat="${escapeHtml(r.material)}" min="1" placeholder="mission" value="${r.max}" aria-label="${escapeHtml(r.material)} maximum price per unit"></label><label class="mp-field"><span>${escapeHtml(r.material)} lot</span><input type="number" class="mpb-lot" data-mat="${escapeHtml(r.material)}" min="1" max="1000" placeholder="mission" value="${r.lot}" aria-label="${escapeHtml(r.material)} units per purchase"></label>`).join("")}
         <button class="btn mp-save" data-act="save-pacing" data-wp="${escapeHtml(m.targetWaypoint)}">Save pacing</button>
       </div>
       <div class="acts">
@@ -2388,7 +2391,7 @@ $("more-missions").addEventListener("click", async (e) => {
     } else if (act === "save-pacing") {
       const row = b.closest(".mission-pacing");
       const val = (cls) => { const v = row.querySelector(cls).value.trim(); return v === "" ? null : Number(v); };
-      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), maxPrice: val(".mp-max"), recoverPct: val(".mp-rec"), cashFloor: val(".mp-floor"), cashResume: val(".mp-resume") });
+      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), maxPrice: val(".mp-max"), recoverPct: val(".mp-rec"), cashFloor: val(".mp-floor"), cashResume: val(".mp-resume"), ...perItemPatch(readPerItemRows(row)) });
     } else if (act === "toggle-material") {
       const m = missions.find((x) => x.targetWaypoint === wp);
       const outstanding = (m?.materials ?? []).filter((x) => x.fulfilled < x.required).map((x) => x.tradeSymbol);

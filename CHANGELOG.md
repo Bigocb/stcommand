@@ -6,6 +6,10 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-01 — Tower and Deck: per-material price and lot boxes on the mission card
+
+The mission pacing form on Tower (`public/m.js`) and Deck (`public/deck.js`) now has a "max (c)" and a "lot" box for each outstanding gate material (and any material that already has a value), beside the mission-wide boxes. A filled box sets that material's `maxPriceBy` / `buyLotUnitsBy`, a blank one clears it, and an empty placeholder means "uses the mission value". Shared pure helpers in `public/shared/missionPerItem.js` (`perItemMaterials`, `readPerItemRows`, `perItemPatch`); tests in `tests/missionPerItem.test.ts`. Static files, so a reload after the next deploy picks them up.
+
 ## 2026-11-01 — Gate missions: a lot size per material (`buyLotUnitsBy`)
 
 Same idea as the per-material price ceiling, for lots. `MissionPacing.buyLotUnits` was one lot size for every material, but a gate's bulk material and its dear one rarely want the same one (40 FAB_MATS is about 60k, 40 ADVANCED_CIRCUITRY about 150k at 3,759 a unit). New `buyLotUnitsBy`: units per purchase for one material, overriding `buyLotUnits` for that material only; a material with no entry uses `buyLotUnits`, and with neither the market's own trade volume is the cap, as before. The market's per-transaction volume still splits a lot into several transactions in the same stop. Shared helper `mergeByMaterial` in `src/engine/missionCeiling.ts` (also behind `maxPriceBy`), plus `lotUnitsFor`. Settable from the MCP tool `stcommand_set_mission_pacing` (`buyLotUnitsBy: {"FAB_MATS": 40, "ADVANCED_CIRCUITRY": 20}`), `POST /api/missions/pacing`, and the `startGateMission` opening step (validated 1 to 1,000 a material, described in plain words in the Opening form); the chain panel's pacing line shows it. Not added: fields in the Tower/Deck pacing form, or on `stcommand_start_mission`. Tests in `tests/missionCeiling.test.ts` and `tests/missionPacing.test.ts`. Takes effect at the next restart.

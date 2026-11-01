@@ -7,6 +7,7 @@
 import { api, onUnauthorized } from "/shared/api.js";
 import { crewHtml, crewAction, cachedFields } from "/shared/contractCrew.js";
 import { login, probeSession } from "/shared/session.js";
+import { perItemMaterials, readPerItemRows, perItemPatch } from "/shared/missionPerItem.js";
 import {
   state, bridge, fleetStatus, approvals, dispatchAssignments, contractDutyShips, dispatchRoutes, activity,
   marketRoutes, intel,
@@ -1945,7 +1946,7 @@ function renderOps() {
           </div>
           ${materials}
           <div class="mission-pacing" data-wp="${escapeAttr(m.targetWaypoint)}" style="padding:10px 14px;display:flex;flex-direction:column;gap:6px">
-            <div class="ops-sub" style="padding:0">Buy pacing &mdash; price depends on total units bought, so slow the rate to match the market's refill. Blank = default.</div>
+            <div class="ops-sub" style="padding:0">Buy pacing &mdash; price depends on total units bought, so slow the rate to match the market's refill. Blank = default. The per-material boxes at the end override the mission-wide max price and units per buy for that material only.</div>
             <div class="mk-toolbar" style="padding:0;align-items:flex-end">
               <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em">Units per buy
                 <input class="field-input mp-lot" type="number" min="1" placeholder="default" value="${m.pacing?.buyLotUnits ?? ""}" aria-label="Units per purchase" /></label>
@@ -1961,6 +1962,10 @@ function renderOps() {
                 <input class="field-input mp-floor" type="number" min="1" placeholder="off" value="${m.pacing?.cashFloor ?? ""}" aria-label="Cash floor" /></label>
               <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em" title="Resume purchases once credits are back above this (default floor + 25%)">Resume at
                 <input class="field-input mp-resume" type="number" min="1" placeholder="floor+25%" value="${m.pacing?.cashResume ?? ""}" aria-label="Cash resume" /></label>
+              ${perItemMaterials(m).map((r) => `<label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em" title="Never pay more than this for ${escapeAttr(r.material)}; replaces the mission-wide max price for this material only">${escapeHtml(r.material)} max (c)
+                <input class="field-input mpb-max" data-mat="${escapeAttr(r.material)}" type="number" min="1" placeholder="mission" value="${r.max}" aria-label="${escapeAttr(r.material)} maximum price per unit" /></label>
+              <label style="display:flex;flex-direction:column;gap:3px;font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.08em" title="Units per purchase of ${escapeAttr(r.material)}; replaces the mission-wide lot for this material only">${escapeHtml(r.material)} units per buy
+                <input class="field-input mpb-lot" data-mat="${escapeAttr(r.material)}" type="number" min="1" max="1000" placeholder="mission" value="${r.lot}" aria-label="${escapeAttr(r.material)} units per purchase" /></label>`).join("")}
               <button class="btn pri" data-mact="save-pacing">Save pacing</button>
               ${m.paused
                 ? '<button class="btn" data-mact="resume">Resume</button>'
@@ -2043,7 +2048,7 @@ $("ops-missions").addEventListener("click", async (e) => {
   try {
     if (act === "save-pacing") {
       const val = (cls) => { const v = card.querySelector(cls).value.trim(); return v === "" ? null : Number(v); };
-      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), maxPrice: val(".mp-max"), recoverPct: val(".mp-rec"), cashFloor: val(".mp-floor"), cashResume: val(".mp-resume") });
+      await api("POST", "/api/missions/pacing", { waypoint: wp, buyLotUnits: val(".mp-lot"), buyGapMin: val(".mp-gap"), maxInflationPct: val(".mp-cap"), maxPrice: val(".mp-max"), recoverPct: val(".mp-rec"), cashFloor: val(".mp-floor"), cashResume: val(".mp-resume"), ...perItemPatch(readPerItemRows(card)) });
     } else if (act === "toggle-material") {
       const next = toggledOnlyMaterials(wp, b.dataset.material);
       if (next === undefined) { alert("That would hold every material — use Stop to pause the whole mission."); b.disabled = false; return; }
