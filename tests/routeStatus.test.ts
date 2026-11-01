@@ -62,11 +62,17 @@ import { notListedReason } from "../src/engine/routeStatus.js";
 test("notListedReason: a same-system route never mentions a gate", () => {
   const r = { good: "JEWELRY", buyAt: "X1-UZ49-H56", sellAt: "X1-UZ49-A1", buySystem: "X1-UZ49", sellSystem: "X1-UZ49" };
   assert.doesNotMatch(notListedReason(r), /gate/);
-  assert.match(notListedReason(r), /sell market is already in use/);
+  assert.match(notListedReason(r), /no rule named it/);
 });
 
 test("notListedReason: cross-system keeps the gate wording, a gated system is named", () => {
   const r = { good: "X", buyAt: "A-1", sellAt: "B-1", buySystem: "A", sellSystem: "B" };
   assert.match(notListedReason(r), /no open gate/);
   assert.match(notListedReason(r, ["B"]), /B is held behind the fresh-system gate/);
+});
+
+test("a route the dispatcher recorded as held back says which rule held it", () => {
+  const r = { good: "JEWELRY", buyAt: "X1-UZ49-H56", sellAt: "X1-UZ49-A1" };
+  const st = routeStatus(r, [], snap({ routes: [], held: [{ ...r, reason: "resting: 2 trips on this route in the last 60 min (limit 2)" }] }), undefined);
+  assert.match(st.reason!, /held back: resting: 2 trips/);
 });

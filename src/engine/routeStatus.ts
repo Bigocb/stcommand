@@ -42,6 +42,9 @@ export function routeStatus(
 
   const item = snapshot.routes.find((r) => r.good === route.good && r.buyAt === route.buyAt && r.sellAt === route.sellAt);
   if (!item) {
+    // The dispatcher records the rule that held a route back; that is the real reason, so it comes before any guess.
+    const held = snapshot.held?.find((r) => r.good === route.good && r.buyAt === route.buyAt && r.sellAt === route.sellAt);
+    if (held) return { flownBy, reason: `held back: ${held.reason}`, more: [], moreLabel: "" };
     const floor = snapshot.floorDropped.find((r) => r.good === route.good && r.buyAt === route.buyAt && r.sellAt === route.sellAt);
     return { flownBy, reason: floor ? "under the margin floor" : notListedReason(route, gatedSystems), more: [], moreLabel: "" };
   }
@@ -75,8 +78,8 @@ export function notListedReason(route: RouteRef, gatedSystems: readonly string[]
   const gated = [route.buySystem, route.sellSystem].find((sys) => sys !== undefined && gatedSystems.includes(sys));
   if (gated) return `not on the dispatcher's list (${gated} is held behind the fresh-system gate)`;
   const sameSystem = route.buySystem !== undefined && route.buySystem === route.sellSystem;
-  if (sameSystem) return "not on the dispatcher's list (its sell market is already in use, or another route for this good took the slot)";
-  return "not on the dispatcher's list (no open gate between the systems, its sell market is already in use, or another route for this good took the slot)";
+  if (sameSystem) return "not on the dispatcher's list (no rule named it: its sell market may be in use, or the route list changed since the last cycle)";
+  return "not on the dispatcher's list (no open gate between the systems, or the route list changed since the last cycle)";
 }
 
 /**

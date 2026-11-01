@@ -6,6 +6,10 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-01 — Dispatcher records why it held a route back; the board and dispatch_explain show it
+
+The previous fix only reworded a guess. Now `RouteDispatcher.recompute()` keeps a `held` list in its explain snapshot: every route it had and dropped before any trader was offered it, with the rule that did it (fresh-system gate, found dead on arrival, cool-off "resting: 2 trips ... (limit 2)", no longer pays after our own sales, no open gate for a cross-system leg, a busy trader already flying that good into that market, the best route for the good already selling there). `routeStatus()` reads it first, so the Routes board's "why?" names the real rule ("held back: resting: ..."); only a route no rule claimed falls back to the guess. `ops dispatch_explain` returns `held` too (filterable by good). Capped at 200 entries a cycle. Tests in `tests/routeStatus.test.ts`. Takes effect at the next restart.
+
 ## 2026-11-01 — Routes board: no "open gate" reason for a route inside one system
 
 A route like JEWELRY H56 -> A1 (both in X1-UZ49) showed "not on the dispatcher's list (no open gate, or its sell market is already in use)" under "not flying". A same-system leg never needs a gate, so the gate half was wrong. `notListedReason()` in `src/engine/routeStatus.ts` now says only what can apply: same system, "its sell market is already in use, or another route for this good took the slot"; a system held behind the fresh-system gate is named; the gate wording stays for cross-system routes only. This fixes the wording, not the cause: the dispatcher lists one route per good plus fallbacks into other sell markets, so a second route for a good can be absent while its sell market is in use. Tests in `tests/routeStatus.test.ts`. Takes effect at the next restart.

@@ -40,12 +40,22 @@ export interface ExplainTrader {
   rejected: ExplainRejection[];
 }
 
+/** A route the dispatcher had and held back before any trader was offered it, with the rule that did it. */
+export interface ExplainHeld {
+  good: string;
+  buyAt: string;
+  sellAt: string;
+  reason: string;
+}
+
 export interface DispatchExplainSnapshot {
   /** Epoch ms of the recompute that produced this. */
   at: number;
   routes: ExplainRoute[];
   /** Routes dropped before the trader loop because their margin is at or under the floor. */
   floorDropped: ExplainRoute[];
+  /** Routes held back before the work list (fresh-system gate, dead on arrival, cool-off, recovery, leg not connected, sell market in use). Absent in old snapshots. */
+  held?: ExplainHeld[];
   traders: ExplainTrader[];
 }
 
@@ -84,6 +94,7 @@ export function selectExplain(snap: DispatchExplainSnapshot, f: ExplainFilter = 
     routes: routes.slice(0, limit),
     routeCount: routes.length,
     floorDropped: floorDropped.slice(0, limit),
+    held: (snap.held ?? []).filter((r) => matchesGood(r.good)).slice(0, limit),
     traders: traders.slice(0, limit).map((t) => {
       const rejected = detailed ? t.rejected.filter((r) => matchesGood(r.good)).slice(0, limit) : [];
       return {

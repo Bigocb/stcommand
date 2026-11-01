@@ -128,7 +128,7 @@ import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type Chai
 import { DEFAULT_MATCH_POLICY, holdShare, matchShips, type MatchPolicy } from "./matching.js";
 import { DEFAULT_SPEED_POLICY, scaleSeconds, speedGain, speedReason, type SpeedPolicy } from "./shipSpeed.js";
 import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
-import { goodOfKey, type DispatchExplainSnapshot, type ExplainRejection, type ExplainRoute, type ExplainTrader } from "./dispatchExplain.js";
+import { goodOfKey, type DispatchExplainSnapshot, type ExplainHeld, type ExplainRejection, type ExplainRoute, type ExplainTrader } from "./dispatchExplain.js";
 
 /** How far circuits have got since the process started, and why the rest were dropped (reason text with numbers masked as N). */
 export interface CircuitCounts { planned: number; leg1Sold: number; leg2Served: number; leg2Loaded: number; completed: number; dropped: Record<string, number> }
@@ -1064,7 +1064,15 @@ export class RouteDispatcher {
     this.routeBlockMin = Math.max(0, tuning?.routeBlockMin ?? 0);
     // Systems still behind the fresh-system gate (systemQueue.ts) are not offered to traders, as a buy or a sell leg. Empty = the
     // list is exactly as before.
+    const held: ExplainHeld[] = [];
+    const hold = (r: { good: string; buyAt: string; sellAt: string }, reason: string): void => {
+      if (held.length < 200) held.push({ good: r.good, buyAt: r.buyAt, sellAt: r.sellAt, reason });
+    };
     if (this.gatedSystems.size > 0) {
+      for (const r of routes) {
+        const g = this.gatedSystems.has(r.buySystem) ? r.buySystem : this.gatedSystems.has(r.sellSystem) ? r.sellSystem : undefined;
+        if (g) hold(r, `${g} is held behind the fresh-system gate`);
+      }
       const open = routes.filter((r) => !this.gatedSystems.has(r.buySystem) && !this.gatedSystems.has(r.sellSystem));
       if (open.length !== routes.length) {
         this.logger(`[dispatcher] ${routes.length - open.length} route(s) held behind the fresh-system gate (${[...this.gatedSystems].slice(0, 4).join(", ")})`);
@@ -1075,14 +1083,14 @@ export class RouteDispatcher {
     // recorded or filtered and the list is exactly as before.
     if (this.routeBlockMin > 0) {
       this.routeBlocks.prune(now);
-      const held: string[] = [];
+      const deadNotes: string[] = [];
       const open = routes.filter((r) => {
         const why = this.routeBlocks.reasonFor(r, now);
-        if (why) held.push(`${r.good} ${r.buyAt}>${r.sellAt}: ${why}`);
+        if (why) { deadNotes.push(`${r.good} ${r.buyAt}>${r.sellAt}: ${why}`); hold(r, `found dead on arrival: ${why}`); }
         return why === undefined;
       });
-      if (held.length) {
-        this.logger(`[dispatcher] ${held.length} route(s) held back as dead: ${[...new Set(held)].slice(0, 4).join("; ")}`);
+      if (deadNotes.length) {
+        this.logger(`[dispatcher] ${deadNotes.length} route(s) held back as dead: ${[...new Set(deadNotes)].slice(0, 4).join("; ")}`);
         routes = open;
       }
     }
@@ -1091,6 +1099,7 @@ export class RouteDispatcher {
     if (this.coolOffMin > 0 || this.roundsMax > 0 || this.buyRoundsMax > 0) {
       const open = routes.filter((r) => !this.routeCoolOff(r.good, r.buyAt, r.sellAt));
       if (open.length !== routes.length) {
+        for (const r of routes) if (!open.includes(r)) hold(r, `resting: ${this.routeCoolOff(r.good, r.buyAt, r.sellAt)}`);
         const rested = routes.filter((r) => !open.includes(r)).map((r) => `${r.good} ${r.buyAt}>${r.sellAt} (${this.routeCoolOff(r.good, r.buyAt, r.sellAt)})`);
         this.logger(`[dispatcher] route cool-off skips ${rested.length}: ${[...new Set(rested)].slice(0, 5).join("; ")}`);
         routes = open;
@@ -1105,6 +1114,7 @@ export class RouteDispatcher {
         const out = this.afterOwnSales(r, now);
         if (!out) {
           notes.push(`${r.good} ${r.buyAt}>${r.sellAt} dropped: no longer pays after our own sales`);
+          hold(r, "no longer pays after our own sales (the sell market has not recovered)");
           continue;
         }
         if (out.reason) notes.push(`${r.good} ${r.buyAt}>${r.sellAt}: ${out.reason}`);
@@ -1320,12 +1330,12 @@ export class RouteDispatcher {
         // open yet: otherwise this burns the good's assignment slot for a
         // full minute on a route no trader could actually take, while the
         // dashboard shows it as "assigned" and profitable.
-        if (!legConnected(route.buySystem, route.sellSystem)) continue;
+        if (!legConnected(route.buySystem, route.sellSystem)) { hold(route, `no open gate between ${route.buySystem} and ${route.sellSystem}`); continue; }
         // A busy trader already flying this exact good into this exact
         // market: don't hand a second trader the same leg. The secondary
         // "different market" loop below still gets a chance at this good —
         // it doesn't depend on a work item existing here.
-        if (sellMarketsInUse.get(route.good)?.has(route.sellAt)) continue;
+        if (sellMarketsInUse.get(route.good)?.has(route.sellAt)) { hold(route, "a busy trader is already flying this good into that sell market"); continue; }
         // Decayed score for ranking against every other work item this
         // cycle (buy/sell/haul/contractBuy/other goods), not route's raw
         // profitPerTrip — otherwise a fatigued market's "second trader,
@@ -1369,12 +1379,12 @@ export class RouteDispatcher {
     for (const route of routes) {
       if (targetsByGood.has(route.good)) continue; // warehousing owns this good's split
       if (firstSeen.get(route.good) === route) continue; // already considered above
-      if (!legConnected(route.buySystem, route.sellSystem)) continue;
+      if (!legConnected(route.buySystem, route.sellSystem)) { hold(route, `no open gate between ${route.buySystem} and ${route.sellSystem}`); continue; }
       const key = `${route.good}@${route.sellAt}`;
       if (emittedKeys.has(key)) continue;
-      if (sellMarketsInUse.get(route.good)?.has(route.sellAt)) continue; // a busy trader already owns this market
+      if (sellMarketsInUse.get(route.good)?.has(route.sellAt)) { hold(route, "a busy trader is already flying this good into that sell market"); continue; } // a busy trader already owns this market
       const taken = sellTaken.get(route.good);
-      if (taken?.has(route.sellAt)) continue; // that market is already being sold into
+      if (taken?.has(route.sellAt)) { hold(route, "the best route for this good already sells into that market"); continue; } // that market is already being sold into
       emittedKeys.add(key);
       (taken ?? sellTaken.set(route.good, new Set()).get(route.good)!).add(route.sellAt);
       // Decayed score here too — see the primary-loop push's own comment.
@@ -2005,6 +2015,7 @@ export class RouteDispatcher {
       at: now,
       routes: work.slice(0, EXPLAIN_MAX_ROUTES).map((w) => explainRouteOf(w, claimantOf(w))),
       floorDropped: floorDropped.slice(0, EXPLAIN_MAX_ROUTES),
+      held,
       traders: sorted.map((t): ExplainTrader => {
         const a = next.get(t.shipSymbol);
         const assigned = !a ? undefined
