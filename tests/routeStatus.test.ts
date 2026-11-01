@@ -56,3 +56,17 @@ test("a rejection reason is prettified in the status", () => {
   const rej = { ship: "T-1", busy: false, rejected: [{ key: "FOOD", good: "FOOD", reason: "outscored by EQUIPMENT:contractBuy" }] };
   assert.equal(routeStatus(r, [], snap({ traders: [rej] }), undefined).reason, "T-1: outscored by EQUIPMENT contract delivery");
 });
+
+import { notListedReason } from "../src/engine/routeStatus.js";
+
+test("notListedReason: a same-system route never mentions a gate", () => {
+  const r = { good: "JEWELRY", buyAt: "X1-UZ49-H56", sellAt: "X1-UZ49-A1", buySystem: "X1-UZ49", sellSystem: "X1-UZ49" };
+  assert.doesNotMatch(notListedReason(r), /gate/);
+  assert.match(notListedReason(r), /sell market is already in use/);
+});
+
+test("notListedReason: cross-system keeps the gate wording, a gated system is named", () => {
+  const r = { good: "X", buyAt: "A-1", sellAt: "B-1", buySystem: "A", sellSystem: "B" };
+  assert.match(notListedReason(r), /no open gate/);
+  assert.match(notListedReason(r, ["B"]), /B is held behind the fresh-system gate/);
+});

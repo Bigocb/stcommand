@@ -6,6 +6,10 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-01 — Routes board: no "open gate" reason for a route inside one system
+
+A route like JEWELRY H56 -> A1 (both in X1-UZ49) showed "not on the dispatcher's list (no open gate, or its sell market is already in use)" under "not flying". A same-system leg never needs a gate, so the gate half was wrong. `notListedReason()` in `src/engine/routeStatus.ts` now says only what can apply: same system, "its sell market is already in use, or another route for this good took the slot"; a system held behind the fresh-system gate is named; the gate wording stays for cross-system routes only. This fixes the wording, not the cause: the dispatcher lists one route per good plus fallbacks into other sell markets, so a second route for a good can be absent while its sell market is in use. Tests in `tests/routeStatus.test.ts`. Takes effect at the next restart.
+
 ## 2026-11-01 — Tower and Deck: per-material price and lot boxes on the mission card
 
 The mission pacing form on Tower (`public/m.js`) and Deck (`public/deck.js`) now has a "max (c)" and a "lot" box for each outstanding gate material (and any material that already has a value), beside the mission-wide boxes. A filled box sets that material's `maxPriceBy` / `buyLotUnitsBy`, a blank one clears it, and an empty placeholder means "uses the mission value". Shared pure helpers in `public/shared/missionPerItem.js` (`perItemMaterials`, `readPerItemRows`, `perItemPatch`); tests in `tests/missionPerItem.test.ts`. Static files, so a reload after the next deploy picks them up.

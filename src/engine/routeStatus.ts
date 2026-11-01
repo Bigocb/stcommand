@@ -9,6 +9,9 @@ export interface RouteRef {
   good: string;
   buyAt: string;
   sellAt: string;
+  /** The systems of the two legs, when the caller knows them: lets the reason say what really applies (a same-system route has no gate). */
+  buySystem?: string;
+  sellSystem?: string;
 }
 
 export interface RouteStatus {
@@ -27,6 +30,8 @@ export function routeStatus(
   assignments: readonly { shipSymbol: string; good: string; buyAt?: string; sellAt?: string; source?: string }[],
   snapshot: DispatchExplainSnapshot | undefined,
   blockedBy: string | undefined,
+  /** Systems held behind the fresh-system gate (the dispatcher's own list); their routes are never offered to traders. */
+  gatedSystems: readonly string[] = [],
 ): RouteStatus {
   const flownBy = assignments
     .filter((a) => a.good === route.good && a.buyAt === route.buyAt && a.sellAt === route.sellAt)
@@ -38,7 +43,7 @@ export function routeStatus(
   const item = snapshot.routes.find((r) => r.good === route.good && r.buyAt === route.buyAt && r.sellAt === route.sellAt);
   if (!item) {
     const floor = snapshot.floorDropped.find((r) => r.good === route.good && r.buyAt === route.buyAt && r.sellAt === route.sellAt);
-    return { flownBy, reason: floor ? "under the margin floor" : "not on the dispatcher's list (no open gate, or its sell market is already in use)", more: [], moreLabel: "" };
+    return { flownBy, reason: floor ? "under the margin floor" : notListedReason(route, gatedSystems), more: [], moreLabel: "" };
   }
   if (item.claimedBy) return { flownBy, reason: `held for ${item.claimedBy}`, more: [], moreLabel: "" };
   // A trader was checked against it and turned it down: report the first reason, counting the rest.
@@ -59,6 +64,19 @@ export function routeStatus(
     return { flownBy, reason: "every trader is occupied", more: what, moreLabel: `ship by ship (${what.length})` };
   }
   return { flownBy, reason: "no trader free for it", more: [], moreLabel: "" };
+}
+
+/**
+ * Why a route is missing from the dispatcher's list. A route inside one system never needs a gate (2026-11-01: JEWELRY H56 -> A1,
+ * both in UZ49, was told "no open gate"), so the gate reason is only offered for a route that crosses systems, and a system held
+ * behind the fresh-system gate is named as such.
+ */
+export function notListedReason(route: RouteRef, gatedSystems: readonly string[] = []): string {
+  const gated = [route.buySystem, route.sellSystem].find((sys) => sys !== undefined && gatedSystems.includes(sys));
+  if (gated) return `not on the dispatcher's list (${gated} is held behind the fresh-system gate)`;
+  const sameSystem = route.buySystem !== undefined && route.buySystem === route.sellSystem;
+  if (sameSystem) return "not on the dispatcher's list (its sell market is already in use, or another route for this good took the slot)";
+  return "not on the dispatcher's list (no open gate between the systems, its sell market is already in use, or another route for this good took the slot)";
 }
 
 /**
