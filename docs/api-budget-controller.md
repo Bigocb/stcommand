@@ -80,8 +80,12 @@ Keepers show **only** market and shipyard calls: one call a read, no ship read, 
 3. **Before the keeper lane (00:44, keepers silent) the same 81 calls a minute were:** traders about 58, ship list 10.8,
    agent 6.6, construction 1.6. Restoring keepers took their budget from the ship list. The ship list is the one consumer
    that can safely run slower, because 596 of the 809 ships it tracks are stationary keepers.
-4. **The model is wrong by 5-6 times.** `keeperPollingCallsPerMin` reports 80-90; measured keeper reads are 13-16 a minute.
-   Top-up, the keeper cap and the "no API room" check all read the model.
+4. **The model and the measurement are two different numbers, not one right and one wrong.** `keeperPollingCallsPerMin` (80-90) is
+   *demand*: what 600 keepers would ask for on their own 5-30 minute cadences. The measured 13-16 a minute is *supply*: what the
+   pipe gave them after traders. The gap means a rotation over every keeper takes about 45 minutes, not 5-30. Top-up compared
+   demand with a ceiling, which stopped additions, but the quantity that matters is the rotation time: another keeper lengthens it
+   for all of them. (Corrected 2026-11-01: an earlier version of this note called the model "5-6x wrong".) `keeper_coverage` now
+   reports both, `measuredKeeperReadsPerMin` and `rotationMin`, and top-up can stop on rotation time (`keeperMaxRotationMin`).
 
 ## 4. What breaks as the fleet grows
 

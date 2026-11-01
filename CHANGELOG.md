@@ -9,6 +9,19 @@ here; link it from the entry when that happens.
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 
+## 2026-11-01 — Keeper top-up can stop on the measured rotation time (clause off)
+
+The top-up's "no API room" check compares the keepers' *demand* (what they would ask for on their own cadences, 75-90 calls a
+minute for about 600 keepers) with a ceiling. What the pipe actually lets them do was 13-16 reads a minute on 2026-11-01, because
+traders are served first; a rotation over every keeper then takes about 45 minutes against the 5-30 asked for, and each added keeper
+lengthens it for all. `src/engine/keeperThroughput.ts` (pure) measures keeper reads a minute over 10 minutes and the rotation time
+(keepers / reads a minute, not judged for 10 minutes after a restart). `keeper_coverage` now reports `measuredKeeperReadsPerMin` and
+`rotationMin` beside the demand figure, and `pickTopUp` takes `maxRotationMin` (doctrine `keeperMaxRotationMin`, default off, 60 when
+on): top-up adds nothing while a rotation is longer than that. Off or unknown reproduces the old behaviour. Tests:
+`tests/keeperThroughput.test.ts`; `tests/keeperTopUpCadence.test.ts` gained a stub for the new fleet method. Also on this date the
+polling ceiling (`keeperTopUpMaxCalls`) was raised from 70 to its maximum, 90, by the operator, to let top-up add keepers to 26
+uncovered markets; the rotation clause is the guard against that making reads slower.
+
 ## 2026-11-01 — Route price check: reject a sell price far above that market's own bids (clause off)
 
 THEO-2B0 bought 72 CYBER_IMPLANTS (about 2.4 million, average 33,125) for X1-RB80-A1 on one reading of a 42,430 bid taken at

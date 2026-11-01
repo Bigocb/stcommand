@@ -521,6 +521,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperMaxRotationMin",
+    name: "Keepers: stop adding when one pass over them takes this long",
+    description: "On = top-up adds no keeper while the keepers, at the pace they are actually reading markets (measured over 10 minutes, shown as rotationMin in keeper_coverage), already take more than this many minutes to read every market once. The polling ceiling compares what keepers would ask for with the API budget; this compares what they actually get: on 2026-11-01 about 600 keepers were asking for 75 calls a minute and getting 13-16, so a rotation took about 45 minutes, and every extra keeper lengthens it for all. Not judged for 10 minutes after a restart. Off (the default) = only the polling ceiling applies, as before.",
+    value: 60, min: 10, max: 240, step: 5, unit: " min",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "keeperLaneWorkers",
     name: "Keepers: tasks run beside the trader loop",
     description: "How many keeper and survey tasks may run at the same time as the trader loop. The scheduler used to run one task at a time, traders first, and cut each pass after 5 seconds; with about 30 busy traders the pass never reached the keepers, and for hours none of the 600 polled a market (2026-11-01: prices in most live systems 3-8 hours old, so traders had no routes there). With this on, keepers run in their own lane and the API limiter still serves traders first. 0 or off = the old single loop. Takes effect within a second.",

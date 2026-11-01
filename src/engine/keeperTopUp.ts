@@ -23,9 +23,14 @@ export interface TopUpPolicy {
    * only queue behind the earlier ones (2026-10-31: MR27 had 12 of 19 markets never priced while top-up kept adding to it). 0 = no such skip.
    */
   maxUnpriced: number;
+  /**
+   * Do not add while the keepers, at the pace they are actually reading (measured, keeperThroughput.ts), already take longer than this many
+   * minutes to read every market once: another keeper only lengthens the wait for all of them. 0 = no such check.
+   */
+  maxRotationMin?: number;
 }
 
-export const DEFAULT_TOPUP_POLICY: TopUpPolicy = { perHour: 0, maxKeeperCalls: 60, maxPending: 3, maxUnpriced: 0 };
+export const DEFAULT_TOPUP_POLICY: TopUpPolicy = { perHour: 0, maxKeeperCalls: 60, maxPending: 3, maxUnpriced: 0, maxRotationMin: 0 };
 
 export interface TopUpSystem {
   system: string;
@@ -51,6 +56,8 @@ export interface TopUpContext {
   callsPerKeeper: number;
   /** Listed markets still without a keeper. */
   pending: number;
+  /** Minutes the keepers need to read every market once at the measured pace; undefined when it cannot be judged (just booted, nothing read). */
+  rotationMin?: number;
 }
 
 export interface TopUpDecision {
@@ -70,6 +77,9 @@ export function pickTopUp(systems: readonly TopUpSystem[], ctx: TopUpContext, po
   const after = ctx.keeperCallsPerMin + ctx.callsPerKeeper;
   if (after > policy.maxKeeperCalls) {
     return { reason: `no API room: keepers poll ${ctx.keeperCallsPerMin.toFixed(1)} calls/min, one more would make ${after.toFixed(1)} against ${policy.maxKeeperCalls}` };
+  }
+  if (policy.maxRotationMin && ctx.rotationMin !== undefined && ctx.rotationMin > policy.maxRotationMin) {
+    return { reason: `keepers are slow to read: one rotation takes ${ctx.rotationMin} min at the measured pace (limit ${policy.maxRotationMin}); more keepers would slow every market's reading` };
   }
   // The least-covered system first: the share of its worthwhile markets that already have a keeper.
   const candidates = systems.filter((s) => s.candidates.length > 0);

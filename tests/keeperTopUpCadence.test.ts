@@ -10,6 +10,7 @@ function fake(lastAddAgoMin: number | undefined, factsCalls: { n: number }) {
     doctrine: { isEnabledOr: () => true, value: (k: string) => (k === "keeperTopUpPerHour" ? 8 : 90) },
     timers: () => ({ load: async () => {}, save: async () => {}, book }),
     keeperSlotsUsed: () => 10,
+    keeperRotationMin: () => undefined,
     topUpFacts: async () => { factsCalls.n++; return { systems: [], viable: new Map(), pending: 0, load: 0, perKeeper: 0.2, listedPending: 0 }; },
     keeperNote: () => {}, log: () => {}, topUpNoteAt: "",
   };

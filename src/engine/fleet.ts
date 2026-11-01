@@ -32,6 +32,7 @@ import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
 import { decideIdleParking, type IdleFacts } from "./idleSystems.js";
 import { BootWatch, assignmentKey } from "./bootWatch.js";
 import { bidKey, sellPriceVerdict, type BidStat } from "./priceSanity.js";
+import { ReadRate, rotationMin } from "./keeperThroughput.js";
 import { hourOf, hourlySnapshotEvent } from "./hourlySnapshot.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
 import type { FleetState } from "./state.js";
@@ -419,6 +420,9 @@ export class FleetManager {
   private readonly log: (msg: string) => void;
   /** What the fleet does in the minutes after this process started (docs: CHANGELOG, ops boot_watch). */
   readonly bootWatch = new BootWatch(Date.now());
+  /** Keeper market reads, measured (keeperThroughput.ts); the process start time is the boot watch's. */
+  private readonly keeperReads = new ReadRate();
+  private readonly startedAtMs = Date.now();
   private readonly recordLedger: FleetOptions["recordLedger"];
   private readonly recordMovement: FleetOptions["recordMovement"];
   private readonly recordActionEvent: FleetOptions["recordActionEvent"];
@@ -3215,6 +3219,7 @@ export class FleetManager {
           hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             keeperMarket: () => this.keeperMarkets.get(ship.symbol),
             keeperPollMs: (wp) => this.keeperPollMs(wp),
+            onKeeperRead: () => this.keeperReads.note(Date.now()),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -3554,6 +3559,7 @@ export class FleetManager {
           hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             keeperMarket: () => this.keeperMarkets.get(shipSymbol),
             keeperPollMs: (wp) => this.keeperPollMs(wp),
+            onKeeperRead: () => this.keeperReads.note(Date.now()),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -5992,6 +5998,11 @@ export class FleetManager {
     return this.keepers.size + this.stagedParked.size;
   }
 
+  /** Minutes one pass over every keeper takes at the pace they are measured to read, or undefined right after a boot (keeperThroughput.ts). */
+  private keeperRotationMin(now: number): number | undefined {
+    return rotationMin(this.keeperSlotsUsed(), this.keeperReads.perMin(now), now - this.startedAtMs);
+  }
+
   private async maybeTopUpKeepers(): Promise<void> {
     if (!this.store || !this.tenantId || !this.doctrine.isEnabledOr("keeperTopUpPerHour", false)) return;
     const now = Date.now();
@@ -6017,7 +6028,8 @@ export class FleetManager {
       keeperCallsPerMin: f.load,
       callsPerKeeper: f.perKeeper,
       pending: f.pending,
-    }, { ...DEFAULT_TOPUP_POLICY, perHour: this.doctrine.value("keeperTopUpPerHour"), maxKeeperCalls: this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90, maxUnpriced: this.doctrine.isEnabledOr("keeperTopUpMaxUnpriced", true) ? this.doctrine.value("keeperTopUpMaxUnpriced") : 0 });
+      rotationMin: this.keeperRotationMin(now),
+    }, { ...DEFAULT_TOPUP_POLICY, perHour: this.doctrine.value("keeperTopUpPerHour"), maxKeeperCalls: this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90, maxUnpriced: this.doctrine.isEnabledOr("keeperTopUpMaxUnpriced", true) ? this.doctrine.value("keeperTopUpMaxUnpriced") : 0, maxRotationMin: this.doctrine.isEnabledOr("keeperMaxRotationMin", false) ? this.doctrine.value("keeperMaxRotationMin") : 0 });
     this.topUpLast = { at: now, reason: decision.reason, market: decision.market };
     if (!decision.market) {
       if (decision.reason !== this.topUpNoteAt) { this.topUpNoteAt = decision.reason; this.keeperNote("topup", `keeper top-up: nothing added (${decision.reason})`); }
@@ -6044,6 +6056,9 @@ export class FleetManager {
         perHour: this.doctrine.isEnabledOr("keeperTopUpPerHour", false) ? this.doctrine.value("keeperTopUpPerHour") : 0,
         pollingCeilingCallsPerMin: this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90,
         keeperPollingCallsPerMin: Math.round(f.load * 10) / 10,
+        /** What the keepers actually did over the last 10 minutes, against the demand figure above. */
+        measuredKeeperReadsPerMin: Math.round(this.keeperReads.perMin(Date.now()) * 10) / 10,
+        rotationMin: this.keeperRotationMin(Date.now()) ?? null,
         keepers: this.keeperSlotsUsed(),
         keeperLimit: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0,
         waitingForKeepers: f.pending,
@@ -11003,6 +11018,7 @@ export class FleetManager {
         hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
         keeperMarket: () => this.keeperMarkets.get(sym),
         keeperPollMs: (wp) => this.keeperPollMs(wp),
+        onKeeperRead: () => this.keeperReads.note(Date.now()),
         getCredits: () => this.spendableCredits(),
         scrapHere: async (sym: string) => { await this.scrapShip(sym); },
         galaxy: this.galaxy,

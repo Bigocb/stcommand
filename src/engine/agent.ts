@@ -161,6 +161,8 @@ export interface AgentOptions {
   /** How long a keeper waits before polling this market again (at least 5 minutes). Absent = always 5. A market whose
    *  prices have sat still for a while is polled less often; see FleetManager.keeperPollMs(). */
   keeperPollMs?: (market: string) => number;
+  /** Called after each keeper market read completes (for the measured read rate). */
+  onKeeperRead?: () => void;
   /**
    * Whether the ship is allowed to act at all right now. False while the fleet
    * is halted.
@@ -306,6 +308,7 @@ export class ShipAgent {
   private keeperHoldSince?: { waypoint: string; at: number };
   private readonly keeperMarket?: () => string | undefined;
   private readonly keeperPollMs?: (market: string) => number;
+  private readonly onKeeperRead?: () => void;
   private readonly intentFor?: AgentOptions["intentFor"];
   private readonly done?: () => void;
   /** Systems refreshSystemMarkets() has already been tried for this tour, so
@@ -422,6 +425,7 @@ export class ShipAgent {
     this.hasPendingKeeperApproval = opts.hasPendingKeeperApproval;
     this.keeperMarket = opts.keeperMarket;
     this.keeperPollMs = opts.keeperPollMs;
+    this.onKeeperRead = opts.onKeeperRead;
     this.intentFor = opts.intentFor;
     this.done = opts.done;
     this.onTenderAbandoned = opts.onTenderAbandoned;
@@ -2150,7 +2154,7 @@ export class ShipAgent {
       await this.navigateTo(market);
     }
     await this.ensureDocked();
-    if (this.recordMarket) await this.recordMarket(market);
+    if (this.recordMarket) { await this.recordMarket(market); this.onKeeperRead?.(); }
     // Shipyard-markets (A2/C43/H56) also need their ship stock kept fresh —
     // shipyard inventory is only visible when a ship is docked there.
     if (this.recordShipyard) await this.recordShipyard(market);
