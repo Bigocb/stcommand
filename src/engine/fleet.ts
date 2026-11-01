@@ -69,7 +69,7 @@ import { ChangeTracker } from "./changeTracker.js";
 import { StaleWhileRevalidate } from "./staleCache.js";
 import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys, readIncomplete } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
-import { pickCheapestKeeperYard, pickKeeperYardWithShip } from "./keeperYard.js";
+import { pickCheapestKeeperYard, pickKeeperYardWithShip, preferYardWithShip } from "./keeperYard.js";
 import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
 import { chooseHopMethod, cruiseNeedFromGame, DEFAULT_WARP_POLICY, parseFuelShortfall, pickWarpArrival, warpDriveRange, warpRouteKey, type WarpHopChoice, type WarpPolicy } from "./warpTour.js";
 import { nearestShipyard, type NearestYard } from "./shipyardNearest.js";
@@ -7609,6 +7609,10 @@ export class FleetManager {
       if (!present(best.waypointSymbol) && !localWithShip) {
         const d = this.pickKeeperDelivery(marketSystem, yards);
         if (d) { delivery = d; best = { waypointSymbol: d.yard, price: d.price, hull: d.hull }; }
+      } else if (localWithShip) {
+        // The cheapest yard has no ship of ours but another yard of the system does: name that one, so the request can be bought.
+        const yard = preferYardWithShip({ waypointSymbol: best.waypointSymbol, price: best.price, hull: best.hull }, { waypointSymbol: localWithShip.waypointSymbol, price: localWithShip.purchasePrice, hull: localWithShip.shipType }, present(best.waypointSymbol));
+        best = yard;
       }
     }
     if (!best) { await this.coolKeeperMarket(marketWaypoint, 15); this.keeperNote(`mnohull:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: no yard in ${marketSystem} has a stored ${KEEPER_HULL_PREFERENCE.join("/")} (${yards.filter((y) => y.systemSymbol === marketSystem).length} stored yard rows in that system; a yard is stored only when one of our ships reads it)`); return false; } // no shipyard in this system has a cached keeper hull in stock right now
@@ -7744,8 +7748,9 @@ export class FleetManager {
     const serviceable = await this.keeperServiceableSystems();
     // In a system where no yard's stock has been read yet, its shipyard markets go first: the first keeper docked at a yard reads the
     // stock and prices there and lets the rest of the system's keepers be bought locally (keeperOrder.ts).
-    const stocked = new Set(((await this.store.shipyardInventory()) ?? []).filter((r) => KEEPER_HULL_PREFERENCE.includes(r.shipType)).map((r) => r.systemSymbol));
-    const yardFirst = new Set(wanted.filter((m) => this.registry.isShipyard(m) && !stocked.has(m.slice(0, m.lastIndexOf("-")))));
+    // Every uncovered shipyard market goes first, not only in systems whose yard stock is unread (operator, 2026-11-01): a keeper docked at a
+    // yard lets the rest of its system be bought there, and the cheapest yard (THEO's C44) cannot buy anything until one of ours is docked at it.
+    const yardFirst = new Set(wanted.filter((m) => this.registry.isShipyard(m)));
     const priority = serviceableFirst(yardsFirst(wanted, yardFirst), serviceable);
     // Walk the uncovered markets in priority order until one actually asks (or buys). A market that cannot be
     // requested right now (no keeper hull in stock in its system, the shipyard path already asked for it, ...)

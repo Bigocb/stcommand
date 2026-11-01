@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { pickCheapestKeeperYard, pickKeeperYardWithShip } from "../src/engine/keeperYard.js";
+import { pickCheapestKeeperYard, pickKeeperYardWithShip, preferYardWithShip } from "../src/engine/keeperYard.js";
 
 const now = Date.parse("2026-10-09T01:30:00Z");
 const row = (wp: string, price: number, ts: string, shipType = "SHIP_PROBE") => ({ systemSymbol: "X1-MG54", waypointSymbol: wp, shipType, purchasePrice: price, timestamp: ts });
@@ -44,4 +44,17 @@ test("pickKeeperYardWithShip: prefers a probe when the yard with a ship sells on
 
 test("pickKeeperYardWithShip: nothing when no ship of ours is at a yard that stocks a keeper hull", () => {
   assert.equal(pickKeeperYardWithShip(tvRows, { ...tvBase, shipPresentAt: () => false }), undefined);
+});
+
+test("preferYardWithShip: the cheapest yard has no ship, another yard does, so that one is named (THEO UZ49, C44 against A2)", () => {
+  const c44 = { waypointSymbol: "X1-UZ49-C44", price: 22_585 };
+  const a2 = { waypointSymbol: "X1-UZ49-A2", price: 23_839 };
+  assert.equal(preferYardWithShip(c44, a2, false).waypointSymbol, "X1-UZ49-A2");
+});
+
+test("preferYardWithShip: keeps the cheapest yard when a ship of ours is there, or when no other yard has one", () => {
+  const c44 = { waypointSymbol: "X1-UZ49-C44", price: 22_585 };
+  const a2 = { waypointSymbol: "X1-UZ49-A2", price: 23_839 };
+  assert.equal(preferYardWithShip(c44, a2, true).waypointSymbol, "X1-UZ49-C44");
+  assert.equal(preferYardWithShip(c44, undefined, false).waypointSymbol, "X1-UZ49-C44");
 });

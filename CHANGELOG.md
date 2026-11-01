@@ -6,6 +6,10 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-01 — Keeper cards name a yard where a ship of ours is docked; shipyard markets go first
+
+THEO, UZ49: the keeper queue asked for probes at C44, the cheapest yard (22,585), where none of our ships was docked, while keepers sat docked at A2 and H54. Every card the operator approved (G52, F51, then E48 and F50 raised behind them) failed with "no ship of yours is docked at X1-UZ49-C44" and the queue moved on. The fallback to a yard with a ship (`pickKeeperYardWithShip`) existed only on the auto-approve path, and in the card path it was used only to decide whether to deliver a probe from another system. Now the request names the yard with a ship when the cheapest has none (`preferYardWithShip`, a few hundred credits dearer), and falls back to delivery or waiting as before when no yard has one. Also, every uncovered shipyard market goes to the head of the queue, not only in systems whose yard stock was unread: a keeper docked at a yard lets the rest of its system be bought there, and C44's own market was ranked behind five others. Pure helper and tests in `keeperYard.ts` / `tests/keeperYard.test.ts`; takes effect at the next restart.
+
 Backfilled from git history starting 2026-09-12 going back far enough to
 be useful context; not a complete project history — see `git log` for that.
 

@@ -57,3 +57,14 @@ export function pickKeeperYardWithShip<T extends KeeperYardRow>(
   }
   return undefined;
 }
+
+/**
+ * The yard a keeper request should name. Buying a ship needs one of ours docked at that yard, so when the cheapest yard has none and
+ * another yard of the system does, the request names that one (a few hundred credits dearer) instead of a card the game would refuse
+ * (THEO, 2026-11-01: cards for E48, F50, F51 and G52 all named C44, where nothing of ours was docked, and each approval failed).
+ * `withShip` is the best yard where a ship of ours already is (pickKeeperYardWithShip). With nothing at the cheapest yard and nowhere
+ * else, the caller keeps its own fallbacks (delivery from another system, waiting). Pure.
+ */
+export function preferYardWithShip<T extends { waypointSymbol: string }>(cheapest: T, withShip: T | undefined, shipAtCheapest: boolean): T {
+  return !shipAtCheapest && withShip ? withShip : cheapest;
+}
