@@ -22,6 +22,7 @@ import { unpricedMarkets, gateProgressPct } from "./surveyCoverage.js";
 import { OpeningRunnerImpl } from "./openingRunner.js";
 import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets } from "./keeperBuy.js";
 import { blockGood as addBlockedGood, blockedSet, parseBlocked, unblockGood as removeBlockedGood, type BlockedGood } from "./blockedGoods.js";
+import { parseSpaced, spaceRoute as addSpacedRoute, unspaceRoute as removeSpacedRoute, type SpacedRoute } from "./tripSpacing.js";
 import { goodsFromRows, keeperBudget, marketKeeperScore, median, orderForBuying, type ScoreContext } from "./keeperValue.js";
 import { OFF_POLICY as TRIAGE_OFF_POLICY, reviewParked, triageKeepers, type TriagePolicy } from "./keeperTriage.js";
 import { Reminders } from "./reminders.js";
@@ -1619,7 +1620,7 @@ export class FleetManager {
       recordSale: (good, sellAt, units, price) => this.dispatcher.recordSale(good, sellAt, units, price),
       recordBuy: (good, buyAt, units, price) => this.dispatcher.recordBuy(good, buyAt, units, price),
       recordTrip: (trip) => this.dispatcher.recordTrip(trip),
-      recordTripStart: (good, buyAt) => this.dispatcher.recordTripStart(good, buyAt, shipSymbol),
+      recordTripStart: (good, buyAt, price) => this.dispatcher.recordTripStart(good, buyAt, shipSymbol, price),
       // Already floor-adjusted — see spendableCredits()'s own comment. This
       // one is the fleet's cached balance, which is right for ranking routes
       // and wrong for committing to a purchase.
@@ -2234,6 +2235,43 @@ export class FleetManager {
     const next = removeBlockedGood(await this.blockedGoodsEntries(), good);
     this.log(`blocked goods: ${good.toUpperCase()} unblocked; ${next.length} on the list`);
     return this.saveBlockedGoods(next);
+  }
+
+  /** The operator's per-route spacing rules (fleet flag spacedRoutes), loaded once and kept current as they change. */
+  private spacedRoutesCache?: SpacedRoute[];
+
+  async spacedRoutesEntries(): Promise<SpacedRoute[]> {
+    if (!this.spacedRoutesCache) {
+      const raw = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "spacedRoutes") : undefined;
+      this.spacedRoutesCache = parseSpaced(raw);
+    }
+    return this.spacedRoutesCache;
+  }
+
+  private async saveSpacedRoutes(list: SpacedRoute[]): Promise<SpacedRoute[]> {
+    if (this.tenantId) {
+      if (list.length) await this.store?.setFleetFlag(this.tenantId, "spacedRoutes", JSON.stringify(list));
+      else await this.store?.removeFleetFlag(this.tenantId, "spacedRoutes");
+    }
+    this.spacedRoutesCache = list;
+    this.dispatcher.setSpacedRoutes(list);
+    return list;
+  }
+
+  /**
+   * Space the trips that buy this good (at one buy market, or everywhere when `buyAt` is left out): a new trip waits `gapMin`
+   * minutes (default: the buyMarketSpacingMin clause) after the last one started. Needs the clause switched on. Takes effect within a minute.
+   */
+  async spaceRoute(good: string, opts: { buyAt?: string; gapMin?: number; reason?: string } = {}): Promise<SpacedRoute[]> {
+    const next = addSpacedRoute(await this.spacedRoutesEntries(), good, new Date().toISOString(), opts);
+    this.log(`trip spacing: rule for ${good.toUpperCase()}${opts.buyAt ? ` at ${opts.buyAt.toUpperCase()}` : ""}${opts.gapMin ? ` gap ${opts.gapMin} min` : ""}${opts.reason ? ` (${opts.reason})` : ""}; ${next.length} rule(s)`);
+    return this.saveSpacedRoutes(next);
+  }
+
+  async unspaceRoute(good: string, buyAt?: string): Promise<SpacedRoute[]> {
+    const next = removeSpacedRoute(await this.spacedRoutesEntries(), good, buyAt);
+    this.log(`trip spacing: rule for ${good.toUpperCase()}${buyAt ? ` at ${buyAt.toUpperCase()}` : ""} removed; ${next.length} rule(s)`);
+    return this.saveSpacedRoutes(next);
   }
 
   private lastChainGoodsLog = "";
@@ -10739,6 +10777,7 @@ export class FleetManager {
       this.galaxy.setPositioningHops(this.doctrine.value("positioningHops", 3));
       // Reset wind-down: no new buy work at all. Busy traders keep their sell legs (the dispatcher carries them forward),
       // and nothing is handed to an empty hull.
+      this.dispatcher.setSpacedRoutes(await this.spacedRoutesEntries());
       const winding = this.windDownState();
       if (winding.active !== this.lastWindDownActive) {
         this.log(`reset wind-down ${winding.active ? "started" : "ended"}: ${winding.reason}`);
@@ -10803,7 +10842,7 @@ export class FleetManager {
           homeReserve: 1,
           gateFor: (from, to) => this.galaxy.gatesTo(from, to)[0],
         },
-        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), holdAware: this.doctrine.isEnabledOr("routeHoldAware", false), soonFreeSec: this.doctrine.isEnabledOr("routeSoonFreeMin", false) ? this.doctrine.value("routeSoonFreeMin") * 60 : 0, matchTopN: this.doctrine.value("routeMatchTopN", 0), speedWeight: this.doctrine.isEnabledOr("shipSpeedWeight", false) ? this.doctrine.value("shipSpeedWeight", 0) : 0, modelSpeed: this.routeModelSpeed(), coolOffMin: this.doctrine.value("routeCoolOffMin", 0), roundsMax: this.doctrine.value("routeRoundsMax", 0), buyRoundsMax: this.doctrine.value("buyMarketRoundsMax", 0), spacingMin: this.doctrine.value("buyMarketSpacingMin", 0), marketRecoveryMin: this.doctrine.isEnabledOr("marketRecoveryMin", false) ? this.doctrine.value("marketRecoveryMin", 0) : 0, routeBlockMin: this.doctrine.isEnabledOr("deadRouteShareMin", false) ? this.doctrine.value("deadRouteShareMin", 0) : 0 },
+        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), holdAware: this.doctrine.isEnabledOr("routeHoldAware", false), soonFreeSec: this.doctrine.isEnabledOr("routeSoonFreeMin", false) ? this.doctrine.value("routeSoonFreeMin") * 60 : 0, matchTopN: this.doctrine.value("routeMatchTopN", 0), speedWeight: this.doctrine.isEnabledOr("shipSpeedWeight", false) ? this.doctrine.value("shipSpeedWeight", 0) : 0, modelSpeed: this.routeModelSpeed(), coolOffMin: this.doctrine.value("routeCoolOffMin", 0), roundsMax: this.doctrine.value("routeRoundsMax", 0), buyRoundsMax: this.doctrine.value("buyMarketRoundsMax", 0), spacingMin: this.doctrine.value("buyMarketSpacingMin", 0), spacingAutoPct: this.doctrine.value("buyMarketSpacingAutoPct", 0), marketRecoveryMin: this.doctrine.isEnabledOr("marketRecoveryMin", false) ? this.doctrine.value("marketRecoveryMin", 0) : 0, routeBlockMin: this.doctrine.isEnabledOr("deadRouteShareMin", false) ? this.doctrine.value("deadRouteShareMin", 0) : 0 },
         [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l }))),
       ));
       this.watchBoot(traders);

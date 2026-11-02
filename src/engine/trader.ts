@@ -143,8 +143,8 @@ export interface TraderOptions {
   recordBuy?: (good: string, buyAt: string, units: number, pricePerUnit: number) => void;
   /** A trip closed: what it was planned to earn and what it made, so the dispatcher can rest a route that disappointed (routeHeat.ts). */
   recordTrip?: (trip: { good: string; buyAt: string; sellAt: string; promised: number; made: number }) => void;
-  /** Called when this ship buys the first lot of a trade trip, for the spacing rule between trip starts. */
-  recordTripStart?: (good: string, buyAt: string) => void;
+  /** Called when this ship buys the first lot of a trade trip (with that lot's price per unit), for the spacing rule between trip starts. */
+  recordTripStart?: (good: string, buyAt: string, price: number) => void;
   /** Current credit balance, used to cap purchase volume by affordability. */
   getCredits?: () => number;
   /** True while no new purchase may start (reset wind-down). Selling is never blocked. */
@@ -2687,7 +2687,7 @@ export class TraderAgent {
         });
         this.recordBuy?.(route.good, route.buyAt, lot, res.transaction.pricePerUnit);
         // The first lot is the trip's start for the spacing rule (tripSpacing.ts); later lots of the same trip are not new starts.
-        if (bought === lot) this.recordTripStart?.(route.good, route.buyAt);
+        if (bought === lot) this.recordTripStart?.(route.good, route.buyAt, res.transaction.pricePerUnit);
         this.log(`bought ${lot}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`);
         this.onActivity?.("buy", `${lot}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`, -res.transaction.totalPrice, this.symbol);
         // Pinned and persisted after every lot, not once after the whole

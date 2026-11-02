@@ -119,7 +119,7 @@ export const MAX_LOTS_PER_TRIP = 3;
 import { coolOffReason, DEFAULT_HEAT_POLICY, type RouteTrip } from "./routeHeat.js";
 import { estimateBuyPrice, estimateSellPrice, profitAfterShortfall, type SaleImpact } from "./marketCrash.js";
 import { ROUNDS_WINDOW_MIN, buyMarketRoundsReason, roundsReason } from "./routeRounds.js";
-import { spacingReason, type TripStart } from "./tripSpacing.js";
+import { autoSpacedNow, spacingReason, type SpacedRoute, type SpacingPolicy, type TripStart } from "./tripSpacing.js";
 import { formatTraderStates, summarizeTraderStates } from "./traderStates.js";
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
 import { RouteBlocks, DEFAULT_BLOCK_POLICY } from "./routeBlocks.js";
@@ -592,17 +592,34 @@ export class RouteDispatcher {
     return coolOffReason(this.closedTrips, good, buyAt, sellAt, Date.now(), { ...DEFAULT_HEAT_POLICY, minutes }) ??
       roundsReason(this.closedTrips, good, buyAt, sellAt, Date.now(), { maxRounds: this.roundsMax, windowMin: ROUNDS_WINDOW_MIN }) ??
       buyMarketRoundsReason(this.closedTrips, good, buyAt, Date.now(), { maxRounds: this.buyRoundsMax, windowMin: ROUNDS_WINDOW_MIN }) ??
-      spacingReason(this.tripStarts, good, buyAt, Date.now(), { minGapMin: this.spacingMin }, exceptShip);
+      spacingReason(this.tripStarts, good, buyAt, Date.now(), this.spacingPolicy(), this.spacedRoutes, exceptShip, this.askByBuy.get(`${good}|${buyAt}`));
   }
   private coolOffMin = 0;
   /** Trip starts (first lot bought), newest last, for the spacing rule (tripSpacing.ts). Only the last few hours matter. */
   private readonly tripStarts: TripStart[] = [];
   private spacingMin = 0;
+  private spacingAutoPct = 0;
+  /** The operator's per-route spacing rules (the fleet loads them from its saved list). */
+  private spacedRoutes: SpacedRoute[] = [];
+  /** The live ask of each (good|buy market) on the last route list, the lowest of its routes: what the auto rule compares. */
+  private readonly askByBuy = new Map<string, number>();
 
-  /** Called by a trader when it buys the first lot of a trade trip. Counted even with the rule off, so turning it on has history. */
-  recordTripStart(good: string, buyAt: string, shipSymbol: string): void {
+  private spacingPolicy(): SpacingPolicy { return { minGapMin: this.spacingMin, autoPct: this.spacingAutoPct }; }
+
+  setSpacedRoutes(list: readonly SpacedRoute[]): void { this.spacedRoutes = [...list]; }
+
+  /** Spacing as the operator sees it: the rules and the (good, market) pairs the auto rule holds right now. */
+  spacingView(): { enabled: boolean; defaultGapMin: number; autoPct: number; rules: SpacedRoute[]; auto: ReturnType<typeof autoSpacedNow> } {
+    return {
+      enabled: this.spacingMin > 0, defaultGapMin: this.spacingMin, autoPct: this.spacingAutoPct,
+      rules: [...this.spacedRoutes], auto: autoSpacedNow(this.tripStarts, this.askByBuy, this.spacingPolicy(), this.spacedRoutes),
+    };
+  }
+
+  /** Called by a trader when it buys the first lot of a trade trip (`price` is that lot's price per unit). Counted even with the rule off, so turning it on has history. */
+  recordTripStart(good: string, buyAt: string, shipSymbol: string, price?: number): void {
     const now = Date.now();
-    this.tripStarts.push({ good, buyAt, shipSymbol, at: now });
+    this.tripStarts.push({ good, buyAt, shipSymbol, at: now, ...(price !== undefined && price > 0 ? { price } : {}) });
     while (this.tripStarts.length && (this.tripStarts.length > 200 || this.tripStarts[0]!.at < now - 6 * 3_600_000)) this.tripStarts.shift();
   }
   /** Where recompute notes go. console.log by default; the fleet points it at its own log so they reach the ops `logs` tool. */
@@ -1042,7 +1059,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; marketRecoveryMin?: number; routeBlockMin?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; spacingAutoPct?: number; marketRecoveryMin?: number; routeBlockMin?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -1073,6 +1090,14 @@ export class RouteDispatcher {
     this.roundsMax = Math.max(0, tuning?.roundsMax ?? 0);
     this.buyRoundsMax = Math.max(0, tuning?.buyRoundsMax ?? 0);
     this.spacingMin = Math.max(0, tuning?.spacingMin ?? 0);
+    this.spacingAutoPct = Math.max(0, tuning?.spacingAutoPct ?? 0);
+    // What each buy market asks now (the lowest of its routes), read before any filter drops a route, for the spacing rule's auto trigger.
+    this.askByBuy.clear();
+    for (const r of routes) {
+      const key = `${r.good}|${r.buyAt}`;
+      const seen = this.askByBuy.get(key);
+      if (r.buyPrice > 0 && (seen === undefined || r.buyPrice < seen)) this.askByBuy.set(key, r.buyPrice);
+    }
     this.marketRecoveryMin = Math.max(0, tuning?.marketRecoveryMin ?? 0);
     this.routeBlockMin = Math.max(0, tuning?.routeBlockMin ?? 0);
     // Systems still behind the fresh-system gate (systemQueue.ts) are not offered to traders, as a buy or a sell leg. Empty = the

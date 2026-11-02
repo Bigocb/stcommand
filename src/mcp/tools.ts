@@ -1250,6 +1250,38 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_set_route_spacing",
+    {
+      title: "Space the trips on one route (per-route trip spacing)",
+      description: "Per-route trip spacing: for a good (optionally at one buy market) a new trip may not start buying until `gapMin` minutes after the last trip started there, whichever ship it is. Use it on a route whose price our own buying wears down (a supply chain being rested and recovered). action 'add' creates or replaces the rule, 'remove' deletes it, 'list' shows the rules and the routes the automatic trigger (doctrine buyMarketSpacingAutoPct) is spacing right now, with why. Needs the buyMarketSpacingMin clause switched on (it is the master switch and the default gap). A trip already under way is never stopped; contract buys are not held. Takes effect within a minute.",
+      inputSchema: {
+        action: z.enum(["add", "remove", "list"]),
+        good: z.string().optional().describe("Trade symbol, e.g. CLOTHING. Required for add and remove."),
+        buyAt: z.string().optional().describe("One buy market, e.g. X1-UZ49-K88. Omit for the good at every market."),
+        gapMin: z.number().min(1).max(240).optional().describe("Minutes between trip starts. Omit for the buyMarketSpacingMin default."),
+        reason: z.string().optional(),
+      },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ action, good, buyAt, gapMin, reason }) => {
+      try {
+        if (action === "list") return textResult({ ok: true, ...w.fleet.dispatcher.spacingView() });
+        if (!good) throw new Error("good is required for add and remove");
+        if (action === "add") {
+          const rules = await w.fleet.spaceRoute(good, { buyAt, gapMin, reason });
+          await recordMcpAction(w, "set_route_spacing", undefined, `spaced ${good.toUpperCase()}${buyAt ? ` at ${buyAt}` : ""}${gapMin ? ` every ${gapMin} min` : ""}`, { good, buyAt: buyAt ?? null, gapMin: gapMin ?? null, reason: reason ?? null });
+          return textResult({ ok: true, rules, ...(w.fleet.dispatcher.spacingView().enabled ? {} : { warning: "buyMarketSpacingMin is off, so no rule acts yet: switch the clause on with stcommand_set_doctrine." }) });
+        }
+        const rules = await w.fleet.unspaceRoute(good, buyAt);
+        await recordMcpAction(w, "set_route_spacing", undefined, `unspaced ${good.toUpperCase()}${buyAt ? ` at ${buyAt}` : ""}`, { good, buyAt: buyAt ?? null, removed: true });
+        return textResult({ ok: true, rules });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_park_ship",
     {
       title: "Park a ship (keep it, stop all its API calls)",

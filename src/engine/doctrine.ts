@@ -327,8 +327,15 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "buyMarketSpacingMin",
     name: "Buy market trip spacing",
-    description: "A new trip may not start buying the same good at the same buy market until this many minutes after the last trip started there, whichever ship it is. The round limits count trips when they close, so ships that all start before any trip closes slip past them: on 2026-11-02 three ships bought FABRICS at E49 within four minutes (2,097, then 2,260, then 2,447) and spent two hours of recovery. A trip already under way is never stopped. Contract buys are not held by it. Off (the default) = today's behaviour. Takes effect within a minute.",
+    description: "The master switch and default gap for trip spacing, which works per route. For a route that is spaced, a new trip may not start buying the same good at the same buy market until this many minutes after the last trip started there, whichever ship it is. A route is spaced when the operator adds a rule for it (stcommand_set_route_spacing: a good, optionally one buy market, optionally its own gap), or automatically while the 'auto' clause below sees our own buying has lifted its ask. The round limits count trips when they close, so ships that all start before any trip closes slip past them: on 2026-11-02 three ships bought FABRICS at E49 within four minutes (2,097, then 2,260, then 2,447) and spent two hours of recovery. Applied to every good it also held back small routes that had nothing to protect, so nothing is spaced without a rule or the auto trigger. A trip already under way is never stopped. Contract buys are not held by it. Off (the default) = today's behaviour. Takes effect within a minute.",
     value: 30, min: 5, max: 120, step: 5, unit: " min",
+    enabled: false, enforced: true, category: "risk", defaultAdopted: true,
+  },
+  {
+    key: "buyMarketSpacingAutoPct",
+    name: "Trip spacing: automatic trigger",
+    description: "With trip spacing on, a good at a buy market where we have started trips is spaced automatically while its live ask stands this many percent or more above the lowest price a trip of ours started at there in the last 6 hours, that is, while our own buying has visibly lifted it (2026-11-02: K88 CLOTHING 4,956 -> 5,639, E49 FABRICS 2,097 -> 2,447 in minutes; a 40-unit FAB_MATS lot moved F51 +15%). It lifts itself when the ask comes back down, and a route with an operator rule uses the rule instead. Off (the default) = only operator rules space a route. Takes effect within a minute. Needs buyMarketSpacingMin on.",
+    value: 10, min: 3, max: 50, step: 1, unit: "%",
     enabled: false, enforced: true, category: "risk", defaultAdopted: true,
   },
   {
