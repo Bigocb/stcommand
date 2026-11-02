@@ -15,3 +15,17 @@ test("the crawler waits on its throttle before every public request", async () =
     globalThis.fetch = realFetch;
   }
 });
+
+test("the crawler skips its tick while the shared budget is busy", async () => {
+  const realFetch = globalThis.fetch;
+  let fetches = 0;
+  globalThis.fetch = (async () => { fetches += 1; return new Response(JSON.stringify({ data: [] }), { status: 200 }); }) as typeof fetch;
+  try {
+    const crawler = new GalaxyCrawler({} as never, () => {});
+    crawler.setBusyCheck(() => true);
+    await crawler.tick();
+    assert.equal(fetches, 0, "busy: nothing is sent");
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
