@@ -1073,3 +1073,4 @@ input, select, textarea { font-size: 16px; }
 #subnav button { flex: 1 0 auto; white-space: nowrap; text-align: center; }
 /* Front page: section headers get room above and below, so they do not crowd the boxes. */
 .home-scroll .sec-h { margin-top: 24px; margin-bottom: 8px; }
+.tile .v.ice { color: var(--ice); }
