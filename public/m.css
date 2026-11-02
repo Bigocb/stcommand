@@ -10,20 +10,22 @@
  */
 
 :root {
-  --ground: #0a0908;
-  --panel: #16130e;
-  --raised: #221d15;
-  --raised-2: #2b251b;
-  --hair: #3a3125;
-  --hair-hi: #8a7656;
-  --amber: #ffb52e;
-  --amber-dim: rgba(255, 176, 32, 0.16);
-  --amber-glow: rgba(255, 176, 32, 0.35);
-  --ice: #bccbd6;
-  --green: #72e6a0;
-  --red: #ff9585;
-  --bone: #f6f2ea;
-  --dim: #ddd4c4;
+  --ground: #282828;
+  --panel: #32302f;
+  --raised: #3c3836;
+  --raised-2: #504945;
+  --hair: #504945;
+  --hair-hi: #7c6f64;
+  --amber: #fabd2f;
+  --amber-dim: rgba(250, 189, 47, 0.16);
+  --amber-glow: rgba(250, 189, 47, 0.35);
+  --ice: #83a598;
+  --green: #b8bb26;
+  --red: #fb4934;
+  --bone: #ebdbb2;
+  --dim: #a89984;
+  --label: #fe8019;
+  --on-accent: #282828;
   --chrome: "Chakra Petch", ui-sans-serif, system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
 }
@@ -125,7 +127,7 @@ body {
   padding: 8px 12px; border-radius: 3px; border: 1px solid var(--hair-hi); background: var(--raised); color: var(--bone);
 }
 .btn:active { background: var(--raised-2); }
-.btn.pri { background: var(--amber); border-color: var(--amber); color: #1a1200; }
+.btn.pri { background: var(--amber); border-color: var(--amber); color: var(--on-accent); }
 .btn.ghost { background: transparent; }
 .btn.deny { border-color: rgba(255, 97, 82, 0.4); color: var(--red); background: transparent; }
 .btn[disabled] { opacity: 0.5; }
@@ -352,7 +354,7 @@ body {
   flex: 0 0 auto; font-family: var(--chrome); font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase;
   padding: 5px 10px; border-radius: 3px; border: 1px solid var(--hair-hi); background: rgba(21, 19, 15, 0.7); color: var(--dim);
 }
-.sys-picker button.on { background: var(--amber); border-color: var(--amber); color: #1a1200; }
+.sys-picker button.on { background: var(--amber); border-color: var(--amber); color: var(--on-accent); }
 
 /* .scope-view is the fixed, non-scaled viewport; .scope-field is what pan
  * and pinch-zoom actually transform. Kept separate so the pan/zoom math
@@ -438,7 +440,7 @@ body {
   text-transform: uppercase; padding: 9px 0; border-radius: 3px; border: 1px solid var(--hair-hi);
   background: transparent; color: var(--dim);
 }
-.seg button.on { background: var(--amber); border-color: var(--amber); color: #1a1200; }
+.seg button.on { background: var(--amber); border-color: var(--amber); color: var(--on-accent); }
 
 .price-picker { display: flex; gap: 6px; margin-bottom: 6px; }
 .price-picker select {
@@ -534,7 +536,7 @@ body {
 .tabbar button { position: relative; }
 .tabbar button .n {
   position: absolute; top: -3px; left: calc(50% + 10px); min-width: 14px; padding: 0 4px; border-radius: 7px;
-  background: var(--amber); color: #1a1200; font-size: 15px; font-weight: 700; letter-spacing: 0; line-height: 14px; text-align: center;
+  background: var(--amber); color: var(--on-accent); font-size: 15px; font-weight: 700; letter-spacing: 0; line-height: 14px; text-align: center;
 }
 
 /* ── sub-nav: the current group's tabs, under the top bar (m.js NAV_GROUPS) ── */
@@ -552,7 +554,7 @@ body {
 .subnav button.on { color: var(--amber); border-bottom-color: var(--amber); }
 .subnav button .n {
   display: inline-block; min-width: 14px; padding: 0 4px; margin-left: 3px; border-radius: 7px; background: var(--amber);
-  color: #1a1200; font-size: 15px; font-weight: 700; letter-spacing: 0; line-height: 14px; text-align: center;
+  color: var(--on-accent); font-size: 15px; font-weight: 700; letter-spacing: 0; line-height: 14px; text-align: center;
 }
 .grp-hidden { display: none !important; }
 
@@ -899,7 +901,7 @@ body { font-size: 18px; line-height: 1.45; }
 /* cockpit tiles: one per row, big figures, readable second lines */
 .tiles { grid-template-columns: 1fr; gap: 12px; }
 .tile { padding: 16px; border-width: 2px; border-radius: 8px; gap: 6px; }
-.tile .k { font-size: 15px; font-weight: 600; color: #e8c98f; }
+.tile .k { font-size: 15px; font-weight: 600; color: var(--label); }
 .tile .v { font-size: 32px; font-weight: 700; line-height: 1.15; }
 .tile .v .sub { font-size: 20px; color: var(--dim); }
 .tile .sub { font-size: 18px; color: var(--dim); }
@@ -912,7 +914,7 @@ body { font-size: 18px; line-height: 1.45; }
 .act-row .when { display: block; font-size: 16px; color: var(--dim); letter-spacing: normal; }
 .card, .sheet { border-width: 2px; }
 table td, table th { font-size: 16px; padding: 8px 6px; }
-th { color: #e8c98f; }
+th { color: var(--label); }
 
 /* sub-tabs: every tab visible (rows wrap), each a 48 px pill */
 .subnav { flex-wrap: wrap; overflow: visible; gap: 8px; padding: 8px 12px 12px; border-bottom-width: 2px; }
@@ -945,8 +947,8 @@ input, select, textarea { font-size: 16px; }
 .qq .qq-top { color: var(--bone); font-size: 18px; }
 .qq .qq-refresh { min-height: calc(48px / var(--tower-scale)); color: var(--bone); border-width: 2px; }
 .qq .qq-rule { color: var(--bone); font-size: 16px; }
-.qq .qq-sub { color: #e8c98f; font-size: 16px; font-weight: 700; }
-.qq .qq-t th { color: #e8c98f; font-weight: 600; border-bottom: 2px solid var(--hair-hi); padding: 6px 6px 6px 0; }
+.qq .qq-sub { color: var(--label); font-size: 16px; font-weight: 700; }
+.qq .qq-t th { color: var(--label); font-weight: 600; border-bottom: 2px solid var(--hair-hi); padding: 6px 6px 6px 0; }
 .qq .qq-t td { padding: 10px 6px 10px 0; border-bottom-width: 2px; }
 .qq .qq-line, .qq .qq-none, .qq .qq-ok { color: var(--bone); font-size: 16px; }
 /* doctrine rows: the name takes its own line so the value, unit and switch fit beside the tag */
@@ -976,11 +978,11 @@ input, select, textarea { font-size: 16px; }
 .tile .v.hero { font-size: 40px; }
 .tile .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
 .tile .pair > div { background: var(--raised); border-radius: 6px; padding: 10px 12px; min-width: 0; }
-.tile .pair .pk { font-family: var(--chrome); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; color: #e8c98f; }
+.tile .pair .pk { font-family: var(--chrome); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--label); }
 .tile .pair .pv { font-weight: 700; font-size: 20px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; }
 
 .hr-t { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
-.hr-t th { text-align: left; font-family: var(--chrome); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; color: #e8c98f; padding: 6px 4px; border-bottom: 2px solid var(--hair-hi); }
+.hr-t th { text-align: left; font-family: var(--chrome); font-weight: 600; font-size: 15px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--label); padding: 6px 4px; border-bottom: 2px solid var(--hair-hi); }
 .hr-t td { font-size: 18px; padding: 10px 4px; border-bottom: 2px solid var(--hair); }
 .hr-t .n { text-align: right; }
 .hr-t .hr-avg td { font-weight: 700; border-bottom: none; }
@@ -997,7 +999,7 @@ input, select, textarea { font-size: 16px; }
 .check .cv { grid-area: v; font-weight: 700; font-size: 20px; font-variant-numeric: tabular-nums; }
 .check .cv.amber { color: var(--amber); } .check .cv.red { color: var(--red); }
 .check .cl { grid-area: l; font-size: 16px; color: var(--dim); }
-.check .chev, .menu-row .chev { grid-area: chev; font-size: 28px; color: #e8c98f; text-align: right; }
+.check .chev, .menu-row .chev { grid-area: chev; font-size: 28px; color: var(--label); text-align: right; }
 .menu-row { grid-template-areas: "k chev"; grid-template-columns: 1fr 24px; min-height: 64px; font-family: var(--chrome); font-weight: 700; font-size: 18px; }
 
 .card.trouble { padding: 14px; margin-bottom: 10px; }
@@ -1010,7 +1012,7 @@ input, select, textarea { font-size: 16px; }
 /* Expand › Queue as cards (shared/queue.js layout "cards") */
 .qq .qq-card { background: var(--raised); border: 2px solid var(--hair); border-radius: 8px; padding: 14px; margin-bottom: 12px; }
 .qq .qq-warn-card { border-color: var(--amber); }
-.qq .qq-q { font-family: var(--chrome); font-weight: 700; font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; color: #e8c98f; margin-bottom: 6px; }
+.qq .qq-q { font-family: var(--chrome); font-weight: 700; font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--label); margin-bottom: 6px; }
 .qq .qq-big { font-weight: 700; font-size: 28px; color: var(--ice); }
 .qq .qq-a { font-size: 18px; color: var(--bone); margin-top: 4px; }
 .qq .qq-rule-a { color: var(--dim); }
@@ -1057,5 +1059,15 @@ input, select, textarea { font-size: 16px; }
 
 /* Sub-tabs: square-cornered rectangles, not pills. Active = filled amber. */
 .subnav button { min-height: 44px; padding: 0 14px; border: 1px solid var(--hair-hi); border-radius: 2px; background: transparent; color: var(--dim); font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; }
-.subnav button.on { background: var(--amber); border-color: var(--amber); color: #1a1200; }
+.subnav button.on { background: var(--amber); border-color: var(--amber); color: var(--on-accent); }
 .tabbar button .ti { width: 22px; height: 22px; display: block; }
+
+/* ── Gruvbox dark theme, with rounded boxes and roomier front page (approved test) ── */
+.card, .tile, .check, .tiles > *, #home-checks > *, .roster-row, .menu-row { border-radius: 12px !important; padding: 16px !important; }
+.body, .screen.on > div, #home-hourly, #home-checks { gap: 16px; }
+#home-tiles { gap: 14px !important; }
+#home-hourly .hr-t td, #home-hourly .hr-t th { padding: 12px 6px !important; }
+#home-checks > * + * { margin-top: 14px; }
+#subnav { display: flex !important; overflow-x: auto; flex-wrap: nowrap; gap: 6px; padding: 10px 16px !important; scrollbar-width: none; }
+#subnav::-webkit-scrollbar { display: none; }
+#subnav button { flex: 1 0 auto; white-space: nowrap; text-align: center; }
