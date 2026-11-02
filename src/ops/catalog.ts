@@ -259,12 +259,12 @@ export const OPS_TOOLS: OpsTool[] = [
     name: "api_budget",
     title: "API budget: calls a minute against the 90 cap, the queue, and who spends it",
     description:
-      "The shared rate limiter's last 5 minutes: total calls a minute against the 90 the game allows, the queue waiting for a token and how long the oldest has waited, average and worst wait, 429 responses in the last 60 seconds, and the top spenders by ship role + call kind and by calling code. keeper_review shows only the keepers' share; this is the whole process (every tenant on this box shares one limit). Read-only.",
+      "The shared rate limiter's last 5 minutes: total calls a minute against the 90 the game allows, the queue waiting for a token and how long the oldest has waited, average and worst wait, 429 responses in the last 60 seconds (by who was limited, with the latest 429's rate-limit headers: the headers say which limit was hit), and the top spenders by ship role + call kind and by calling code. keeper_review shows only the keepers' share; this is the whole process (every tenant on this box shares one limit). Read-only.",
     input: { top: num(12) },
     async run(_ctx, a) {
       const snap = rateLimitMonitor.snapshot();
       const st = snap.limiter;
-      if (!st) return { note: "the limiter has not reported yet", hits429Last60s: snap.hits60s };
+      if (!st) return { note: "the limiter has not reported yet", hits429Last60s: snap.hits60s, hits429BySource: snap.bySource, last429Headers: snap.last };
       const top = (rec: Record<string, { calls: number; avgWaitMs: number }>) =>
         Object.entries(rec).sort((x, y) => y[1].calls - x[1].calls).slice(0, Math.min(Math.max(a.top, 1), 40)).map(([k, v]) => ({ what: k, calls: v.calls, perMin: Math.round((v.calls / (st.windowMs / 60_000)) * 10) / 10, avgWaitMs: v.avgWaitMs }));
       return {
@@ -277,6 +277,8 @@ export const OPS_TOOLS: OpsTool[] = [
         avgWaitMs: st.avgWaitMs,
         maxWaitMs: st.maxWaitMs,
         hits429Last60s: snap.hits60s,
+        hits429BySource: snap.bySource,
+        last429Headers: snap.last,
         last429At: snap.lastAt,
         byRole: top(st.byRole),
         byCaller: top(st.byCaller),

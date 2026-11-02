@@ -42,12 +42,15 @@ export interface ClientOptions {
   maxRetries?: number;
   retryBackoffMs?: number;
   /** Called with the seconds to wait when the server asks us to back off. */
-  onRateLimited?: (retryAfterSec: number, attempt: number) => void;
+  onRateLimited?: (retryAfterSec: number, attempt: number, headers?: Record<string, string>) => void;
   /**
    * Share one token bucket across multiple `Client` instances instead of each
-   * getting its own. SpaceTraders enforces its rate limit per IP address, not
-   * per account token — a multi-tenant process making requests for N tenants
-   * from one IP is really N Clients sharing one real ceiling. Each Client
+   * getting its own. SpaceTraders' dashboard says agents registered on one account
+   * "share a rate limit that is applied to your account" (corrected 2026-11-02; this
+   * comment used to say the limit is per IP, which was never tested against account —
+   * both limits may apply, and the 429 headers now logged by the rate-limit monitor
+   * say which). Either way a multi-tenant process making requests for N tenants
+   * from one account/IP is really N Clients sharing one real ceiling. Each Client
    * self-throttling to 1.5 req/s independently (the per-Client default below)
    * only holds that ceiling for a single tenant; with N tenants active it
    * admits up to N * 1.5 req/s from the same IP, which is exactly what
@@ -70,11 +73,11 @@ export interface ClientOptions {
   label?: string;
   /**
    * Route every request this Client makes through a forward proxy —
-   * `http://user:pass@host:port`. SpaceTraders rate-limits by source IP,
-   * not by agent token (see `sharedLimiter`'s comment above), so a tenant
-   * given its own dedicated proxy IP genuinely gets its own real 2 req/s
-   * ceiling from SpaceTraders instead of sharing this process's one IP
-   * with every other tenant. Omitted, requests go out directly on
+   * `http://user:pass@host:port`. This was built on the
+   * belief that SpaceTraders rate-limits by source IP; its dashboard says the limit is
+   * applied per account (see `sharedLimiter`'s comment above), in which case a proxy IP alone
+   * would NOT give a tenant its own ceiling unless it is also a separate account.
+   * Untested; the 2026-11-02 second-account test settles it. Omitted, requests go out directly on
    * whatever IP this process itself has.
    */
   proxyUrl?: string;
@@ -649,7 +652,9 @@ export class Client {
       if (res.status === 429) {
         const wait = retryAfter ? Number(retryAfter) : undefined;
         const delayMs = (wait && !Number.isNaN(wait) ? wait * 1000 : undefined) ?? this.retryBackoffMs * 2 ** attempt;
-        this.onRateLimited?.(delayMs / 1000, attempt);
+        const limitHeaders: Record<string, string> = {};
+        res.headers.forEach((value, key) => { if (/rate|retry|limit/i.test(key)) limitHeaders[key.toLowerCase()] = value; });
+        this.onRateLimited?.(delayMs / 1000, attempt, limitHeaders);
         if (attempt < this.maxRetries) {
           attempt += 1;
           await sleep(delayMs);

@@ -15,9 +15,9 @@ dashboard and occasionally intervenes (reassigns a ship, approves a
 purchase, adjusts a doctrine setting). The two hard constraints that
 shape almost everything below:
 
-- **SpaceTraders rate-limits by source IP, not by agent token.** Every
-  tenant sharing this server's egress IP shares one rate budget unless a
-  tenant has its own forward proxy configured.
+- **SpaceTraders' rate limit is shared by every agent on an account (and was believed to be per source IP).** Every
+  tenant on this server shares one rate budget; a forward proxy was thought to give a tenant its own, which is untested.
+  **Correction 2026-11-02:** SpaceTraders' own dashboard says agents registered on one account "share a rate limit that is applied to your account". The "per IP" statements in this repo were never tested against account, and both limits may apply. The rate-limit monitor now records the 429 headers per source (`GET /api/rate-limit`, ops api_budget) so a second-account test can settle it. Where this file says "per IP", read "per account, and possibly per IP"; a proxy IP alone may not give a tenant its own ceiling.
 - **The process restarts often** (every deploy, several times a day).
   Anything that isn't durably persisted is gone on the next boot —
   several real incidents this project's history trace back to state that

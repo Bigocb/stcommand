@@ -101,8 +101,9 @@ export class TenantRegistry {
   private readonly lastBootFailure = new Map<string, { at: number; error: Error }>();
   /**
    * One token bucket for every tenant's Client this process ever builds.
-   * SpaceTraders enforces its rate limit per IP address, not per agent
-   * token — a multi-tenant process serving N tenants from one IP is really N
+   * SpaceTraders applies its rate limit per account (its dashboard: agents
+   * on one account share it; this comment used to say per IP, untested), not per agent
+   * token — a multi-tenant process serving N tenants on one account is really N
    * Clients sharing one real ceiling. Each Client self-throttling to 1.5
    * req/s independently (the default when no `sharedLimiter` is given — see
    * client.ts's `ClientOptions` doc comment) only holds that ceiling for a
@@ -172,8 +173,8 @@ export class TenantRegistry {
           proxyUrl,
           label: agentSymbol,
           ...(proxyUrl ? {} : { sharedLimiter: this.apiLimiter }),
-          onRateLimited: (sec, attempt) => {
-            rateLimitMonitor.record();
+          onRateLimited: (sec, attempt, headers) => {
+            rateLimitMonitor.record(agentSymbol, headers);
             this.log("?", `rate limited, backing off ${sec}s (attempt ${attempt})`);
           },
         }),

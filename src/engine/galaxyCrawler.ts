@@ -1,6 +1,7 @@
 import { API_BASE } from "../core/client.js";
 import type { Store } from "../db/store.js";
 import { gatesToCheck, type GateRef, type KnownGate } from "./gateCheckQueue.js";
+import { rateLimitMonitor, rateLimitHeaders } from "../core/rateLimitMonitor.js";
 
 /**
  * Crawls the *public* galaxy-wide reference data — every system's
@@ -247,6 +248,7 @@ export class GalaxyCrawler {
       try {
         const res = await fetch(new URL(`${API_BASE}/systems/${next.systemSymbol}/waypoints/${next.gateSymbol}/construction`));
         if (res.status === 429) {
+          rateLimitMonitor.record("crawler (no token)", rateLimitHeaders(res.headers));
           this.constructionQueue.unshift(next);
           this.constructionBackoffUntil = Date.now() + CONSTRUCTION_BACKOFF_MS;
           this.log("gate construction crawl: rate limited, pausing a minute");
@@ -297,6 +299,7 @@ export class GalaxyCrawler {
     const url = new URL(API_BASE + path);
     for (const [k, v] of Object.entries(query ?? {})) url.searchParams.set(k, String(v));
     const res = await fetch(url);
+    if (res.status === 429) rateLimitMonitor.record("crawler (no token)", rateLimitHeaders(res.headers));
     const json = (await res.json().catch(() => ({}))) as { data?: unknown; error?: { message?: string } };
     if (!res.ok) throw new Error(json?.error?.message ?? `${res.status} ${res.statusText}`);
     return json as T;

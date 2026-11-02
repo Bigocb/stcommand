@@ -191,7 +191,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
    * Rate-limit indicator feed for Tower/Deck: how many SpaceTraders 429s this
    * process absorbed in the last minute, plus any OTHER server instance that
    * is alive right now (deploy overlap — the usual cause of a storm). Process-
-   * wide on purpose: the limit is per-IP, not per-tenant.
+   * wide on purpose: the limit is shared by every agent of an account, not per-tenant.
    */
   router.get("/rate-limit", async (req, res) => {
     const w = worker(req);

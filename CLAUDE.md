@@ -319,6 +319,10 @@ each behind a doctrine clause that ships off: the co-pilot router (`jevRouter`, 
 - **No model means carry on.** `getJudge()` is undefined without a key; every caller treats that, a failure, or a timeout as
   "behave exactly as before".
 
+## The rate limit: account, not (only) IP
+
+SpaceTraders' dashboard (2026-11-02): agents registered on one account "share a rate limit that is applied to your account". Earlier notes in this repo said per source IP; that was never tested. THEO and THEOREM are on one account and share one limiter (1.5 req/s, about 90 a minute). `GET /api/rate-limit` and ops `api_budget` now show, per source (agent symbol or "crawler (no token)"), the 429 count and the response's rate-limit headers, which say what limit was hit. The crawler and reset watcher call the public API without a token, outside our limiter; whether those calls share the account's bucket is not known, so they have not been routed through it. A second-account test (run a burst from account B's agent while watching account A's 429s) settles IP versus account.
+
 ## Player-facing guidance vs. engineering notes
 
 This file (CLAUDE.md) is read by a Claude Code session working on the

@@ -258,7 +258,8 @@ history behind it:
 
 ## 4. Multi-tenancy: what's shared vs. isolated
 
-- **Rate limiting is by source IP, not by agent token.** Every tenant
+- **Rate limiting is shared across an account's agents (previously documented as by source IP).** **Correction 2026-11-02:** SpaceTraders' own dashboard says agents registered on one account "share a rate limit that is applied to your account". The "per IP" statements in this repo were never tested against account, and both limits may apply. The rate-limit monitor now records the 429 headers per source (`GET /api/rate-limit`, ops api_budget) so a second-account test can settle it. Where this file says "per IP", read "per account, and possibly per IP"; a proxy IP alone may not give a tenant its own ceiling.
+  Earlier text: Every tenant
   sharing this process's egress IP genuinely shares one API rate budget
   unless that tenant has its own forward proxy (and therefore its own
   IP) configured. This is a hard external constraint, not a design

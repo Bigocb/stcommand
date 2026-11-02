@@ -13,6 +13,8 @@ tenant's `{api, store, state, fleet, chat?}` bundle
 (`src/engine/tenantRegistry.ts:14-29`) instead of that bundle living as one
 entry in an in-process `Map` (`tenantRegistry.ts:69`).
 
+> **Correction 2026-11-02:** SpaceTraders' own dashboard says agents registered on one account "share a rate limit that is applied to your account". The "per IP" statements in this repo were never tested against account, and both limits may apply. The rate-limit monitor now records the 429 headers per source (`GET /api/rate-limit`, ops api_budget) so a second-account test can settle it. Where this file says "per IP", read "per account, and possibly per IP"; a proxy IP alone may not give a tenant its own ceiling.
+
 Short version up front, argued in full below: **the idea does not survive
 contact with the one fact that actually governs this app's scaling —
 SpaceTraders rate-limits by source IP, not by tenant.** Every version of

@@ -407,8 +407,8 @@ npm run migrate:test       # applies migrations to the test schema
   wrong diagnoses (commit `c4cd309`).
 - `.claude/settings.json` pre-approves `npm run migrate:test` and
   `node --test:*` so those do not prompt.
-- SpaceTraders API facts that have bitten: the **rate limit is per-IP and
-  shared across tenants**; `getMarket` returns prices **only when docked**;
+- SpaceTraders API facts that have bitten: the **rate limit is shared across an account's agents (SpaceTraders dashboard, 2026-11-02); it was documented as per-IP and
+  that is untested** (see the correction note in docs/architecture-overview.md); `getMarket` returns prices **only when docked**;
   jumps are **gate→gate, single hop**.
 
 ---
