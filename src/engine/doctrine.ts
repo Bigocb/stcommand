@@ -325,6 +325,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "risk", defaultAdopted: true,
   },
   {
+    key: "buyMarketSpacingMin",
+    name: "Buy market trip spacing",
+    description: "A new trip may not start buying the same good at the same buy market until this many minutes after the last trip started there, whichever ship it is. The round limits count trips when they close, so ships that all start before any trip closes slip past them: on 2026-11-02 three ships bought FABRICS at E49 within four minutes (2,097, then 2,260, then 2,447) and spent two hours of recovery. A trip already under way is never stopped. Contract buys are not held by it. Off (the default) = today's behaviour. Takes effect within a minute.",
+    value: 30, min: 5, max: 120, step: 5, unit: " min",
+    enabled: false, enforced: true, category: "risk", defaultAdopted: true,
+  },
+  {
     key: "marketRecoveryMin",
     name: "Market recovery after our trades",
     description: "After our ships sell into a market its price falls (measured 2026-10-23 at X1-YB39-BD3D: -21% on 360 units of LAB_INSTRUMENTS, -25% on 580 of ELECTRONICS), and the route list keeps showing the price from before the sale until a ship next visits, because a trader reads a market as it docks, before it sells. The same holds for buying: our purchases lift the ask (X1-AR93-B15C CLOTHING went 3,342 to 5,060 over 305 units, and the next route still listed 3,342). With this on, a route through a market we have traded in recently is planned on a price that moves back in a straight line from our last lot's price to our first lot's over this many minutes, on the sell side and the buy side; the difference comes off the trip's profit, and a trip that no longer pays is dropped. The refill time is a guess until sell-side recovery has been measured, so tune it from the analysis report's market recovery findings. Off (the default) = routes are planned on the snapshot price as before. Takes effect within a minute.",

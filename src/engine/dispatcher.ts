@@ -119,6 +119,7 @@ export const MAX_LOTS_PER_TRIP = 3;
 import { coolOffReason, DEFAULT_HEAT_POLICY, type RouteTrip } from "./routeHeat.js";
 import { estimateBuyPrice, estimateSellPrice, profitAfterShortfall, type SaleImpact } from "./marketCrash.js";
 import { ROUNDS_WINDOW_MIN, buyMarketRoundsReason, roundsReason } from "./routeRounds.js";
+import { spacingReason, type TripStart } from "./tripSpacing.js";
 import { formatTraderStates, summarizeTraderStates } from "./traderStates.js";
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
 import { RouteBlocks, DEFAULT_BLOCK_POLICY } from "./routeBlocks.js";
@@ -587,12 +588,23 @@ export class RouteDispatcher {
 
   /** Why this exact route is resting after a disappointing trip or too many trips on it, or undefined. `minutes` 0 = off
    *  for the cool-off; the round limit is read from `roundsMax`, so the two clauses switch on independently. */
-  routeCoolOff(good: string, buyAt: string, sellAt: string, minutes = this.coolOffMin): string | undefined {
+  routeCoolOff(good: string, buyAt: string, sellAt: string, minutes = this.coolOffMin, exceptShip?: string): string | undefined {
     return coolOffReason(this.closedTrips, good, buyAt, sellAt, Date.now(), { ...DEFAULT_HEAT_POLICY, minutes }) ??
       roundsReason(this.closedTrips, good, buyAt, sellAt, Date.now(), { maxRounds: this.roundsMax, windowMin: ROUNDS_WINDOW_MIN }) ??
-      buyMarketRoundsReason(this.closedTrips, good, buyAt, Date.now(), { maxRounds: this.buyRoundsMax, windowMin: ROUNDS_WINDOW_MIN });
+      buyMarketRoundsReason(this.closedTrips, good, buyAt, Date.now(), { maxRounds: this.buyRoundsMax, windowMin: ROUNDS_WINDOW_MIN }) ??
+      spacingReason(this.tripStarts, good, buyAt, Date.now(), { minGapMin: this.spacingMin }, exceptShip);
   }
   private coolOffMin = 0;
+  /** Trip starts (first lot bought), newest last, for the spacing rule (tripSpacing.ts). Only the last few hours matter. */
+  private readonly tripStarts: TripStart[] = [];
+  private spacingMin = 0;
+
+  /** Called by a trader when it buys the first lot of a trade trip. Counted even with the rule off, so turning it on has history. */
+  recordTripStart(good: string, buyAt: string, shipSymbol: string): void {
+    const now = Date.now();
+    this.tripStarts.push({ good, buyAt, shipSymbol, at: now });
+    while (this.tripStarts.length && (this.tripStarts.length > 200 || this.tripStarts[0]!.at < now - 6 * 3_600_000)) this.tripStarts.shift();
+  }
   /** Where recompute notes go. console.log by default; the fleet points it at its own log so they reach the ops `logs` tool. */
   private logger: (msg: string) => void = (m) => console.log(m);
   setLogger(fn: (msg: string) => void): void { this.logger = fn; }
@@ -1030,7 +1042,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; marketRecoveryMin?: number; routeBlockMin?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; marketRecoveryMin?: number; routeBlockMin?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -1060,6 +1072,7 @@ export class RouteDispatcher {
     this.coolOffMin = Math.max(0, tuning?.coolOffMin ?? 0);
     this.roundsMax = Math.max(0, tuning?.roundsMax ?? 0);
     this.buyRoundsMax = Math.max(0, tuning?.buyRoundsMax ?? 0);
+    this.spacingMin = Math.max(0, tuning?.spacingMin ?? 0);
     this.marketRecoveryMin = Math.max(0, tuning?.marketRecoveryMin ?? 0);
     this.routeBlockMin = Math.max(0, tuning?.routeBlockMin ?? 0);
     // Systems still behind the fresh-system gate (systemQueue.ts) are not offered to traders, as a buy or a sell leg. Empty = the
@@ -1096,7 +1109,7 @@ export class RouteDispatcher {
     }
     // Any of the three rests a route, so any one being on needs this pass to run; with all at 0 it is skipped exactly as
     // before, and coolOffReason() returns undefined at 0 minutes.
-    if (this.coolOffMin > 0 || this.roundsMax > 0 || this.buyRoundsMax > 0) {
+    if (this.coolOffMin > 0 || this.roundsMax > 0 || this.buyRoundsMax > 0 || this.spacingMin > 0) {
       const open = routes.filter((r) => !this.routeCoolOff(r.good, r.buyAt, r.sellAt));
       if (open.length !== routes.length) {
         for (const r of routes) if (!open.includes(r)) hold(r, `resting: ${this.routeCoolOff(r.good, r.buyAt, r.sellAt)}`);

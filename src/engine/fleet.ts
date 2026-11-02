@@ -1584,7 +1584,8 @@ export class FleetManager {
       contractCovered: () => this.contractCoveredGoods(),
       blockedGoods: () => this.blockedGoodsCache,
       redirectHops: () => this.redirectHopsLimit(),
-      routeResting: (good, buyAt, sellAt) => this.dispatcher.routeCoolOff(good, buyAt, sellAt),
+      // This ship's own trip start never rests it: it is the one mid-trip (tripSpacing.ts).
+      routeResting: (good, buyAt, sellAt) => this.dispatcher.routeCoolOff(good, buyAt, sellAt, undefined, shipSymbol),
       deliverCargo: (s) => this.contracts?.deliverVia(s) ?? Promise.resolve(null),
       // Units a contract still needs, less what OTHER ships on a contract buy already carry for it: with several buyers on one
       // good (contract duty), each one's purchase must not count units a fleetmate is already flying in.
@@ -1618,6 +1619,7 @@ export class FleetManager {
       recordSale: (good, sellAt, units, price) => this.dispatcher.recordSale(good, sellAt, units, price),
       recordBuy: (good, buyAt, units, price) => this.dispatcher.recordBuy(good, buyAt, units, price),
       recordTrip: (trip) => this.dispatcher.recordTrip(trip),
+      recordTripStart: (good, buyAt) => this.dispatcher.recordTripStart(good, buyAt, shipSymbol),
       // Already floor-adjusted — see spendableCredits()'s own comment. This
       // one is the fleet's cached balance, which is right for ranking routes
       // and wrong for committing to a purchase.
@@ -10801,7 +10803,7 @@ export class FleetManager {
           homeReserve: 1,
           gateFor: (from, to) => this.galaxy.gatesTo(from, to)[0],
         },
-        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), holdAware: this.doctrine.isEnabledOr("routeHoldAware", false), soonFreeSec: this.doctrine.isEnabledOr("routeSoonFreeMin", false) ? this.doctrine.value("routeSoonFreeMin") * 60 : 0, matchTopN: this.doctrine.value("routeMatchTopN", 0), speedWeight: this.doctrine.isEnabledOr("shipSpeedWeight", false) ? this.doctrine.value("shipSpeedWeight", 0) : 0, modelSpeed: this.routeModelSpeed(), coolOffMin: this.doctrine.value("routeCoolOffMin", 0), roundsMax: this.doctrine.value("routeRoundsMax", 0), buyRoundsMax: this.doctrine.value("buyMarketRoundsMax", 0), marketRecoveryMin: this.doctrine.isEnabledOr("marketRecoveryMin", false) ? this.doctrine.value("marketRecoveryMin", 0) : 0, routeBlockMin: this.doctrine.isEnabledOr("deadRouteShareMin", false) ? this.doctrine.value("deadRouteShareMin", 0) : 0 },
+        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), holdAware: this.doctrine.isEnabledOr("routeHoldAware", false), soonFreeSec: this.doctrine.isEnabledOr("routeSoonFreeMin", false) ? this.doctrine.value("routeSoonFreeMin") * 60 : 0, matchTopN: this.doctrine.value("routeMatchTopN", 0), speedWeight: this.doctrine.isEnabledOr("shipSpeedWeight", false) ? this.doctrine.value("shipSpeedWeight", 0) : 0, modelSpeed: this.routeModelSpeed(), coolOffMin: this.doctrine.value("routeCoolOffMin", 0), roundsMax: this.doctrine.value("routeRoundsMax", 0), buyRoundsMax: this.doctrine.value("buyMarketRoundsMax", 0), spacingMin: this.doctrine.value("buyMarketSpacingMin", 0), marketRecoveryMin: this.doctrine.isEnabledOr("marketRecoveryMin", false) ? this.doctrine.value("marketRecoveryMin", 0) : 0, routeBlockMin: this.doctrine.isEnabledOr("deadRouteShareMin", false) ? this.doctrine.value("deadRouteShareMin", 0) : 0 },
         [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l }))),
       ));
       this.watchBoot(traders);
