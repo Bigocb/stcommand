@@ -6,6 +6,10 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-02 — Galaxy crawler: spare capacity only (fix for the throttle shipped the same day)
+
+Right after the crawler was routed through the shared limiter, `api_budget` showed it making 244 calls in 5 minutes (49 a minute: 12 ticks a minute, each a page plus up to 4 gate-construction checks) against the 90 cap, with the limiter queue at 20 and the fleet's calls waiting 2-6 s on average instead of about 0.3 s. Background priority only orders the queue; aging promotes a waiting call one tier every 20 s, so a crawler that always has work still crowds the fleet. `GalaxyCrawler.setBusyCheck()` now makes it skip a tick while the shared limiter has anything queued or its 5-minute rate is at or above 60 a minute (two thirds of the cap), so it only uses spare capacity (wired in `cli/index.ts`). Test in `tests/galaxyCrawlerThrottle.test.ts`. Takes effect at the next restart.
+
 ## 2026-11-02 — Shared limiter: burst 5 instead of 2 (`API_BURST`)
 
 The game allows 2 req/s with a burst of 30 (measured, `x-ratelimit-limit-burst`), and our shared limiter held a bucket of 2, so short spikes (a boot, route discovery, several ships docking at once) queued behind the 1.5 req/s refill while the game's own spike allowance went unused. The process-wide bucket now holds `API_BURST` tokens, default 5, clamped to 1-30 (`apiBurstFromEnv()` in `src/core/client.ts`; the refill rate stays 1.5 a second). Not 30: an earlier bucket of 30 let 30 requests leave in under a millisecond and drew live 429s (see the comment in `Client`), so the instantaneous tolerance is lower than the headline number. To find it, `scripts/rate-limit-probe.mjs --burst=N` fires N requests at once, three rounds 6 s apart; run it on the box while the fleet is quiet and raise `API_BURST` to just under the biggest N with no 429s. Watch `api_budget` `hits429Last60s` after the restart; if 429s appear, set `API_BURST=2` to go back. Tests in `tests/rateLimiter.test.ts`. Takes effect at the next restart.

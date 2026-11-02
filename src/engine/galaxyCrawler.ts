@@ -168,6 +168,11 @@ export class GalaxyCrawler {
   setThrottle(fn: (() => Promise<void>) | undefined): void {
     this.throttle = fn;
   }
+  /** True while the shared budget is busy; the crawl then skips the tick instead of queueing behind (and in front of) the fleet. */
+  private isBusy: (() => boolean) | undefined;
+  setBusyCheck(fn: (() => boolean) | undefined): void {
+    this.isBusy = fn;
+  }
 
   constructor(store: Store, log: (msg: string) => void = () => {}) {
     this.store = store;
@@ -214,6 +219,8 @@ export class GalaxyCrawler {
    *  "done") opportunistic sweep of known jump gates for newly-charted
    *  connections. */
   async tick(): Promise<void> {
+    // Spare capacity only: when the fleet is queueing for the API or the budget is mostly spoken for, the crawl waits for a quieter tick.
+    if (this.isBusy?.()) return;
     if (!this.factionsDone) {
       await this.crawlFactions();
       return;

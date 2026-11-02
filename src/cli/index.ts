@@ -109,6 +109,9 @@ async function main(): Promise<void> {
   // (one call per tick) rather than racing to finish.
   const galaxyCrawler = new GalaxyCrawler(new Store(pool), (msg) => logGlobal(msg));
   // Its calls carry no token but count against the same IP budget as the fleet: draw from the shared limiter, last in line.
+  // And only on spare capacity: it skips a tick while the fleet is queueing or the budget is above two thirds used (2026-11-02:
+  // unthrottled by priority it made 49 calls a minute, the fleet's calls waited 2-6 s instead of 0.3 s).
+  galaxyCrawler.setBusyCheck(() => { const st = registry.sharedLimiter().stats(); return st.queueDepth > 0 || st.callsPerMin >= 60; });
   galaxyCrawler.setThrottle(() => registry.sharedLimiter().acquire(API_PRIORITY.BACKGROUND, "galaxy crawler", "public", "GalaxyCrawler"));
   const galaxyCrawlInterval = setInterval(() => {
     galaxyCrawler.tick().catch((err) => log(`galaxy crawl tick failed: ${err instanceof Error ? err.message : String(err)}`));
