@@ -262,6 +262,8 @@ export class MissionManager {
    *  only restarts the hold timers. */
   private carrierSince = new Map<string, number>();
   private yieldReleasedAt = new Map<string, number>();
+  /** `${waypoint}|${ship}` -> when yield mode last looked in that carrier's hold (it is re-checked at most once a minute: a loaded carrier stays put). */
+  private yieldCargoCheckedAt = new Map<string, number>();
   private yieldNote = new Map<string, { decision: YieldDecision; reason: string }>();
 
   constructor(opts: MissionOptions) {
@@ -823,6 +825,9 @@ export class MissionManager {
     let since = this.carrierSince.get(key);
     if (since === undefined) { since = Date.now(); this.carrierSince.set(key, since); } // first sight (after a restart): start the hold now
     if (!mayRelease(Date.now(), since)) return;
+    // A carrier holding mission cargo stays until it delivers; looking in its hold on every 2 s tick cost about 9 calls a minute.
+    if (Date.now() - (this.yieldCargoCheckedAt.get(key) ?? 0) < 60_000) return;
+    this.yieldCargoCheckedAt.set(key, Date.now());
     const cargo = await this.api.getShipCargo(shipSymbol);
     const needed = mission.materials.filter((m) => m.fulfilled < m.required).map((m) => m.tradeSymbol);
     if (cargo.inventory.some((i) => i.units > 0 && needed.includes(i.symbol))) return;

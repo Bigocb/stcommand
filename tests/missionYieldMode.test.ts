@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { MissionManager } from "../src/engine/mission.js";
 
 // Seam test for yield mode: the mission hands the carrier back to trading while every material is over its ceiling.
+const cargoReads = { n: 0 };
 function harness(quote: { price: number }, held: { symbol: string; units: number }[] = []) {
   const resumed: string[] = [];
   const ship: any = {
@@ -13,7 +14,7 @@ function harness(quote: { price: number }, held: { symbol: string; units: number
   };
   const api: any = {
     getConstruction: async () => ({ isComplete: false, materials: [{ tradeSymbol: "FAB_MATS", required: 100, fulfilled: 0 }] }),
-    getShipCargo: async () => ship.cargo,
+    getShipCargo: async () => { cargoReads.n += 1; return ship.cargo; },
     dockShip: async () => {},
     purchaseCargo: async () => { throw new Error("must not buy"); },
     supplyConstruction: async () => {},
@@ -107,5 +108,23 @@ describe("yield mode", () => {
     const { mgr } = await setup(2500, {});
     assert.deepEqual(await mgr.setPacing("X1-A-I1", { yieldToTrading: true }), { yieldToTrading: true });
     assert.equal(await mgr.setPacing("X1-A-I1", { yieldToTrading: false }), null);
+  });
+});
+
+describe("yield mode cost", () => {
+  async function readsOver20s(pacing: Record<string, unknown>): Promise<number> {
+    const { mgr } = await setup(2500, pacing, [{ symbol: "FAB_MATS", units: 10 }]);
+    await mgr.tick();
+    mock.timers.tick(11 * MIN);
+    cargoReads.n = 0;
+    for (let i = 0; i < 10; i++) { await mgr.tick(); mock.timers.tick(2_000); }
+    const n = cargoReads.n;
+    mock.timers.reset();
+    return n;
+  }
+  it("looks in a loaded carrier's hold at most once more a minute than without the mode", async () => {
+    const off = await readsOver20s({ maxPrice: 2000 });
+    const on = await readsOver20s({ maxPrice: 2000, yieldToTrading: true });
+    assert.ok(on - off <= 1, `yield mode added ${on - off} hold reads in 20 s (off ${off}, on ${on})`);
   });
 });
