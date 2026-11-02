@@ -2121,6 +2121,35 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  // Per-route trip spacing (engine/tripSpacing.ts): the same as the MCP tool stcommand_set_route_spacing.
+  // Read: the rules plus the routes the automatic trigger is holding now. Change: { action: "add" | "remove", good, buyAt?, gapMin?, reason? }.
+  router.get("/route-spacing", (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    res.json({ ok: true, ...w.fleet.dispatcher.spacingView() });
+  });
+
+  router.post("/route-spacing", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const { action, good, buyAt, gapMin, reason } = req.body ?? {};
+    if (action !== "add" && action !== "remove") return res.status(400).json({ error: "action must be add or remove" });
+    if (typeof good !== "string" || !good.trim()) return res.status(400).json({ error: "good required" });
+    if (buyAt !== undefined && buyAt !== null && buyAt !== "" && typeof buyAt !== "string") return res.status(400).json({ error: "buyAt must be a string" });
+    if (reason !== undefined && reason !== null && typeof reason !== "string") return res.status(400).json({ error: "reason must be a string" });
+    const market = typeof buyAt === "string" && buyAt.trim() ? buyAt.trim() : undefined;
+    const gap = gapMin === undefined || gapMin === null || gapMin === "" ? undefined : Number(gapMin);
+    if (gap !== undefined && !Number.isFinite(gap)) return res.status(400).json({ error: "gapMin must be a number" });
+    try {
+      if (action === "remove") await w.fleet.unspaceRoute(good, market);
+      else await w.fleet.spaceRoute(good, { buyAt: market, gapMin: gap, reason: typeof reason === "string" && reason.trim() ? reason.trim() : undefined });
+      await w.store.recordOperatorAction(w.tenantId, "set_route_spacing", undefined, `${action === "remove" ? "unspaced" : "spaced"} ${good.toUpperCase()}${market ? ` at ${market}` : ""}${gap ? ` every ${gap} min` : ""}`, { good, buyAt: market ?? null, gapMin: gap ?? null, removed: action === "remove" });
+      res.json({ ok: true, ...w.fleet.dispatcher.spacingView() });
+    } catch (err) {
+      res.status(400).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   const MANUAL_ROLES = new Set(["miner", "trader", "surveyor", "tour", "explorer", "keeper", "scout", "siphoner"]);
 
   /** Resume a parked ship (the same as the MCP tool stcommand_unpark_ship): `role` optional, else the role it had when parked. */

@@ -31,6 +31,7 @@ import { hourlyRows, hourlyAverage } from "/shared/hourly.js";
 import { mountMiningFields } from "/shared/miningFields.js";
 import { mountExplorers } from "/shared/explorers.js";
 import { mountBlockedGoods } from "/shared/blockedGoods.js";
+import { mountSpacedRoutes } from "/shared/spacedRoutes.js";
 import { mountNotifications, listenForNotificationTaps } from "/shared/pushNotify.js";
 import { renderMarkdown } from "/shared/markdown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
@@ -205,6 +206,7 @@ let metricsScreen = null;
 let miningScreen = null;
 let explorersScreen = null;
 let blockedGoodsScreen = null;
+let spacedRoutesScreen = null;
 let notifyScreen; // the Alerts settings (shared/pushNotify.js), mounted the first time More opens
 function setTab(name) {
   if (name !== "admin") closeAdmin();
@@ -280,6 +282,7 @@ const NAV_GROUPS = [
     { key: "opening", label: "Opening", section: "Plan", screen: "more", pane: "rules", only: ["more-sec-opening"] },
     { key: "doctrine", label: "Doctrine", section: "Rules", screen: "more", pane: "rules", only: ["more-sec-doctrine"] },
     { key: "blocked", label: "Blocked goods", section: "Rules", screen: "more", pane: "rules", only: ["more-sec-blocked"] },
+    { key: "spacing", label: "Spaced routes", section: "Rules", screen: "more", pane: "rules", only: ["more-sec-spacing"] },
     { key: "alerts", label: "Alerts", section: "Setup", screen: "more", pane: "rules", only: ["more-sec-notify"] },
     { key: "copilot", label: "Co-pilot", section: "Setup", screen: "copilot" },
     { key: "keys", label: "MCP keys", section: "Setup", screen: "more", pane: "rules", only: ["more-sec-keys"] },
@@ -1477,6 +1480,8 @@ $("more-seg").addEventListener("click", (e) => {
     renderMoreOpening();
     blockedGoodsScreen ??= mountBlockedGoods($("more-blocked-root"), { api });
     blockedGoodsScreen.show();
+    spacedRoutesScreen ??= mountSpacedRoutes($("more-spacing-root"), { api });
+    spacedRoutesScreen.show();
   }
   // The fields table polls only while it is on screen.
   miningScreen ??= mountMiningFields($("mining-root"), { api });

@@ -30,6 +30,7 @@ import { mountCompare } from "/shared/compare.js";
 import { mountSystems } from "/shared/systems.js";
 import { mountExplorers } from "/shared/explorers.js";
 import { mountBlockedGoods } from "/shared/blockedGoods.js";
+import { mountSpacedRoutes } from "/shared/spacedRoutes.js";
 import { mountMiningFields } from "/shared/miningFields.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDeckMapSystem, setDeckMapSelectedShip, mountDeckMap } from "/deck-map.js";
@@ -87,6 +88,7 @@ let compareScreen = null;
 let systemsScreen = null;
 let explorersScreen = null;
 let blockedGoods = null;
+let spacedRoutes = null;
 let miningScreen = null;
 function setView(name) {
   document.querySelectorAll(".content").forEach((c) => c.hidden = true);
@@ -169,6 +171,8 @@ function setView(name) {
   if (name === "doctrine") {
     blockedGoods ??= mountBlockedGoods($("blocked-goods-root"), { api });
     blockedGoods.show();
+    spacedRoutes ??= mountSpacedRoutes($("spaced-routes-root"), { api });
+    spacedRoutes.show();
     loadDoctrine();
     loadDoctrineFireShips();
     renderDoctrine();
