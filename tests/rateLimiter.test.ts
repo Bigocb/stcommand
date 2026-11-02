@@ -265,3 +265,17 @@ describe("RateLimiter.drain", () => {
     assert.equal(limiter.stats().queueDepth, 0);
   });
 });
+
+describe("apiBurstFromEnv", () => {
+  it("defaults to 5, clamps to 1-30 and ignores junk", async () => {
+    const { apiBurstFromEnv, DEFAULT_API_BURST } = await import("../src/core/client.js");
+    assert.equal(DEFAULT_API_BURST, 5);
+    assert.equal(apiBurstFromEnv(undefined), 5);
+    assert.equal(apiBurstFromEnv(""), 5);
+    assert.equal(apiBurstFromEnv("abc"), 5);
+    assert.equal(apiBurstFromEnv("12"), 12);
+    assert.equal(apiBurstFromEnv("0"), 1);
+    assert.equal(apiBurstFromEnv("99"), 30);
+    assert.equal(apiBurstFromEnv("7.6"), 8);
+  });
+});

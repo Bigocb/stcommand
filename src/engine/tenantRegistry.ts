@@ -3,7 +3,7 @@ import { liveSnapshotProvider } from "./notify/live.js";
 import { vapidFromEnv, WebPushTransport, type PushTransport } from "./notify/transport.js";
 import type pg from "pg";
 import { rateLimitMonitor } from "../core/rateLimitMonitor.js";
-import { Client, RateLimiter, SpaceTradersAPI, runWithApiPriority, runWithApiRole, taskToApiPriority, API_PRIORITY } from "../core/client.js";
+import { Client, RateLimiter, apiBurstFromEnv, SpaceTradersAPI, runWithApiPriority, runWithApiRole, taskToApiPriority, API_PRIORITY } from "../core/client.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
 import { LiveFeed } from "./liveFeed.js";
@@ -122,10 +122,10 @@ export class TenantRegistry {
    * now, so sharing this one would only throttle it for no reason. See
    * `buildApi`'s default implementation below.
    */
-  // Burst is capped to ceil(rate) so the bucket can't dump a large backlog of
-  // requests into a single API-rate window after any idle spell. See the
-  // matching comment in src/core/client.ts for why this matters.
-  private readonly apiLimiter = new RateLimiter(1.5, Math.ceil(1.5));
+  // Burst is API_BURST (default 5, up from ceil(1.5) = 2): the game allows a burst of 30 but 30 at once drew live 429s, so this is
+  // a middle step that lets short spikes (route discovery, a boot) through at once while a long idle spell cannot dump a large
+  // backlog into one window. See apiBurstFromEnv() in src/core/client.ts.
+  private readonly apiLimiter = new RateLimiter(1.5, apiBurstFromEnv(process.env.API_BURST));
 
   /** The process-wide token bucket every tenant draws from (also used by the galaxy crawler's tokenless calls, which share the IP's budget). */
   sharedLimiter(): RateLimiter {

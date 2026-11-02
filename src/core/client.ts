@@ -278,6 +278,19 @@ const DEFAULT_AGING_MS = 20_000;
  * queued — see acquire()'s own comment for why that matters once this is
  * shared across many tenants.
  */
+/**
+ * Burst size (tokens the shared bucket holds) for the process-wide limiter, from `API_BURST`.
+ * SpaceTraders allows 2 req/s with a burst of 30 (measured 2026-11-02, x-ratelimit-limit-burst), but a bucket of 30 once let 30
+ * requests leave in under a millisecond and drew live 429s, so the instantaneous tolerance is lower than the headline. The default
+ * is a middle step (5, up from 2) and the value is clamped to 1-30; raise it with the probe's `--burst` mode as evidence.
+ */
+export const DEFAULT_API_BURST = 5;
+export function apiBurstFromEnv(raw: string | undefined, fallback = DEFAULT_API_BURST): number {
+  const n = Number(raw);
+  if (raw === undefined || raw.trim() === "" || !Number.isFinite(n)) return fallback;
+  return Math.min(30, Math.max(1, Math.round(n)));
+}
+
 export class RateLimiter {
   private tokens: number;
   private last = Date.now();
