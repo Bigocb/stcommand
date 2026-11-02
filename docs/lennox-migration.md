@@ -23,7 +23,7 @@ Written 2026-10-10 for an agent that will SSH into the box at **100.100.95.94** 
 | Migrations | `migrations/*.sql` (46 files), applied automatically at every boot by `runMigrations()`, tracked in `stcommand.schema_migrations`. They are idempotent. `npm run migrate` also exists |
 | HTTP | `PORT` (default 3000). `/healthz` returns `ok`. Pages: `/deck` (desktop), `/m` (mobile "Tower"), `/admin`, `/cartography`. `/mcp` is the hosted MCP server. `/api/*` is the dashboard API |
 | Memory | About 100 MB for the compiled server on an empty database, growing to roughly 120 MB heap and 300 MB RSS with a full fleet. Render ran it on 512 MB |
-| Outbound | Must reach `https://api.spacetraders.io` (HTTPS). SpaceTraders rate-limits at about 2 requests per second, shared by the agents of an account (the dashboard's wording; per-IP is untested), so the box and its account share one budget |
+| Outbound | Must reach `https://api.spacetraders.io` (HTTPS). SpaceTraders rate-limits by source IP at about 2 requests per second (burst 30; measured 2026-11-02), so the box's IP has its own budget |
 
 ### Multi-tenancy and Row-Level Security (important)
 

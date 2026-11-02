@@ -23,8 +23,10 @@ import { rateLimitMonitor, rateLimitHeaders } from "../core/rateLimitMonitor.js"
  * explored.
  *
  * Runs on its own plain `fetch()` calls now, not `SpaceTradersAPI`/
- * `Client` — no tenant needs to be booted for this to make progress, and it
- * no longer draws from the shared per-tenant rate limiter. Still
+ * `Client` — no tenant needs to be booted for this to make progress. Its
+ * calls carry no token but still count against the IP's rate budget (2026-11-02:
+ * the crawler's 429s rose when another account burst from the same IP), so the
+ * caller can hand it a throttle (`setThrottle`) that draws from the shared limiter. Still
  * deliberately paced (one call per tick) rather than racing to finish —
  * conservative until production behavior against the public endpoints is
  * actually observed; a galaxy of tens of thousands of systems is a
@@ -161,6 +163,12 @@ export class GalaxyCrawler {
     if (this.activity.length > ACTIVITY_LOG_LIMIT) this.activity.shift();
   }
 
+  /** Waits for a token from the shared limiter before each request; unset (tests) means no throttle. */
+  private throttle: (() => Promise<void>) | undefined;
+  setThrottle(fn: (() => Promise<void>) | undefined): void {
+    this.throttle = fn;
+  }
+
   constructor(store: Store, log: (msg: string) => void = () => {}) {
     this.store = store;
     this.log = log;
@@ -246,6 +254,7 @@ export class GalaxyCrawler {
       if (!next) break;
       did = true;
       try {
+        await this.throttle?.();
         const res = await fetch(new URL(`${API_BASE}/systems/${next.systemSymbol}/waypoints/${next.gateSymbol}/construction`));
         if (res.status === 429) {
           rateLimitMonitor.record("crawler (no token)", rateLimitHeaders(res.headers));
@@ -298,6 +307,7 @@ export class GalaxyCrawler {
   private async fetchPublic<T>(path: string, query?: Record<string, string | number>): Promise<T> {
     const url = new URL(API_BASE + path);
     for (const [k, v] of Object.entries(query ?? {})) url.searchParams.set(k, String(v));
+    await this.throttle?.();
     const res = await fetch(url);
     if (res.status === 429) rateLimitMonitor.record("crawler (no token)", rateLimitHeaders(res.headers));
     const json = (await res.json().catch(() => ({}))) as { data?: unknown; error?: { message?: string } };

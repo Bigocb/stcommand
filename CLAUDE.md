@@ -319,9 +319,9 @@ each behind a doctrine clause that ships off: the co-pilot router (`jevRouter`, 
 - **No model means carry on.** `getJudge()` is undefined without a key; every caller treats that, a failure, or a timeout as
   "behave exactly as before".
 
-## The rate limit: account, not (only) IP
+## The rate limit: per source IP (measured)
 
-SpaceTraders' dashboard (2026-11-02): agents registered on one account "share a rate limit that is applied to your account". Earlier notes in this repo said per source IP; that was never tested. THEO and THEOREM are on one account and share one limiter (1.5 req/s, about 90 a minute). `GET /api/rate-limit` and ops `api_budget` now show, per source (agent symbol or "crawler (no token)"), the 429 count and the response's rate-limit headers, which say what limit was hit. The crawler and reset watcher call the public API without a token, outside our limiter; whether those calls share the account's bucket is not known, so they have not been routed through it. A second-account test (run a burst from account B's agent while watching account A's 429s) settles IP versus account.
+**Measured 2026-11-02:** the limit is per source IP address. A probe on a second account (same IP) sent 120 requests in 20 s and got 68 429s with `x-ratelimit-type: IP Address`, `x-ratelimit-limit-per-second: 2`, `x-ratelimit-limit-burst: 30`, `retry-after: 1`; the live fleet on the other account got 429s during the burst (THEO 0 to 9, THEOREM 0 to 8, crawler 1 to 4). SpaceTraders' dashboard also says an account's agents share a limit, so both hold: the IP is the binding one, and a second account on the same IP gets no extra budget. Only a different source IP (per-tenant `PROXY_URL_*`) does. THEO and THEOREM share one limiter in this process (1.5 req/s, about 90 a minute, a safe margin under the game's 2 req/s). The galaxy crawler's tokenless public calls count against the same IP budget, so they go through that limiter at background priority. `GET /api/rate-limit` and ops `api_budget` show the 429 count per source and the latest 429's rate-limit headers.
 
 ## Player-facing guidance vs. engineering notes
 

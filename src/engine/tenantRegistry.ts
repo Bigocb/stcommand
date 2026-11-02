@@ -101,9 +101,9 @@ export class TenantRegistry {
   private readonly lastBootFailure = new Map<string, { at: number; error: Error }>();
   /**
    * One token bucket for every tenant's Client this process ever builds.
-   * SpaceTraders applies its rate limit per account (its dashboard: agents
-   * on one account share it; this comment used to say per IP, untested), not per agent
-   * token — a multi-tenant process serving N tenants on one account is really N
+   * SpaceTraders enforces its rate limit per IP address (measured 2026-11-02:
+   * 2 req/s, burst 30, x-ratelimit-type "IP Address"), not per agent
+   * token or account — a multi-tenant process serving N tenants from one IP is really N
    * Clients sharing one real ceiling. Each Client self-throttling to 1.5
    * req/s independently (the default when no `sharedLimiter` is given — see
    * client.ts's `ClientOptions` doc comment) only holds that ceiling for a
@@ -126,6 +126,11 @@ export class TenantRegistry {
   // requests into a single API-rate window after any idle spell. See the
   // matching comment in src/core/client.ts for why this matters.
   private readonly apiLimiter = new RateLimiter(1.5, Math.ceil(1.5));
+
+  /** The process-wide token bucket every tenant draws from (also used by the galaxy crawler's tokenless calls, which share the IP's budget). */
+  sharedLimiter(): RateLimiter {
+    return this.apiLimiter;
+  }
 
   /** Log the shared bucket's demand and wait every few minutes, so "is the second tenant too much" has numbers. */
   private logLimiterStats(): void {

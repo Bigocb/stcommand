@@ -1,3 +1,4 @@
+import { API_PRIORITY } from "../core/client.js";
 import "dotenv/config";
 import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID } from "../core/rateLimitMonitor.js";
@@ -107,6 +108,8 @@ async function main(): Promise<void> {
   // and doesn't compete with any tenant's rate limiter. Deliberately slow
   // (one call per tick) rather than racing to finish.
   const galaxyCrawler = new GalaxyCrawler(new Store(pool), (msg) => logGlobal(msg));
+  // Its calls carry no token but count against the same IP budget as the fleet: draw from the shared limiter, last in line.
+  galaxyCrawler.setThrottle(() => registry.sharedLimiter().acquire(API_PRIORITY.BACKGROUND, "galaxy crawler", "public", "GalaxyCrawler"));
   const galaxyCrawlInterval = setInterval(() => {
     galaxyCrawler.tick().catch((err) => log(`galaxy crawl tick failed: ${err instanceof Error ? err.message : String(err)}`));
   }, 5_000);
