@@ -463,7 +463,7 @@ function hourlyTableHtml(rows, count) {
 }
 function renderHomeHourly() {
   const el = $("home-hourly");
-  if (el) setHtml(el, hourlyTableHtml(statusExtras.hourly, 4));
+  if (el) setHtml(el, hourlyTableHtml(statusExtras.hourly, 3));
 }
 function renderChecks() {
   const el = $("home-checks");
