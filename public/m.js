@@ -417,7 +417,7 @@ function renderTiles() {
 
   // Now › Status (redesign B): two headline figures, then the hourly table and the checks (renderStatusExtras).
   setHtml($("home-tiles"), `
-    <div class="tile"><div class="k">Profit per hour</div><div class="v hero ${rate >= 0 ? "green" : "red"}">${signed(rate)}<span class="sub"> /hr${trend}</span></div>${pace ? `<div class="sub">3h average ${signed(pace.perHour3h)} · net trading</div>${paceSparkline(pace.series)}` : ""}</div>
+    <div class="tile"><div class="k">Profit per hour</div><div class="v hero ${rate >= 0 ? "" : "red"}">${signed(rate)}<span class="sub"> /hr${trend}</span></div>${pace ? `<div class="sub">3h average ${signed(pace.perHour3h)} · net trading</div>${paceSparkline(pace.series)}` : ""}</div>
     <div class="tile"><div class="k">Credits + holds</div><div class="v hero">${fmt(wph.total)}${wph.partial ? "+" : ""}</div>
       ${wp && wp.perHour1h !== null ? `<div class="sub" title="Change in credits plus the estimated value of every hold, per hour, with ship purchases added back. Counts cargo at what it should fetch, so it includes profit not yet sold.">Worth ${signed(wp.perHour1h)}/hr${wp.perHour3h !== null ? ` · 3h ${signed(wp.perHour3h)}` : ""}</div>` : ""}
       <div class="pair"><div><div class="pk">Credits</div><div class="pv" title="${escapeAttr(fmt(state?.agent?.credits ?? bridge.credits ?? 0))}">${short(state?.agent?.credits ?? bridge.credits ?? 0).replace("+", "")}</div></div><div><div class="pk">Holds</div><div class="pv" title="${escapeAttr(fmt(wph.holds))}">~${short(wph.holds).replace("+", "")}</div></div></div>

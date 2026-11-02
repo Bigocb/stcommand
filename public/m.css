@@ -1071,3 +1071,5 @@ input, select, textarea { font-size: 16px; }
 #subnav { display: flex !important; overflow-x: auto; flex-wrap: nowrap; gap: 6px; padding: 10px 16px !important; scrollbar-width: none; }
 #subnav::-webkit-scrollbar { display: none; }
 #subnav button { flex: 1 0 auto; white-space: nowrap; text-align: center; }
+/* Front page: section headers get room above and below, so they do not crowd the boxes. */
+.home-scroll .sec-h { margin-top: 24px; margin-bottom: 8px; }
