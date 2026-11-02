@@ -1028,8 +1028,6 @@ input, select, textarea { font-size: 16px; }
 .ship-filter { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
 .ship-filter button { min-height: calc(52px / var(--tower-scale)); background: transparent; color: var(--bone); border: 2px solid var(--hair-hi); border-radius: 8px; font-family: var(--chrome); font-weight: 700; font-size: 18px; }
 .ship-filter button.on { background: var(--amber); border-color: var(--amber); color: var(--on-accent); }
-.ship-search { width: 100%; min-height: calc(52px / var(--tower-scale)); margin-bottom: 10px; padding: 0 14px; background: var(--panel); color: var(--bone); border: 2px solid var(--hair-hi); border-radius: 8px; font-family: var(--mono); font-size: 18px; }
-.ship-search::placeholder { color: var(--dim); }
 .roster-hd { font-size: 16px; color: var(--bone); }
 .tile .pair .pv { font-size: 24px; }
 @media (max-width: 360px) { .hr-t th { font-size: 15px; letter-spacing: 0; padding: 6px 2px; } .hr-t td { font-size: 16px; padding: 10px 2px; } }

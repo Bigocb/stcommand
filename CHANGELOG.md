@@ -6,6 +6,10 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-02 — Tower: removed the ship search box
+
+Operator request. The Ships roster on Tower no longer has the "Find a ship, role or system" box above the list. The four filters (All, Trouble, Moving, Docked) stay and now alone decide what the roster shows; the empty-list message reads "No ships in this filter." Removed the input from `public/m.html`, its listener and the match test from `renderRoster()` in `public/m.js`, and the two `.ship-search` rules from `public/m.css`.
+
 ## 2026-11-02 — Spaced routes on Deck and Tower, and over HTTP
 
 The per-route spacing rules could only be set through the MCP tool, which the operator's session did not have yet. Same function, three more doors: `GET /api/route-spacing` (the rules, and the routes the automatic trigger holds now with the drift that triggered each) and `POST /api/route-spacing { action: "add" | "remove", good, buyAt?, gapMin?, reason? }` (recorded as an operator action, `set_route_spacing`), a shared screen `public/shared/spacedRoutes.js` (same shape as the blocked-goods one: a form, the rule list with Remove, the auto-held list, and a line saying whether the `buyMarketSpacingMin` switch is on), mounted in Deck (Settings > Doctrine, a panel under Blocked goods) and Tower (More > Rules > Spaced routes). The rules go through `FleetManager.spaceRoute()`/`unspaceRoute()` as the MCP tool does, so all three stay in step.

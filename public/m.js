@@ -914,21 +914,17 @@ $("ship-filter")?.addEventListener("click", (e) => {
   shipFilter = b.dataset.sf;
   renderRoster();
 });
-$("ship-search")?.addEventListener("input", () => renderRoster());
-
 function renderRoster() {
   const rows = fleetRows();
-  const needle = ($("ship-search")?.value ?? "").trim().toUpperCase();
-  const matches = (r) => !needle || [r.symbol, r.role, r.job, r.waypoint].some((x) => String(x ?? "").toUpperCase().includes(needle));
   const counts = Object.fromEntries(Object.entries(SHIP_FILTERS).map(([k, f]) => [k, rows.filter(f).length]));
   document.querySelectorAll("#ship-filter button[data-sf]").forEach((b) => {
     b.classList.toggle("on", b.dataset.sf === shipFilter);
     b.textContent = `${b.dataset.sf[0].toUpperCase()}${b.dataset.sf.slice(1)} ${counts[b.dataset.sf] ?? 0}`;
   });
-  const shown = rows.map((r, i) => ({ r, i })).filter(({ r }) => SHIP_FILTERS[shipFilter](r) && matches(r));
+  const shown = rows.map((r, i) => ({ r, i })).filter(({ r }) => SHIP_FILTERS[shipFilter](r));
   $("roster-hd").textContent = `${shown.length} of ${rows.length} hull${rows.length === 1 ? "" : "s"}`;
   if (!rows.length) { setHtml($("roster-scroll"), '<div class="empty">No ships in the register.</div>'); return; }
-  if (!shown.length) { setHtml($("roster-scroll"), '<div class="empty">No ship matches.</div>'); return; }
+  if (!shown.length) { setHtml($("roster-scroll"), '<div class="empty">No ships in this filter.</div>'); return; }
   const collapsed = loadCollapsed();
   const groups = new Map();
   shown.forEach(({ r, i }) => {
