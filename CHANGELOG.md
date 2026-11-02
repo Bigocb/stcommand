@@ -6,6 +6,12 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-02 — Dispatcher no longer hands out goods the gate or a contract has reserved
+
+The dispatcher kept assigning the ADVANCED_CIRCUITRY route (about 91k a trip) to free traders, and each trader refused it as a "protected good", so the pick was wasted every cycle. `computeDispatchRoutes(true)`, the dispatcher's own pass, now drops legs in a mission- or contract-reserved good (the same set the traders refuse, `protectedGoodList()`, so a contract good already covered by held cargo still runs) and counts them under "a good reserved for the gate mission or a contract". The Routes board still calls `computeDispatchRoutes()` without the flag, so it lists those routes marked as protected. Mission and contract buying use their own target lists and are unaffected.
+
+Same day, on THEO's FAB_MATS inputs (operator-approved): the IRON feed's `maxLossPerUnit` went from 100 to 200 (H53 iron 330 against F51 166 stalled it), and a second light shuttle (THEO-1F, 107,640) joined the IRON_ORE feed as a second carrier.
+
 ## 2026-11-02 — Yield mode: look in a loaded carrier's hold once a minute, not every tick
 
 With two carriers on THEO's gate mission both loaded with FAB_MATS, yield mode checked each hold on every 2 s mission step: `api_budget` showed 44 `cargo <- MissionManager.yieldCarrier` calls in 5 minutes (9 a minute of the 90). A carrier holding mission cargo is never released, so the answer does not change minute to minute; `yieldCarrier()` now re-checks a given carrier's hold at most once a minute. Test in `tests/missionYieldMode.test.ts` (yield mode adds at most one hold read per 20 s over the mode off).

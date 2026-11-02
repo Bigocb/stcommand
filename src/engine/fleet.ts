@@ -2274,7 +2274,11 @@ export class FleetManager {
     return stats;
   }
 
-  async computeDispatchRoutes(): Promise<DispatchRoute[]> {
+  /**
+   * `dropProtected` is for the dispatcher's own pass: the Routes board lists a protected good (marked as such) so the
+   * operator sees what the gate is keeping out of trading, so it does not set it.
+   */
+  async computeDispatchRoutes(dropProtected = false): Promise<DispatchRoute[]> {
     this.tripCostMemo.clear();
     this.hopsMemo.clear();
     const positions = new Map<string, { x: number; y: number }>();
@@ -2313,6 +2317,7 @@ export class FleetManager {
     const reach = this.galaxy.gateNetwork(netStarts);
     const network = reach.size >= 5 ? reach : undefined;
     const blocked = blockedSet(await this.blockedGoodsEntries());
+    const protectedNow = new Set(dropProtected ? this.protectedGoodList() : []);
     const legs = storedLegs
       .filter((l) => {
         if (!blocked.has(l.goodSymbol)) return true;
@@ -2342,6 +2347,14 @@ export class FleetManager {
       .filter((l) => {
         if (!chain.goods.has(l.goodSymbol) || (chain.sinks.get(l.goodSymbol)?.has(l.sellAt) ?? false)) return true;
         drop("the gate's supply chain (kept for construction, not margin trading)", l.goodSymbol, l.buyAt, l.sellAt);
+        return false;
+      })
+      // A good reserved for the gate mission or an open contract is refused by every trader ("protected good"), so offering it
+      // only wasted cycles: 2026-11-02 the 91k/trip ADVANCED_CIRCUITRY route was handed out and rejected again and again.
+      // Mission and contract buying does not use this list (computeMissionBuyTargets / contractBuyTargets).
+      .filter((l) => {
+        if (!protectedNow.has(l.goodSymbol)) return true;
+        drop("a good reserved for the gate mission or a contract (traders refuse it)", l.goodSymbol, l.buyAt, l.sellAt);
         return false;
       });
     // A single purchaseCargo() call is capped at the market's own advertised
@@ -10729,7 +10742,7 @@ export class FleetManager {
         this.log(`reset wind-down ${winding.active ? "started" : "ended"}: ${winding.reason}`);
         this.lastWindDownActive = winding.active;
       }
-      const routes = winding.active ? [] as DispatchRoute[] : await this.timed("computeDispatchRoutes", () => this.computeDispatchRoutes());
+      const routes = winding.active ? [] as DispatchRoute[] : await this.timed("computeDispatchRoutes", () => this.computeDispatchRoutes(true));
       // Kept for the opening runner's `routeProfitAtLeast` trigger: the
       // dispatcher already computed them this tick, so reading them back costs
       // nothing (recomputing would double the pass).
