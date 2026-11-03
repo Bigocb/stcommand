@@ -60,7 +60,11 @@ export function mountQueue(root, { api, approvalCount, layout = "tables" }) {
       ${v.attention.length ? `<div class="qq-card qq-warn-card"><div class="qq-q">Needs attention</div>${v.attention.map((a) => `<div class="qq-a">${h(a.item)}: ${h(a.detail)}</div>`).join("")}</div>` : ""}
       <div class="qq-card"><div class="qq-q">Next to open</div>
         ${next ? `<div class="qq-big">${h(next.system)}</div><div class="qq-a">${next.inPlace} of ${next.of} keepers in place · staged ${h(next.since)}${next.held ? " · held" : ""}</div>` : `<div class="qq-a">Nothing staged right now.</div>`}
+        ${next && !next.held ? `<button class="qq-link qq-release" data-release="${h(next.system)}">Release now</button>` : ""}
         ${v.rule ? `<div class="qq-a qq-rule-a">Release rule: ${h(v.rule)}</div>` : ""}
+      </div>
+      <div class="qq-card"><div class="qq-q">Staged — release by hand</div>
+        ${v.staged.length ? v.staged.map((s) => `<div class="qq-a">${h(s.system)} · ${s.inPlace} of ${s.of} keepers <button class="qq-link qq-release" data-release="${h(s.system)}">Release now</button></div>`).join("") : `<div class="qq-a">None staged.</div>`}
       </div>
       <div class="qq-card"><div class="qq-q">Systems in each state</div>
         <div class="qq-counts"><div><b>${v.counts.live}</b><span>live</span></div><div><b>${v.counts.staged}</b><span>staged</span></div><div><b>${v.counts.scouted}</b><span>scouted</span></div></div>
