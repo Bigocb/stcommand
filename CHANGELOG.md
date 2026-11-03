@@ -6,6 +6,14 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-03 — A list of uncharted waypoints, systems we are in first (ops `uncharted_waypoints`)
+
+The leaders chart 10,000 to 15,000 waypoints a week (the leaderboard's second list), and charting pays a one-time credit reward to the first agent that does it, but nothing of ours knew which waypoints were still uncharted: the galaxy crawler stores only symbol, type and coordinates from the public system list, which has no traits. The public `GET /systems/{system}/waypoints` shows a waypoint nobody has charted with the single trait UNCHARTED, with no token needed. Spot check on 2026-11-03: X1-BG56 (93 waypoints) and X1-SR93 (96) had none, and neither does the home system, so most nearby waypoints are probably already taken.
+- **`src/engine/chartCheck.ts`** (pure): `systemsToRead` orders the systems to read (the ones we are in first; never-read before stale; a system with nothing uncharted is never read again, one with some is read again after an hour, since charting is one-way and another agent may take them), `parseWaypointPage`, `summarizeUncharted`. Tests: `tests/chartCheck.test.ts` (10).
+- **Crawler pass** (`GalaxyCrawler.crawlWaypointCharts`, migration 066 `waypoint_charts`, wiped at the weekly reset with the other shared galaxy tables): two waypoint-list pages a tick, tokenless, through the shared limiter at background priority and only on spare capacity like the rest of the crawl; a 429 pauses it a minute. It reads only the systems in `Store.systemsOfInterest()` (priced markets = tier 0, markets or yards surveyed remotely = tier 1), not the galaxy: the aim is charting work near our ships.
+- **Ops tool `uncharted_waypoints`** (`stcommand_ops_uncharted_waypoints`): per system how many waypoints are uncharted and which, how long ago they were read, and how many systems of interest have been read. Not tested against a database here (the test role is not configured in this checkout); the pure parts are.
+- Takes effect after a redeploy; the first list appears over the next few minutes. Next: chart a waypoint with the fastest ship and read the reward off the balance (see TODO).
+
 ## 2026-11-03 — Compare shows the gate opening as its own line, and the gap to the first job
 
 The week compare charts marked one thing per week: the first gate jump. Operators asked for the gate opening too, so the distance from opening to the first job can be read. Each week now has a second dashed marker where its `gate_open` milestone was recorded (the first tick that sees the home gate finished, measured from the first trade like the other hours). The solid marker stays on the first gate jump.

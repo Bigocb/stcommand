@@ -1937,6 +1937,62 @@ export class Store {
     return withPool(this.pool, async (c) => new Set((await c.query<{ system_symbol: string }>(`SELECT DISTINCT system_symbol FROM market_directory`)).rows.map((r) => r.system_symbol)));
   }
 
+  /**
+   * The systems the chart crawl reads, with a tier: 0 = we have priced markets there (a ship or keeper has been), 1 = surveyed from
+   * afar (market or yard lists read remotely). Lowest tier first, then by name.
+   */
+  async systemsOfInterest(): Promise<{ system: string; tier: number }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ system_symbol: string; tier: number }>(
+        `SELECT system_symbol, min(tier)::int AS tier FROM (
+           SELECT DISTINCT system_symbol, 0 AS tier FROM market_latest
+           UNION ALL SELECT DISTINCT system_symbol, 1 FROM market_directory
+           UNION ALL SELECT DISTINCT system_symbol, 1 FROM shipyard_directory
+         ) t GROUP BY system_symbol ORDER BY min(tier), system_symbol`,
+      );
+      return res.rows.map((r) => ({ system: r.system_symbol, tier: r.tier }));
+    });
+  }
+
+  /** Record one system's waypoints with whether each is still uncharted. Idempotent: a re-read replaces the rows' state and time. */
+  async recordWaypointCharts(systemSymbol: string, rows: readonly { symbol: string; type: string; uncharted: boolean }[]): Promise<void> {
+    if (rows.length === 0) return;
+    await withPool(this.pool, (c) =>
+      c.query(
+        `INSERT INTO waypoint_charts (waypoint_symbol, system_symbol, waypoint_type, uncharted, checked_at)
+         SELECT s, $1, t, u, now() FROM unnest($2::text[], $3::text[], $4::boolean[]) AS x(s, t, u)
+         ON CONFLICT (waypoint_symbol) DO UPDATE SET waypoint_type = excluded.waypoint_type, uncharted = excluded.uncharted, checked_at = now()`,
+        [systemSymbol, rows.map((r) => r.symbol), rows.map((r) => r.type), rows.map((r) => r.uncharted)],
+      ),
+    );
+  }
+
+  /** Per system the chart crawl has read: how many waypoints were last seen uncharted and when it was read. */
+  async systemChartStates(): Promise<Map<string, { uncharted: number; checkedAtMs: number }>> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ system_symbol: string; uncharted: string; checked_at: Date }>(
+        `SELECT system_symbol, count(*) FILTER (WHERE uncharted) AS uncharted, max(checked_at) AS checked_at FROM waypoint_charts GROUP BY system_symbol`,
+      );
+      return new Map(res.rows.map((r) => [r.system_symbol, { uncharted: Number(r.uncharted), checkedAtMs: r.checked_at.getTime() }]));
+    });
+  }
+
+  /** Every waypoint last seen uncharted, optionally for one system. */
+  async unchartedWaypoints(systemSymbol?: string): Promise<{ waypointSymbol: string; systemSymbol: string; type: string; checkedAt: string }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ waypoint_symbol: string; system_symbol: string; waypoint_type: string; checked_at: Date }>(
+        `SELECT waypoint_symbol, system_symbol, waypoint_type, checked_at FROM waypoint_charts WHERE uncharted ${systemSymbol ? "AND system_symbol = $1" : ""} ORDER BY system_symbol, waypoint_symbol`,
+        systemSymbol ? [systemSymbol] : [],
+      );
+      return res.rows.map((r) => ({ waypointSymbol: r.waypoint_symbol, systemSymbol: r.system_symbol, type: r.waypoint_type, checkedAt: r.checked_at.toISOString() }));
+    });
+  }
+
+  /** How many systems the chart crawl has read. */
+  async countChartedSystems(): Promise<number> {
+    return withPool(this.pool, async (c) => Number((await c.query<{ n: string }>(`SELECT count(DISTINCT system_symbol) AS n FROM waypoint_charts`)).rows[0]!.n));
+  }
+
   /** The saved goods lists, optionally for one system, newest read first. */
   async marketDirectory(systemSymbol?: string): Promise<{ waypointSymbol: string; systemSymbol: string; imports: string[]; exports: string[]; exchange: string[]; updatedAt: string }[]> {
     return withPool(this.pool, async (c) => {
@@ -4319,7 +4375,7 @@ export class Store {
   private static readonly SHARED_GALAXY_TABLES = [
     "galaxy_systems", "galaxy_factions", "galaxy_crawl_state",
     "market_snapshots", "market_latest", "shipyard_inventory", "module_catalog",
-    "galaxy_jump_costs", "galaxy_gate_construction", "agent_credit_snapshots", "market_transactions", "field_surveys", "market_directory", "shipyard_directory",
+    "galaxy_jump_costs", "galaxy_gate_construction", "agent_credit_snapshots", "market_transactions", "field_surveys", "market_directory", "shipyard_directory", "waypoint_charts",
   ];
 
   /** Wipes every shared galaxy-fact table — see SHARED_GALAXY_TABLES's own
