@@ -8,6 +8,7 @@ import { rivalActivity } from "../engine/rivalActivity.js";
 import { marketSpread } from "../engine/marketSpread.js";
 import { tradeTempo } from "../engine/tradeTempo.js";
 import { chartRewardReport } from "../engine/chartReward.js";
+import { summarizeUncharted } from "../engine/chartCheck.js";
 import { DEFAULT_CANDIDATE_POLICY } from "../engine/systems/candidates.js";
 import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
@@ -632,6 +633,18 @@ export const OPS_TOOLS: OpsTool[] = [
       const sinceIso = new Date(ctx.now() - Math.min(Math.max(a.sinceHours, 1), 336) * 3_600_000).toISOString();
       const [charts, track] = await Promise.all([ctx.w.store.chartActivity(ctx.w.tenantId, sinceIso), ctx.w.store.ledgerWalletTrack(ctx.w.tenantId, sinceIso)]);
       return { sinceIso, ledgerRows: track.length, ...chartRewardReport(track, charts) };
+    },
+  },
+
+  {
+    name: "uncharted_waypoints",
+    title: "Uncharted waypoints, systems we are in first",
+    description: "Waypoints the game's public list still shows as uncharted (the single trait UNCHARTED), read by the galaxy crawler for the systems we have a stake in: tier 0 = we have priced markets there, tier 1 = surveyed from afar. Charting pays a one-time reward to the first agent, so each row says how long ago it was read (a waypoint may have been charted since). Per system: how many are uncharted and which waypoints. Also how many systems of interest have been read so far. Filter with system. Read-only.",
+    input: { system: z.string().optional(), limit: num(20) },
+    async run(ctx, a) {
+      const [rows, interest, read] = await Promise.all([ctx.w.store.unchartedWaypoints(a.system), ctx.w.store.systemsOfInterest(), ctx.w.store.countChartedSystems()]);
+      const systems = summarizeUncharted(rows, new Map(interest.map((i) => [i.system, i.tier])), ctx.now());
+      return { systemsOfInterest: interest.length, systemsRead: read, systemsWithUncharted: systems.length, unchartedWaypoints: rows.length, list: systems.slice(0, Math.min(Math.max(a.limit, 1), 100)) };
     },
   },
 

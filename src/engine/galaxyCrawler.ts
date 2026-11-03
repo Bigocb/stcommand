@@ -1,6 +1,7 @@
 import { API_BASE } from "../core/client.js";
 import type { Store } from "../db/store.js";
 import { gatesToCheck, type GateRef, type KnownGate } from "./gateCheckQueue.js";
+import { parseWaypointPage, systemsToRead, type WaypointChartRow } from "./chartCheck.js";
 import { rateLimitMonitor, rateLimitHeaders } from "../core/rateLimitMonitor.js";
 
 /**
@@ -85,6 +86,11 @@ const CONSTRUCTION_CALLS_PER_TICK = 4;
 const CONSTRUCTION_BACKOFF_MS = 60_000;
 /** How long a finished queue waits before it is rebuilt, which re-reads only the gates still unfinished. */
 const CONSTRUCTION_REBUILD_MS = 60 * 60_000;
+/** Waypoint-list pages read per crawl tick for the chart pass (20 waypoints a page, a system is 1 to 6 pages). */
+const CHART_PAGES_PER_TICK = 2;
+const CHART_BACKOFF_MS = 60_000;
+/** How long a drained chart queue waits before it is rebuilt, which re-reads only systems that still had uncharted waypoints. */
+const CHART_REBUILD_MS = 10 * 60_000;
 
 export class GalaxyCrawler {
   private readonly store: Store;
@@ -110,6 +116,13 @@ export class GalaxyCrawler {
   /** What each read of this pass came to: `recorded`, `status_404`, `malformed`, `error`... so a pass that records nothing can be explained. */
   private constructionOutcomes: Record<string, number> = {};
   private noteOutcome(key: string): void { this.constructionOutcomes[key] = (this.constructionOutcomes[key] ?? 0) + 1; }
+
+  /** Chart pass (see crawlWaypointCharts): systems still to read, the one being read, and when to rebuild or resume after a rate limit. */
+  private chartQueue: string[] = [];
+  private chartBuiltAt = 0;
+  private chartBackoffUntil = 0;
+  private chartReading: { system: string; page: number; total: number; rows: WaypointChartRow[] } | undefined;
+  private chartSystemsRead = 0;
 
   /** Completed agent directory, keyed by system symbol (derived from each
    *  agent's headquarters waypoint). Swapped in atomically once a full pass
@@ -201,6 +214,9 @@ export class GalaxyCrawler {
     this.lastAgentsCrawlAt = 0;
     this.agentsCrawlPage = 1;
     this.agentsCrawlAccumulator = [];
+    this.chartQueue = [];
+    this.chartBuiltAt = 0;
+    this.chartReading = undefined;
     this.activity.length = 0;
     // Drop the persisted systems-scan cursor too. The flags above are
     // in-memory; the systems pass otherwise resumes from whatever page
@@ -235,6 +251,7 @@ export class GalaxyCrawler {
     }
     // Construction status first: a few thousand gates, finished in about an hour, then hourly for the unfinished ones.
     if (await this.crawlGateConstruction()) return;
+    if (await this.crawlWaypointCharts()) return;
     await this.crawlOneGate();
   }
 
@@ -287,6 +304,64 @@ export class GalaxyCrawler {
       this.recordActivity(`Gate construction pass finished: ${this.constructionChecked} gates read (${outcomes || "none"})`);
     }
     return did;
+  }
+
+  /**
+   * Which waypoints are still uncharted, read from the public waypoint list (no token, no tenant) into the shared waypoint_charts
+   * table. Only the systems we have a stake in are read (priced markets, or surveyed from afar), the ones we are in first
+   * (Store.systemsOfInterest): the point is to find charting work near our ships, not to map the galaxy. A system with nothing
+   * uncharted is never read again; one with some is re-read hourly. Two pages a tick, on spare capacity only (the tick already
+   * waits while the fleet is busy). Returns true when it did work, so the connection sweep waits its turn.
+   */
+  private async crawlWaypointCharts(): Promise<boolean> {
+    const now = Date.now();
+    if (now < this.chartBackoffUntil) return false;
+    if (!this.chartReading) {
+      if (this.chartQueue.length === 0) {
+        if (this.chartBuiltAt !== 0 && now - this.chartBuiltAt < CHART_REBUILD_MS) return false;
+        this.chartBuiltAt = now;
+        const [interest, known] = await Promise.all([this.store.systemsOfInterest(), this.store.systemChartStates()]);
+        const order = interest.map((i) => i.system);
+        this.chartQueue = systemsToRead(order, order, known, now);
+        this.chartSystemsRead = 0;
+        if (this.chartQueue.length === 0) return false;
+        this.log(`chart crawl: ${this.chartQueue.length} of ${order.length} systems to read`);
+      }
+      const system = this.chartQueue.shift()!;
+      this.chartReading = { system, page: 1, total: 0, rows: [] };
+    }
+    const cur = this.chartReading!;
+    for (let i = 0; i < CHART_PAGES_PER_TICK; i++) {
+      try {
+        await this.throttle?.();
+        const res = await fetch(new URL(`${API_BASE}/systems/${cur.system}/waypoints?limit=20&page=${cur.page}`));
+        if (res.status === 429) {
+          rateLimitMonitor.record("crawler (no token)", rateLimitHeaders(res.headers));
+          this.chartBackoffUntil = Date.now() + CHART_BACKOFF_MS;
+          this.log("chart crawl: rate limited, pausing a minute");
+          return true;
+        }
+        if (!res.ok) { this.log(`chart crawl: ${cur.system} page ${cur.page} answered ${res.status}, skipped`); this.chartReading = undefined; return true; }
+        const page = parseWaypointPage(await res.json().catch(() => undefined));
+        if (!page || page.rows.length === 0) { this.chartReading = undefined; return true; }
+        cur.rows.push(...page.rows);
+        cur.total = page.total;
+        if (cur.rows.length >= cur.total) {
+          await this.store.recordWaypointCharts(cur.system, cur.rows);
+          this.chartSystemsRead += 1;
+          const n = cur.rows.filter((r) => r.uncharted).length;
+          if (n > 0) this.recordActivity(`${cur.system}: ${n} of ${cur.rows.length} waypoints uncharted`);
+          this.chartReading = undefined;
+          return true;
+        }
+        cur.page += 1;
+      } catch (err) {
+        this.log(`chart crawl: ${cur.system} failed: ${err instanceof Error ? err.message : String(err)}`);
+        this.chartReading = undefined;
+        return true;
+      }
+    }
+    return true;
   }
 
   private async buildConstructionQueue(now: number): Promise<void> {
