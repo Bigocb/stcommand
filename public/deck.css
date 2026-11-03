@@ -493,6 +493,10 @@ td.cp.down { color: var(--bad, #e5675d); }
 .ex-tag.ex-dim{color:var(--dim2);background:transparent}
 .ex-visit{display:inline-block;margin:0 10px 2px 0;white-space:nowrap}
 #view-systems{overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--hair-hi) transparent}
+/* Compare and Queue are long pages too: .content clips, so they scroll on their own (same rule as Metrics above). */
+#view-compare,#view-queue{overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--hair-hi) transparent}
+#view-compare > .mx,#view-queue > .mx{flex:0 0 auto}
+#view-compare .panel,#view-queue .panel{flex:0 0 auto}
 #view-systems > .mx{flex:0 0 auto}
 #view-systems .panel{flex:0 0 auto}
 #view-systems .panel-b{overflow:visible}
