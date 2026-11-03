@@ -96,7 +96,7 @@ export function mountQueue(root, { api, approvalCount, layout = "tables" }) {
       <div class="qq-sub">Needs attention</div>
       ${v.attention.length ? table(["Item", "Detail"], v.attention.map((a) => tr([h(a.item), h(a.detail)])).join("")) : `<div class="qq-ok">nothing</div>`}
       <div class="qq-sub">Staged — keepers in place, gate shut</div>
-      ${table(["System", "Keepers", "For"], v.staged.map((s) => tr([h(s.system) + (s.held ? " 🔒" : ""), `${s.inPlace} of ${s.of}`, h(s.since)])).join(""))}
+      ${table(["System", "Keepers", "For", ""], v.staged.map((s) => tr([h(s.system) + (s.held ? " 🔒" : ""), `${s.inPlace} of ${s.of}`, h(s.since), `<button class="qq-link" data-release="${h(s.system)}">Release now</button>`])).join(""))}
       <div class="qq-sub">Live — released</div>
       ${table(["System", "Open for", "Premium", "Sells"], v.live.map((s) => tr([h(s.system) + (s.held ? " 🔒" : ""), h(s.age), s.ratio ? `${Number(s.ratio).toFixed(2)}×` : "—", String(s.sells)])).join(""))}
       <div class="qq-sub">Keepers</div>
@@ -110,7 +110,17 @@ export function mountQueue(root, { api, approvalCount, layout = "tables" }) {
       ${v.scouted.length > 12 ? `<div class="qq-line">and ${v.scouted.length - 12} more</div>` : ""}`;
   }
 
-  root.addEventListener("click", (e) => { if (e.target.closest?.("[data-q=refresh]")) load(); });
+  root.addEventListener("click", async (e) => {
+    if (e.target.closest?.("[data-q=refresh]")) return load();
+    const b = e.target.closest?.("[data-release]");
+    if (!b) return;
+    const system = b.dataset.release;
+    if (!window.confirm(`Release ${system} now? Its gate opens for traders whatever the keeper and cash tests say.`)) return;
+    b.disabled = true;
+    try { await api("POST", "/api/fresh/release", { system }); error = ""; }
+    catch (err) { error = err.message || String(err); }
+    load();
+  });
 
   return {
     show() { render(); if (Date.now() - loadedAt > 20_000) load(); clearInterval(timer); timer = setInterval(load, 120_000); },

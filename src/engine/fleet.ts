@@ -5737,6 +5737,12 @@ export class FleetManager {
   }
 
   /** Open a system's gate: unpark its staged keepers and let traders have its routes. The freshness clock starts here. */
+  /** The queue entry for a system (state, markets, hold), or undefined when it is not queued. For the operator controls. */
+  systemQueueEntry(system: string): { system: string; state: string; held: boolean } | undefined {
+    const q = this.systemQueue.get(system);
+    return q ? { system: q.system, state: q.state, held: !!q.held } : undefined;
+  }
+
   async releaseSystem(system: string, why = "operator"): Promise<{ system: string; unparked: string[]; markets: string[] }> {
     const q = this.systemQueue.get(system);
     if (!q) throw new Error(`${system} is not in the queue`);

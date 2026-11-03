@@ -1170,6 +1170,24 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  // Operator override on a staged system in the queue: open its gate now, whatever the keeper and cash tests say. Staged only:
+  // a scouted system is not released this way (it must be staged first, so its keepers are bought and parked).
+  router.post("/fresh/release", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const system = typeof req.body?.system === "string" ? req.body.system : "";
+    const q = system ? w.fleet.systemQueueEntry(system) : undefined;
+    if (!q) return res.status(404).json({ error: `${system || "system"} is not in the queue` });
+    if (q.state !== "staged") return res.status(409).json({ error: `${system} is ${q.state}; only a staged system can be released here` });
+    try {
+      const r = await w.fleet.releaseSystem(system, "operator override");
+      await w.store.recordOperatorAction(w.tenantId, "release_system", system, `${system} released by operator override`, { unparked: r.unparked.length });
+      res.json({ ok: true, system, unparked: r.unparked.length });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.post("/warehouse/release", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
