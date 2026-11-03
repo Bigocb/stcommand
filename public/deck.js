@@ -29,6 +29,7 @@ import { mountWeeks } from "/shared/weeks.js";
 import { mountCompare } from "/shared/compare.js";
 import { mountSystems } from "/shared/systems.js";
 import { mountExplorers } from "/shared/explorers.js";
+import { mountQueue } from "/shared/queue.js";
 import { mountBlockedGoods } from "/shared/blockedGoods.js";
 import { mountSpacedRoutes } from "/shared/spacedRoutes.js";
 import { mountMiningFields } from "/shared/miningFields.js";
@@ -87,6 +88,7 @@ let weeksScreen = null;
 let compareScreen = null;
 let systemsScreen = null;
 let explorersScreen = null;
+let queueScreen = null;
 let blockedGoods = null;
 let spacedRoutes = null;
 let miningScreen = null;
@@ -103,6 +105,7 @@ function setView(name) {
   if (name !== "compare") compareScreen?.hide();
   if (name !== "systems") systemsScreen?.hide();
   if (name !== "explorers") explorersScreen?.hide();
+  if (name !== "queue") queueScreen?.hide();
   if (name !== "mining") miningScreen?.hide();
   if (name !== "admin") closeAdmin();
   if (name === "admin") openAdmin();
@@ -164,6 +167,10 @@ function setView(name) {
     explorersScreen ??= mountExplorers($("explorers-root"), { api });
     explorersScreen.show();
   }
+  if (name === "queue") {
+    queueScreen ??= mountQueue($("queue-root"), { api });
+    queueScreen.show();
+  }
   if (name === "mining") {
     miningScreen ??= mountMiningFields($("mining-root"), { api });
     miningScreen.show();
@@ -191,6 +198,7 @@ const NAV_GROUPS = [
   { key: "fleet", label: "Fleet", ic: "⛴", tabs: [
     { key: "ships", label: "Ships", view: "fleet" },
     { key: "explorers", label: "Explorers", view: "explorers" },
+    { key: "queue", label: "Queue", view: "queue" },
     { key: "mining", label: "Mining", view: "mining" },
     { key: "minerpref", label: "Miner preference", view: "markets", seg: ["mk-tools-seg", "minerpref"], hide: ["mk-panel-markets"], oneRow: "mk-grid" },
     { key: "yards", label: "Yards", view: "markets", seg: ["mk-mkt-seg", "yards"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
