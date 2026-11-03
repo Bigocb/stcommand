@@ -25,7 +25,7 @@ const pct = (a, b) => (b ? `${a >= b ? "+" : "−"}${Math.abs(Math.round(((a - b
 const tone = (n) => (n > 0 ? "good" : n < 0 ? "bad" : "");
 
 /** One line chart of two series over hours: this week solid, the other dashed, a dotted line where each week's gate (first jump) opened. */
-export function compareChart(a, b, { key, gateA, gateB, height = 150, width = 560, label = "" }) {
+export function compareChart(a, b, { key, gateA, gateB, openA, openB, height = 150, width = 560, label = "" }) {
   const n = Math.max(a.length, b.length);
   if (n < 2) return `<div class="cmp-empty">Not enough hours yet.</div>`;
   const val = (p) => (p && p[key] !== null && p[key] !== undefined ? Number(p[key]) : null);
@@ -48,15 +48,15 @@ export function compareChart(a, b, { key, gateA, gateB, height = 150, width = 56
   };
   const ticks = [lo, lo + (hi - lo) / 2, hi].map((v) => `<g><line x1="${pad.l}" x2="${width - pad.r}" y1="${Y(v).toFixed(1)}" y2="${Y(v).toFixed(1)}" class="cmp-grid"/><text x="${pad.l - 5}" y="${(Y(v) + 3).toFixed(1)}" class="cmp-axis" text-anchor="end">${compact(v)}</text></g>`).join("");
   const hourTicks = [0, 24, 48, 72, 96, 120, 144, 168].filter((x) => x < n).map((x) => `<text x="${X(x).toFixed(1)}" y="${height - 4}" class="cmp-axis" text-anchor="middle">${x}h</text>`).join("");
-  const gate = (g, cls) => (g !== null && g !== undefined && g < n ? `<line x1="${X(g).toFixed(1)}" x2="${X(g).toFixed(1)}" y1="${pad.t}" y2="${height - pad.b}" class="cmp-gate ${cls}"><title>gate opened at ${g}h</title></line>` : "");
-  return `<svg viewBox="0 0 ${width} ${height}" class="cmp-chart" role="img" aria-label="${h(label)} by hours since the first trade">${ticks}${hourTicks}${gate(gateB, "b")}${gate(gateA, "a")}<path d="${path(b)}" class="cmp-line b"/><path d="${path(a)}" class="cmp-line a"/></svg>`;
+  const gate = (g, cls, title = "first gate job") => (g !== null && g !== undefined && g < n ? `<line x1="${X(g).toFixed(1)}" x2="${X(g).toFixed(1)}" y1="${pad.t}" y2="${height - pad.b}" class="cmp-gate ${cls}"><title>${title} at ${g}h</title></line>` : "");
+  return `<svg viewBox="0 0 ${width} ${height}" class="cmp-chart" role="img" aria-label="${h(label)} by hours since the first trade">${ticks}${hourTicks}${gate(openB, "b open", "gate opened")}${gate(openA, "a open", "gate opened")}${gate(gateB, "b")}${gate(gateA, "a")}<path d="${path(b)}" class="cmp-line b"/><path d="${path(a)}" class="cmp-line a"/></svg>`;
 }
 
 /** A chart from the hourly fleet snapshots (hourlySnapshot.ts); a week from before they were kept has none and says so. */
 function fleetChart(key, title, data, gateA, gateB, small) {
   const has = (pts) => (pts ?? []).some((p) => p[key] !== null && p[key] !== undefined);
   const body = has(data.fleetA) || has(data.fleetB)
-    ? compareChart(data.fleetA ?? [], data.fleetB ?? [], { key, gateA, gateB, label: title.toLowerCase(), height: small ? 120 : 150 })
+    ? compareChart(data.fleetA ?? [], data.fleetB ?? [], { key, gateA, gateB, openA: data.a?.gateOpenHour, openB: data.b?.gateOpenHour, label: title.toLowerCase(), height: small ? 120 : 150 })
     : `<div class="cmp-empty">No readings yet: they are written once an hour from now on, so a week from before 2026-10-30 has none.</div>`;
   return `<div class="cmp-chart-box"><div class="cmp-chart-h">${h(title)}</div>${body}</div>`;
 }
@@ -133,7 +133,9 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
       ${kpi("Sells", L.a.trades, L.b.trades)}
       ${small ? "" : kpi("Ships bought", L.a.ships, L.b.ships)}
       ${small ? "" : kpi("Best hour", L.a.bestHourPnl, L.b.bestHourPnl)}
-      ${kpi("Gate opened (h)", gate(A), gate(B), (v) => (v === null ? "—" : `${v}`))}
+      ${kpi("Gate open (h)", A.gateOpenHour ?? null, B.gateOpenHour ?? null, (v) => (v === null ? "—" : `${v}`))}
+      ${kpi("First job (h)", gate(A), gate(B), (v) => (v === null ? "—" : `${v}`))}
+      ${kpi("Open to first job (h)", A.gateOpenToFirstJob ?? null, B.gateOpenToFirstJob ?? null, (v) => (v === null ? "—" : `${v}`))}
     </div>`;
     const G = data.gateAligned;
     const gateKpis = G ? `<div class="cmp-sub">Lined up on the gate: each week's first jump, then the same ${G.hours} h after it</div><div class="kpirow cmp-kpis">
@@ -145,13 +147,13 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
     const gateRows = G ? G.checkpoints.filter((r) => !small || [6, 12, 24].includes(r.hour)) : [];
     const gateTable = gateRows.length ? `<div class="cmp-scroll"><table class="cmp-table"><thead><tr><th>Since gate</th><th class="num">${small ? "This week" : h(A.label)}</th><th class="num">${small ? "Other" : h(B.label)}</th><th class="num">${small ? "Diff" : "Difference"}</th></tr></thead><tbody>${gateRows.map((r) => `<tr><td>+${r.hour} h</td><td class="num">${compact(r.a)}</td><td class="num">${compact(r.b)}</td><td class="num ${tone(r.delta)}">${signed(r.delta)}</td></tr>`).join("")}</tbody></table></div>` : "";
     const charts = `<div class="cmp-charts">
-      <div class="cmp-chart-box"><div class="cmp-chart-h">Matched profit, cumulative <span class="cmp-legend"><i class="a"></i>${h(A.label)}<i class="b"></i>${h(B.label)}</span></div>${compareChart(A.points, B.points, { key: "cumPnl", gateA: gate(A), gateB: gate(B), label: "matched profit", height: small ? 120 : 160 })}</div>
-      <div class="cmp-chart-box"><div class="cmp-chart-h">Profit per hour, 3-hour average</div>${compareChart(A.points, B.points, { key: "rate", gateA: gate(A), gateB: gate(B), label: "profit per hour", height: small ? 120 : 160 })}</div>
+      <div class="cmp-chart-box"><div class="cmp-chart-h">Matched profit, cumulative <span class="cmp-legend"><i class="a"></i>${h(A.label)}<i class="b"></i>${h(B.label)}</span></div>${compareChart(A.points, B.points, { key: "cumPnl", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, label: "matched profit", height: small ? 120 : 160 })}</div>
+      <div class="cmp-chart-box"><div class="cmp-chart-h">Profit per hour, 3-hour average</div>${compareChart(A.points, B.points, { key: "rate", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, label: "profit per hour", height: small ? 120 : 160 })}</div>
       ${fleetChart("live", "Live systems", data, gate(A), gate(B), small)}
       ${small ? "" : fleetChart("keepers", "Keepers polling", data, gate(A), gate(B), small)}
       ${small ? "" : fleetChart("calls", "Keeper API calls a minute", data, gate(A), gate(B), small)}
-      ${small ? "" : `<div class="cmp-chart-box"><div class="cmp-chart-h">Ships bought so far</div>${compareChart(A.points, B.points, { key: "ships", gateA: gate(A), gateB: gate(B), label: "ships bought" })}</div>`}
-      ${small ? "" : `<div class="cmp-chart-box"><div class="cmp-chart-h">Wallet</div>${compareChart(A.points, B.points, { key: "wallet", gateA: gate(A), gateB: gate(B), label: "wallet" })}</div>`}
+      ${small ? "" : `<div class="cmp-chart-box"><div class="cmp-chart-h">Ships bought so far</div>${compareChart(A.points, B.points, { key: "ships", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, label: "ships bought" })}</div>`}
+      ${small ? "" : `<div class="cmp-chart-box"><div class="cmp-chart-h">Wallet</div>${compareChart(A.points, B.points, { key: "wallet", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, label: "wallet" })}</div>`}
     </div>`;
     const rows = data.checkpoints.filter((r) => r.a || r.b).filter((r) => !small || [12, 24, 48, 72].includes(r.hour));
     const table = `<div class="cmp-scroll"><table class="cmp-table"><thead><tr><th>Hour</th><th class="num">${small ? "This week" : h(A.label)}</th><th class="num">${small ? "Other" : h(B.label)}</th><th class="num">${small ? "Diff" : "Difference"}</th>${small ? "" : "<th class=\"num\">Wallet A</th><th class=\"num\">Wallet B</th>"}</tr></thead><tbody>${rows.map((r) => `<tr><td>${r.hour} h</td><td class="num">${r.a ? compact(r.a.cumPnl) : "—"}</td><td class="num">${r.b ? compact(r.b.cumPnl) : "—"}</td><td class="num ${tone(r.pnlDelta)}">${signed(r.pnlDelta)}</td>${small ? "" : `<td class="num">${r.a ? compact(r.a.wallet) : "—"}</td><td class="num">${r.b ? compact(r.b.wallet) : "—"}</td>`}</tr>`).join("")}</tbody></table></div>`;

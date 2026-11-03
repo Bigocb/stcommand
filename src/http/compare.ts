@@ -4,7 +4,8 @@ import { tenantUniverse } from "../db/pool.js";
 import { isUniverseKey } from "../engine/universe.js";
 import { isOperator, operatorAgents } from "./operatorFlag.js";
 import { SNAPSHOT_KIND, fleetPoints } from "../engine/hourlySnapshot.js";
-import { checkpoints, drawnPoints, gateAligned, hoursReached, likeForLike, toPoints, weekTotals, type WeekSeries } from "../engine/weekCompare.js";
+import { checkpoints, drawnPoints, gateAligned, gateOpenToFirstJob, hoursReached, likeForLike, toPoints, weekTotals, type WeekSeries } from "../engine/weekCompare.js";
+import { GATE_OPEN_SUBJECT } from "../engine/actionEvents.js";
 
 /**
  * Week over week (src/engine/weekCompare.ts), for the Season screen's Compare tab and Tower's card. Mounted in the dashboard router.
@@ -60,7 +61,12 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
 
   async function series(w: TenantWorker, ref: WeekRef): Promise<WeekSeries> {
     const s = await w.store.weekHours(ref.tenantId, ref.universeKey);
-    return { label: `${ref.agentSymbol} · ${ref.universeKey.split("@")[1]}`, universeKey: ref.universeKey, startAt: s.startAt, firstJumpHour: s.firstJumpHour, hours: s.hours };
+    // The engine's gate_open milestone for this week, on the same clock as the hour rows (hours since the first trade).
+    const milestones = s.startAt ? await w.store.actionEvents(ref.tenantId, { sinceIso: s.startAt, kinds: ["milestone"], limit: 500 }) : [];
+    const gate = milestones.find((e) => e.universeKey === ref.universeKey && e.subject === GATE_OPEN_SUBJECT);
+    const opened = (gate?.observed as { hoursIntoWeek?: unknown } | undefined)?.hoursIntoWeek;
+    const gateOpenHour = typeof opened === "number" && Number.isFinite(opened) ? Math.floor(opened) : null;
+    return { label: `${ref.agentSymbol} · ${ref.universeKey.split("@")[1]}`, universeKey: ref.universeKey, startAt: s.startAt, firstJumpHour: s.firstJumpHour, gateOpenHour, hours: s.hours };
   }
 
   router.get("/weeks", async (req, res) => {
@@ -95,8 +101,8 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
       const [fa, fb] = await Promise.all([fleet(base, a), fleet(other, b)]);
       res.json({
         fleetA: fa, fleetB: fb,
-        a: { label: a.label, universeKey: a.universeKey, startAt: a.startAt, firstJumpHour: a.firstJumpHour, totals: weekTotals(a), points: drawnPoints(pa, hoursReached(a)), reached: hoursReached(a) },
-        b: { label: b.label, universeKey: b.universeKey, startAt: b.startAt, firstJumpHour: b.firstJumpHour, totals: weekTotals(b), points: drawnPoints(pb, hoursReached(b)), reached: hoursReached(b) },
+        a: { label: a.label, universeKey: a.universeKey, startAt: a.startAt, firstJumpHour: a.firstJumpHour, gateOpenHour: a.gateOpenHour ?? null, gateOpenToFirstJob: gateOpenToFirstJob(a), totals: weekTotals(a), points: drawnPoints(pa, hoursReached(a)), reached: hoursReached(a) },
+        b: { label: b.label, universeKey: b.universeKey, startAt: b.startAt, firstJumpHour: b.firstJumpHour, gateOpenHour: b.gateOpenHour ?? null, gateOpenToFirstJob: gateOpenToFirstJob(b), totals: weekTotals(b), points: drawnPoints(pb, hoursReached(b)), reached: hoursReached(b) },
         likeForLike: likeForLike(a, b),
         gateAligned: gateAligned(a, b) ?? null,
         checkpoints: checkpoints(pa, pb, hoursReached(a), hoursReached(b)),

@@ -26,9 +26,17 @@ export interface WeekSeries {
   label: string;
   universeKey: string;
   startAt: string | null;
-  /** Hours from the first trade to the first gate jump, the same stand-in for "gate open" for every past week. */
+  /** Hours from the first trade to the first gate jump: the week's first job through a gate. */
   firstJumpHour: number | null;
+  /** Hours from the first trade to the home gate opening (the engine's gate_open milestone); null when none was recorded. */
+  gateOpenHour?: number | null;
   hours: HourRow[];
+}
+
+/** Hours from the gate opening to the week's first job through it: positive when the first job came after the gate opened. */
+export function gateOpenToFirstJob(s: Pick<WeekSeries, "firstJumpHour" | "gateOpenHour">): number | null {
+  if (s.firstJumpHour === null || s.firstJumpHour === undefined || s.gateOpenHour === null || s.gateOpenHour === undefined) return null;
+  return s.firstJumpHour - s.gateOpenHour;
 }
 
 export interface Point {

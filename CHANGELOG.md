@@ -6,6 +6,15 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-03 — Compare shows the gate opening as its own line, and the gap to the first job
+
+The week compare charts marked one thing per week: the first gate jump. Operators asked for the gate opening too, so the distance from opening to the first job can be read. Each week now has a second dashed marker where its `gate_open` milestone was recorded (the first tick that sees the home gate finished, measured from the first trade like the other hours). The solid marker stays on the first gate jump.
+
+- `GET /api/compare` returns `gateOpenHour` and `gateOpenToFirstJob` (first job minus gate open; positive when the first job came after the gate opened) for each week. `weekCompare.ts` holds the new helper.
+- The compare view adds "Gate open (h)", "First job (h)" and "Open to first job (h)" KPIs, and the dashed markers on every chart.
+- Weeks with no recorded milestone (none before the milestone was added on 2026-10-28) show "—".
+- Tests: `tests/compareRoute.test.ts` needs a configured test database and was not run here; the pure helpers in `tests/weekCompare.test.ts` pass.
+
 ## 2026-11-03 — A keeper request counts the goods of a market no ship has priced yet
 
 The keeper probe approval for X1-DJ62-ZA6A said "0 goods, below the 5-good recommended threshold". The count came from the price snapshots, which hold nothing until a ship has visited, so a market only the remote surveyor had listed read as empty. The annotation does not gate the request, but it misled the operator. `marketGoodsCount()` now falls back to the saved goods directory (distinct imports, exports and exchanges, the same count the directory's ranking uses) when there is no price read. ZA6A lists 9 goods.
