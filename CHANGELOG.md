@@ -6,6 +6,10 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-03 — Deck: Compare and Queue scroll
+
+Deck's Compare screen could not be scrolled to its lower charts and table. Every Deck view sits in a `.content` box that clips (`overflow:hidden`), and only Metrics, Explorers and Systems had a rule that lets the page scroll. Compare, and the Queue screen added this week, now get the same rule: the view scrolls and its root does not shrink, so charts keep their size. CSS only (`public/deck.css`); a hard refresh picks it up.
+
 ## 2026-11-03 — Shipyards are never thin: keepers go to every yard, and the picker lists unpriced markets
 
 X1-BG56 has three yards (A2, C41, H60). Only C41 ever got a keeper, so A2 and H60 had no stock or prices and never showed on the Yards tab or the By-system list. `keeperMinGoods` (raised 3 to 4 on 2026-10-30) drops any market trading fewer goods before the keeper queue sees it, and the yards-first ordering (`yardsFirst`) only reorders what is left, so a yard with 3 goods was never queued. Nothing exempted yards: the filter ran in `keeperCandidatesForSystem` (first wave of a fresh system), in the top-up's `topUpFacts` (which also counts the viable markets in `keeper_coverage`) and in the home-system survey check. Market snapshots are never pruned and none were stale (0 of BG56's 35 markets older than 90 minutes); the missing ones had never been priced.
