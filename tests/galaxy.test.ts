@@ -58,6 +58,17 @@ describe("GalaxyAtlas: gate-construction cache", () => {
     assert.equal(await atlas.refreshGateConstruction("X1-A", "X1-A-GATE"), true, "and it stays open (one-way)");
   });
 
+  it("gatesAllClosed() is true only for a system whose gates are all confirmed unfinished", async () => {
+    const { atlas } = await makeSeededAtlas(async () => ({ isComplete: false, materials: [] }));
+    assert.equal(atlas.gatesAllClosed("X1-A"), false, "unchecked is not the same as closed");
+    assert.equal(atlas.gatesAllClosed("X1-NOPE"), false, "an unknown system has no gates");
+    await atlas.refreshGateConstruction("X1-A", "X1-A-GATE");
+    assert.equal(atlas.gatesAllClosed("X1-A"), true);
+    assert.equal(atlas.gatesAllClosed("X1-B"), false, "the far gate was never read");
+    atlas.noteGateComplete("X1-A-GATE");
+    assert.equal(atlas.gatesAllClosed("X1-A"), false, "open once the gate is finished");
+  });
+
   it("gateComplete() is undefined and canJump() is false before anything has been checked", async () => {
     const { atlas } = await makeSeededAtlas(async () => ({ isComplete: true, materials: [] }));
 

@@ -254,6 +254,15 @@ export class GalaxyAtlas {
     return known.jumpGates.map((jg) => ({ gate: jg.symbol, complete: this.gateConstruction.get(jg.symbol), connections: [...jg.connections] }));
   }
 
+  /**
+   * True when the system has known jump gates and every one of them is confirmed unfinished (read as under construction, not merely
+   * unchecked). While that holds nothing can leave the system by gate, so the reachable set is known to be just the system itself.
+   */
+  gatesAllClosed(systemSymbol: string): boolean {
+    const gates = this.gateStatusFor(systemSymbol);
+    return gates.length > 0 && gates.every((g) => g.complete === false);
+  }
+
   /** Find jump gates in `fromSystem` that connect to `toSystem`. */
   gatesTo(fromSystem: string, toSystem: string): string[] {
     const known = this.systems.get(fromSystem);

@@ -6,6 +6,15 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-03 — Remote survey reads across a closed home gate; a closed home gate stops staging
+
+Operator asked why Tower's queue was empty with the gate still closed (the week's gate stood at 360/400 ADVANCED_CIRCUITRY, 49 h in). Cause: `maybeRemoteSurvey()` walks outward from home over finished gates (`galaxy.canJump`), which needs the home system's own gate finished, so while it is closed nothing is reachable and nothing is read or queued. The neighbours X1-DJ62 and X1-AB82 sat "unsurveyed" with no markets known. The surveyor then only starts when the gate opens, one system per 5-minute pass.
+
+- **Pre-scouting:** `withClosedGateNeighbours()` (`src/engine/remoteSurvey.ts`) adds the systems directly across a closed home gate to the surveyor's reachable set at one hop. They are read, judged and queued as "scouted" exactly as before (reading is API calls, scouting buys nothing), so the queue is ready the minute the gate opens. With the gate open nothing changes. Closed means `GalaxyAtlas.gatesAllClosed(system)`: the system has known gates and every one is confirmed unfinished (an unchecked gate is not closed).
+- **Staging stays blocked (the part that was missing):** the release rule skips a queued system flagged `reachable: false`, but `maybeManageFreshSystems()` only set that flag when the reachable graph had 5 or more systems, so a closed home gate (a graph of one) read as "unknown" and every queued system counted as reachable. It now also sets the flag when `gatesAllClosed(home)`, so nothing is staged, and no keeper bought, until the gate opens.
+- **Clause:** `remoteSurveyPerPass` raised from 1 to 3 on the live fleet (3 systems per 5-minute pass instead of 1), a settings change, not code.
+- Tests: `tests/remoteSurvey.test.ts` (`withClosedGateNeighbours`), `tests/galaxy.test.ts` (`gatesAllClosed`); the release rule's existing "never stages an unreachable system" test covers the other end. Typecheck clean.
+
 ## 2026-11-02 — Tower: removed the ship search box
 
 Operator request. The Ships roster on Tower no longer has the "Find a ship, role or system" box above the list. The four filters (All, Trouble, Moving, Docked) stay and now alone decide what the roster shows; the empty-list message reads "No ships in this filter." Removed the input from `public/m.html`, its listener and the match test from `renderRoster()` in `public/m.js`, and the two `.ship-search` rules from `public/m.css`.

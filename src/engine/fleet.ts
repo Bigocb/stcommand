@@ -68,7 +68,7 @@ import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
 import { DEFAULT_DELIVERY_POLICY, MAX_DELIVERY_MS, deliveryArrived, deliveryExpired, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
 import { ChangeTracker } from "./changeTracker.js";
 import { StaleWhileRevalidate } from "./staleCache.js";
-import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys, readIncomplete } from "./remoteSurvey.js";
+import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys, readIncomplete, withClosedGateNeighbours } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
 import { maxPriceFor } from "./missionCeiling.js";
 import { pickCheapestKeeperYard, pickKeeperYardWithShip, preferYardWithShip } from "./keeperYard.js";
@@ -6145,6 +6145,8 @@ export class FleetManager {
       }
     }
     hops.delete(this.systemSymbol);
+    // Home gate still closed: read (and scout, nothing is bought) the systems directly across it so the queue is ready when it opens.
+    const readable = withClosedGateNeighbours(hops, this.galaxy.connectedSystems(this.systemSymbol), this.galaxy.gatesAllClosed(this.systemSymbol));
     // Read already (the directory has rows for it) or judged not worth reading (an explorer's or this surveyor's durable "rejected" mark).
     const alreadyRead = await this.store.directorySystems();
     if (this.tenantId) for (const m of await this.store.recentSystemSurveys(this.tenantId, 2000)) if (m.source === "rejected") alreadyRead.add(m.systemSymbol);
@@ -6154,7 +6156,7 @@ export class FleetManager {
     // A system whose read was saved but whose judging or intake then threw has a retry entry and rows in the directory: without this it
     // would count as read for ever and never be judged. The retry time still holds it back until due.
     for (const system of this.remoteSurveyRetry.keys()) if (!this.systemQueue.get(system)) alreadyRead.delete(system);
-    const picks = pickRemoteSurveys({ reachable: hops, alreadyRead, retryAt: this.remoteSurveyRetry, nowMs: now }, { ...DEFAULT_REMOTE_SURVEY_POLICY, perPass });
+    const picks = pickRemoteSurveys({ reachable: readable, alreadyRead, retryAt: this.remoteSurveyRetry, nowMs: now }, { ...DEFAULT_REMOTE_SURVEY_POLICY, perPass });
     let timersChanged = false;
     for (const system of picks) {
       try {
@@ -6177,7 +6179,7 @@ export class FleetManager {
         // Keep the in-memory snapshots the keeper scorer reads (surveySystem() does the same), so a remotely read system can be scored.
         if (markets.length) this.markets = [...this.markets.filter((m) => m.systemSymbol !== system), ...markets];
         const probeYards = yards.filter((y) => (y.shipTypes ?? []).includes("SHIP_PROBE")).length;
-        this.log(`remote survey of ${system} (${hops.get(system)} hop(s) from home): ${markets.length} markets, ${yards.length} yards (${probeYards} list probes); nothing marked surveyed`);
+        this.log(`remote survey of ${system} (${readable.get(system)} hop(s) from home): ${markets.length} markets, ${yards.length} yards (${probeYards} list probes); nothing marked surveyed`);
         // What the waypoint traits say settles it: a system whose waypoints loaded and has neither a market nor a shipyard is
         // empty for the whole week, so it is marked once (the same "rejected" mark an explorer writes, shared and durable) and never
         // read again. Only a read that loaded no waypoints at all is a failure worth retrying.
@@ -6222,7 +6224,9 @@ export class FleetManager {
     // Where our ships can gate to over finished gates (the same set the route filter uses). A graph too small to mean anything
     // (not hydrated yet) says nothing, so every system stays eligible.
     const reach = this.galaxy.gateNetwork([...new Set([this.systemSymbol, ...[...this.traders.values()].map((a) => a.getShip().nav.systemSymbol)].filter((x): x is string => !!x))]);
-    const reachKnown = reach.size >= 5;
+    // A closed home gate is a known answer too: nothing is reachable, so no queued system may be staged (and one scouted across the
+    // closed gate by the remote surveyor must wait) until the gate opens. Without this the small graph read as "unknown" = eligible.
+    const reachKnown = reach.size >= 5 || this.galaxy.gatesAllClosed(this.systemSymbol);
     // Markets any keeper has read at least once (a snapshot of any age); unknown when the store cannot say, so the release test is skipped.
     let pricedSeen: Set<string> | undefined;
     try { pricedSeen = new Set(((await this.store.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol)); } catch { pricedSeen = undefined; }
