@@ -23,6 +23,10 @@ describe("unpricedMarkets", () => {
   it("is empty when everything worth it is priced", () => {
     assert.deepEqual(unpricedMarkets(["A", "B"], (m) => goods.get(m), new Set(["A"]), 3), { total: 1, missing: [] });
   });
+  it("counts a shipyard however few goods it trades, so an unread yard is listed as missing", () => {
+    const r = unpricedMarkets(["A", "B"], (m) => goods.get(m), new Set(["A"]), 4, (m) => m === "B");
+    assert.deepEqual(r, { total: 2, missing: ["B"] });
+  });
 });
 
 function facts(over: Partial<OpeningFacts> = {}): OpeningFacts {

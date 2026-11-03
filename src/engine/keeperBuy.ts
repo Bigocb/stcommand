@@ -75,18 +75,21 @@ export function distinctGoods(m: { imports?: readonly string[]; exports?: readon
 
 /**
  * Split candidate markets into those worth a keeper and those too thin to be (fewer than `minGoods` goods). A market whose
- * goods count is unknown is kept, never dropped on a guess, and minGoods 0 keeps everything (the clause off).
+ * goods count is unknown is kept, never dropped on a guess, and minGoods 0 keeps everything (the clause off). A shipyard is never
+ * thin (`isYard`, operator 2026-11-03): a keeper docked at a yard is what reads its stock and prices, so a yard with 3 goods is
+ * still worth a probe.
  */
 export function splitThinMarkets(
   candidates: readonly string[],
   goodsOf: (market: string) => number | undefined,
   minGoods: number,
+  isYard: (market: string) => boolean = () => false,
 ): { keep: string[]; thin: { market: string; goods: number }[] } {
   const keep: string[] = [];
   const thin: { market: string; goods: number }[] = [];
   for (const market of candidates) {
     const goods = goodsOf(market);
-    if (goods !== undefined && goods < minGoods) thin.push({ market, goods });
+    if (goods !== undefined && goods < minGoods && !isYard(market)) thin.push({ market, goods });
     else keep.push(market);
   }
   return { keep, thin };

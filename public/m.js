@@ -1750,7 +1750,7 @@ function renderSystemMarkets() {
   const sysOf = (wp) => wp.slice(0, wp.lastIndexOf("-"));
   // Known (any age) first; fall back to the fresh snapshots until it has loaded.
   const byWp = new Map();
-  for (const m of knownMarkets) byWp.set(m.waypointSymbol, { goods: m.goods, stamp: m.timestamp });
+  for (const m of knownMarkets) byWp.set(m.waypointSymbol, { goods: m.goods, stamp: m.timestamp, yard: m.yard === true });
   if (!byWp.size) {
     for (const s of marketSnapshots) {
       const cur = byWp.get(s.waypointSymbol) ?? { goods: 0, stamp: "" };
@@ -1770,10 +1770,10 @@ function renderSystemMarkets() {
   }
   const rows = [...byWp.keys()].filter((wp) => sysOf(wp) === sysPick).sort();
   $("sys-market-list").innerHTML = rows.map((wp) => {
-    const { goods, stamp } = byWp.get(wp);
+    const { goods, stamp, yard } = byWp.get(wp);
     const mins = stamp ? Math.round((Date.now() - new Date(stamp).getTime()) / 60000) : null;
     const age = mins === null ? "" : mins < 90 ? `${mins}m` : mins < 2880 ? `${Math.round(mins / 60)}h` : `${Math.round(mins / 1440)}d`;
-    return `<div class="detail-row"><span>${escapeHtml(shortWp(wp))} ${keeperBadge(wp)}</span><span class="d">${goods} goods${age ? ` · ${age} old` : ""}</span></div>`;
+    return `<div class="detail-row"><span>${escapeHtml(shortWp(wp))} ${keeperBadge(wp)}</span><span class="d">${goods} goods${age ? ` · ${age} old` : " · not priced yet"}${yard ? " · yard" : ""}</span></div>`;
   }).join("");
 }
 $("sys-sel").addEventListener("change", (e) => { sysPick = e.target.value; renderSystemMarkets(); });

@@ -628,7 +628,7 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "keeperMinGoods",
     name: "Keepers: fewest goods worth a keeper",
-    description: "When Keepers for every market in a good system adds a system's markets, a market that trades fewer distinct goods than this (imports, exports and exchange, known from the survey without a ship there) is left off the list. A market with one or two goods is rarely worth a probe. Off = every market is added. Markets can still be added by hand. Takes effect on the next system an explorer accepts.",
+    description: "When Keepers for every market in a good system adds a system's markets, a market that trades fewer distinct goods than this (imports, exports and exchange, known from the survey without a ship there) is left off the list. A market with one or two goods is rarely worth a probe. Shipyards are never left off, whatever they trade: a keeper docked at a yard is what reads its stock and prices. Off = every market is added. Markets can still be added by hand. Takes effect on the next system an explorer accepts.",
     value: 3, min: 1, max: 20, step: 1, unit: " goods",
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
