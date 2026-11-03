@@ -6033,7 +6033,7 @@ export class FleetManager {
       // A system whose keepers were parked for want of sales gets no new market: its premium is gone and they would only be parked too.
       const parked = parkedSystems.has(q.system);
       const unpriced = ranked.filter((m) => (covered.has(m.market) || listed.has(m.market)) && !priced.has(m.market)).length;
-      systems.push({ system: q.system, covered: have, unpriced, candidates: parked ? [] : ranked.filter((m) => !covered.has(m.market) && !listed.has(m.market)).map((m) => m.market) });
+      systems.push({ system: q.system, covered: have, unpriced, candidates: parked ? [] : yardsFirst(ranked.filter((m) => !covered.has(m.market) && !listed.has(m.market)).map((m) => m.market), yardMarkets) });
       viable.set(q.system, ranked.length);
     }
     const polls = [...this.keeperMarkets.values()].map((m) => 60_000 / Math.max(this.keeperPollMs(m), 60_000));
