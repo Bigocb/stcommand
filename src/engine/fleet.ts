@@ -6022,10 +6022,12 @@ export class FleetManager {
     for (const r of (await this.store?.marketDirectory()) ?? []) dir.set(r.systemSymbol, [...(dir.get(r.systemSymbol) ?? []), r]);
     const parkedSystems = new Set(this.idleParked.values());
     const priced = new Set(((await this.store?.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol));
+    // A shipyard is always viable, however few goods it trades: a keeper docked at it reads its stock and prices (operator, 2026-11-03).
+    const yardMarkets = new Set(((await this.store?.shipyardDirectory()) ?? []).map((y) => y.waypointSymbol));
     for (const q of this.systemQueue.list()) {
       if (q.state !== "live" || q.held) continue;
       const rows = dir.get(q.system) ?? [];
-      const ranked = (summarizeDirectory(rows, new Set(), now, minGoods)[0]?.ranked ?? []).filter((m) => m.goods >= minGoods);
+      const ranked = (summarizeDirectory(rows, new Set(), now, minGoods)[0]?.ranked ?? []).filter((m) => m.goods >= minGoods || yardMarkets.has(m.market));
       // A market already listed, or with a keeper on it (pinned by hand and never listed), is not a candidate.
       const have = ranked.filter((m) => covered.has(m.market) || listed.has(m.market)).length;
       // A system whose keepers were parked for want of sales gets no new market: its premium is gone and they would only be parked too.
@@ -10687,7 +10689,8 @@ export class FleetManager {
             .map((w) => w.symbol);
           const goods = new Map(this.markets.filter((m) => m.systemSymbol === this.homeSystem).map((m) => [m.symbol, distinctGoods(m)]));
           const priced = new Set(((await this.store?.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol));
-          return { ...unpricedMarkets(marketplaces, (m) => goods.get(m), priced, minGoods), minGoods };
+          const yards = new Set((this.galaxy.getSystem(this.homeSystem)?.waypoints ?? []).filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD")).map((w) => w.symbol));
+          return { ...unpricedMarkets(marketplaces, (m) => goods.get(m), priced, minGoods, (m) => yards.has(m)), minGoods };
         },
         startGateMission: (opts) => this.startHomeGateMission(opts),
         startFeed: async (opts) => {
@@ -11517,7 +11520,9 @@ export class FleetManager {
     const candidates = marketsNeedingKeepers(this.galaxy.getSystem(systemSymbol)?.waypoints ?? [], await this.keeperPriorityMarkets());
     const goods = new Map(this.markets.filter((m) => m.systemSymbol === systemSymbol).map((m) => [m.symbol, distinctGoods(m)]));
     const minGoods = this.doctrine.isEnabledOr("keeperMinGoods", true) ? this.doctrine.value("keeperMinGoods") : 0;
-    const { keep, thin } = splitThinMarkets(candidates, (m) => goods.get(m), minGoods);
+    // A shipyard is never thin: a keeper docked at it is what reads its stock and prices.
+    const yardsHere = new Set((this.galaxy.getSystem(systemSymbol)?.waypoints ?? []).filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD")).map((w) => w.symbol));
+    const { keep, thin } = splitThinMarkets(candidates, (m) => goods.get(m), minGoods, (m) => yardsHere.has(m));
     // Score what is kept from the lists the survey just read, remember the scores (the queue buys best first), and list best first.
     const ctx = await this.keeperScoreContext();
     const snaps = new Map(this.markets.filter((m) => m.systemSymbol === systemSymbol).map((m) => [m.symbol, m]));

@@ -6,6 +6,13 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-03 — Shipyards are never thin: keepers go to every yard, and the picker lists unpriced markets
+
+X1-BG56 has three yards (A2, C41, H60). Only C41 ever got a keeper, so A2 and H60 had no stock or prices and never showed on the Yards tab or the By-system list. `keeperMinGoods` (raised 3 to 4 on 2026-10-30) drops any market trading fewer goods before the keeper queue sees it, and the yards-first ordering (`yardsFirst`) only reorders what is left, so a yard with 3 goods was never queued. Nothing exempted yards: the filter ran in `keeperCandidatesForSystem` (first wave of a fresh system), in the top-up's `topUpFacts` (which also counts the viable markets in `keeper_coverage`) and in the home-system survey check. Market snapshots are never pruned and none were stale (0 of BG56's 35 markets older than 90 minutes); the missing ones had never been priced.
+- **A yard is always viable.** `splitThinMarkets` and `unpricedMarkets` take an `isYard` test (yards read from the galaxy atlas for a fresh system, from `shipyard_directory` for the top-up); a yard is kept whatever it trades. The `keeperMinGoods` description says so. Tests in `tests/keeperBuy.test.ts` and `tests/marketsSurveyed.test.ts`.
+- **The keeper picker lists markets never priced.** `GET /api/markets/known` (Tower By system, Deck Markets > Systems) listed only markets with a price snapshot, so an unpriced market could not be given a keeper by hand. It now also lists the markets of charted systems from the market directory (the goods lists a remote read returns), marked "not priced yet", and a yard says "yard".
+- Takes effect after a redeploy; the top-up then adds BG56's and SR93's yards at its usual pace, and each probe is a buy under the usual keeper approval rules.
+
 ## 2026-11-03 — A list of uncharted waypoints, systems we are in first (ops `uncharted_waypoints`)
 
 The leaders chart 10,000 to 15,000 waypoints a week (the leaderboard's second list), and charting pays a one-time credit reward to the first agent that does it, but nothing of ours knew which waypoints were still uncharted: the galaxy crawler stores only symbol, type and coordinates from the public system list, which has no traits. The public `GET /systems/{system}/waypoints` shows a waypoint nobody has charted with the single trait UNCHARTED, with no token needed. Spot check on 2026-11-03: X1-BG56 (93 waypoints) and X1-SR93 (96) had none, and neither does the home system, so most nearby waypoints are probably already taken.

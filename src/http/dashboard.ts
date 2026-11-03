@@ -713,13 +713,21 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     try {
       const charted = new Set(w.fleet.getChartedSystems());
       const rows = (await w.store.freshMarketSnapshots(5_256_000)).filter((r) => charted.has(r.systemSymbol));
-      const byWp = new Map<string, { waypointSymbol: string; systemSymbol: string; goods: number; timestamp: string }>();
+      const byWp = new Map<string, { waypointSymbol: string; systemSymbol: string; goods: number; timestamp: string | null; yard: boolean }>();
       for (const r of rows) {
         const cur = byWp.get(r.waypointSymbol);
         const ts = String(r.timestamp);
-        if (!cur) byWp.set(r.waypointSymbol, { waypointSymbol: r.waypointSymbol, systemSymbol: r.systemSymbol, goods: 1, timestamp: ts });
-        else { cur.goods += 1; if (ts > cur.timestamp) cur.timestamp = ts; }
+        if (!cur) byWp.set(r.waypointSymbol, { waypointSymbol: r.waypointSymbol, systemSymbol: r.systemSymbol, goods: 1, timestamp: ts, yard: false });
+        else { cur.goods += 1; if (cur.timestamp === null || ts > cur.timestamp) cur.timestamp = ts; }
       }
+      // Markets never priced (no ship has read them) are listed too, from the goods lists a remote read returns: a keeper can only
+      // be added to a market the picker shows, and an unpriced market (a yard nobody has docked at, say) is exactly one that needs one.
+      for (const d of await w.store.marketDirectory()) {
+        if (!charted.has(d.systemSymbol) || byWp.has(d.waypointSymbol)) continue;
+        byWp.set(d.waypointSymbol, { waypointSymbol: d.waypointSymbol, systemSymbol: d.systemSymbol, goods: new Set([...d.imports, ...d.exports, ...d.exchange]).size, timestamp: null, yard: false });
+      }
+      const yards = new Set((await w.store.shipyardDirectory()).map((y) => y.waypointSymbol));
+      for (const m of byWp.values()) m.yard = yards.has(m.waypointSymbol);
       res.json({ markets: [...byWp.values()].sort((a, b) => a.waypointSymbol.localeCompare(b.waypointSymbol)) });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

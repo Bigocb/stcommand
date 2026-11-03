@@ -10,10 +10,11 @@ export function unpricedMarkets(
   goodsOf: (market: string) => number | undefined,
   priced: ReadonlySet<string>,
   minGoods: number,
+  isYard: (market: string) => boolean = () => false,
 ): { total: number; missing: string[] } {
   const worth = marketplaces.filter((m) => {
     const g = goodsOf(m);
-    return g === undefined || g >= minGoods;
+    return g === undefined || g >= minGoods || isYard(m);
   });
   return { total: worth.length, missing: worth.filter((m) => !priced.has(m)) };
 }

@@ -75,4 +75,12 @@ describe("splitThinMarkets", () => {
   it("a minimum of 0 keeps everything (the clause off)", () => {
     assert.deepEqual(splitThinMarkets(["X1-S-B"], (m) => goods[m], 0).keep, ["X1-S-B"]);
   });
+  it("never drops a shipyard, however few goods it trades (a keeper docked there reads its stock and prices)", () => {
+    const r = splitThinMarkets(["X1-S-A", "X1-S-B", "X1-S-C"], (m) => goods[m], 4, (m) => m === "X1-S-B");
+    assert.deepEqual(r.keep, ["X1-S-A", "X1-S-B"]);
+    assert.deepEqual(r.thin, [{ market: "X1-S-C", goods: 3 }]);
+  });
+  it("without a yard test it behaves as before (the clause default)", () => {
+    assert.deepEqual(splitThinMarkets(["X1-S-B"], (m) => goods[m], 4).thin, [{ market: "X1-S-B", goods: 2 }]);
+  });
 });
