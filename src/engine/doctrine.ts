@@ -472,6 +472,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "systemReleaseMinCash",
+    name: "System release: keep cash",
+    description: "Stage a queued system only while the wallet would still hold at least this many credits after buying its keepers. Separate from keeperAutoApproveMinCash (which decides whether each keeper probe buys without a card). Off = no cash test for staging.",
+    value: 1000000, min: 0, max: 5000000, step: 10000, unit: "c",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "autoKeeperGoodSystems",
     name: "Keepers for every market in a good system",
     description: "When an explorer finds a system worth touring (it passes the market and shipyard minimums), add all of that system's marketplaces to the keeper priority list, so keepers are bought for them as usual (with Auto-approve keeper probes on, with no card). Off = the keeper list changes only by hand. Takes effect on the next system an explorer accepts.",

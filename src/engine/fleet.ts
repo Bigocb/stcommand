@@ -5670,9 +5670,9 @@ export class FleetManager {
       minTradingSells: this.doctrine.isEnabledOr("freshTradingSells", false) ? this.doctrine.value("freshTradingSells") : 0,
       leadMs: this.doctrine.value("freshLeadMin") * 60_000,
       fadeMs: this.doctrine.value("freshFadeHours") * 3_600_000,
-      // Below the auto-approve cash floor every keeper waits for an approval card, so staging waits for the cash too.
       minPricedShare: this.doctrine.isEnabledOr("releaseMinPricedPct", false) ? this.doctrine.value("releaseMinPricedPct") / 100 : 0,
-      minCashAfter: this.doctrine.isEnabledOr("autoApproveKeeperProbes", false) && this.doctrine.isEnabledOr("keeperAutoApproveMinCash", false) ? this.doctrine.value("keeperAutoApproveMinCash") : 0,
+      // Staging waits for the cash to cover the system's keepers. Its own clause (systemReleaseMinCash), not the keeper auto-buy reserve.
+      minCashAfter: this.doctrine.isEnabledOr("systemReleaseMinCash", false) ? this.doctrine.value("systemReleaseMinCash") : 0,
     };
   }
 

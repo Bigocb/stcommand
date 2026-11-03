@@ -6,6 +6,10 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-03 — Staging has its own cash clause (`systemReleaseMinCash`), separate from keeper auto-buy
+
+Staging a queued system waited for the keeper auto-buy reserve (`keeperAutoApproveMinCash`), so lowering the reserve to let keeper probes buy also changed when systems stage, and vice versa. Staging now reads its own clause, `systemReleaseMinCash` (default 1,000,000, on): a system stages only while the wallet would still hold that much after buying its keepers. `keeperAutoApproveMinCash` now only decides whether each keeper probe buys without an approval card. With the clause off, staging has no cash test. Set in `releasePolicy()` (`fleet.ts`); catalogued in `doctrine.ts`.
+
 ## 2026-11-03 — Remote survey reads across a closed home gate; a closed home gate stops staging
 
 Operator asked why Tower's queue was empty with the gate still closed (the week's gate stood at 360/400 ADVANCED_CIRCUITRY, 49 h in). Cause: `maybeRemoteSurvey()` walks outward from home over finished gates (`galaxy.canJump`), which needs the home system's own gate finished, so while it is closed nothing is reachable and nothing is read or queued. The neighbours X1-DJ62 and X1-AB82 sat "unsurveyed" with no markets known. The surveyor then only starts when the gate opens, one system per 5-minute pass.
