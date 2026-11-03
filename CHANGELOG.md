@@ -6,6 +6,10 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-03 — A keeper request counts the goods of a market no ship has priced yet
+
+The keeper probe approval for X1-DJ62-ZA6A said "0 goods, below the 5-good recommended threshold". The count came from the price snapshots, which hold nothing until a ship has visited, so a market only the remote surveyor had listed read as empty. The annotation does not gate the request, but it misled the operator. `marketGoodsCount()` now falls back to the saved goods directory (distinct imports, exports and exchanges, the same count the directory's ranking uses) when there is no price read. ZA6A lists 9 goods.
+
 ## 2026-11-03 — Staging has its own cash clause (`systemReleaseMinCash`), separate from keeper auto-buy
 
 Staging a queued system waited for the keeper auto-buy reserve (`keeperAutoApproveMinCash`), so lowering the reserve to let keeper probes buy also changed when systems stage, and vice versa. Staging now reads its own clause, `systemReleaseMinCash` (default 1,000,000, on): a system stages only while the wallet would still hold that much after buying its keepers. `keeperAutoApproveMinCash` now only decides whether each keeper probe buys without an approval card. With the clause off, staging has no cash test. Set in `releasePolicy()` (`fleet.ts`); catalogued in `doctrine.ts`.

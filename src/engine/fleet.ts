@@ -7844,7 +7844,13 @@ export class FleetManager {
    */
   private async marketGoodsCount(waypointSymbol: string): Promise<number> {
     const rows = (await this.store?.latestMarketSnapshots()) ?? [];
-    return rows.filter((r) => r.waypointSymbol === waypointSymbol).length;
+    const priced = rows.filter((r) => r.waypointSymbol === waypointSymbol).length;
+    if (priced > 0) return priced;
+    // No price read yet (a market only the remote surveyor has listed): count the goods its saved directory lists, as the
+    // directory's own ranking does, so an unvisited market is not reported as having no goods.
+    const sys = waypointSymbol.slice(0, waypointSymbol.lastIndexOf("-"));
+    const listed = ((await this.store?.marketDirectory(sys)) ?? []).find((r) => r.waypointSymbol === waypointSymbol);
+    return listed ? new Set([...listed.imports, ...listed.exports, ...listed.exchange]).size : 0;
   }
 
   /**
