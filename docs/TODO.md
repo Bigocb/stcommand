@@ -25,6 +25,14 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 | 12 | Review: docs and tests gaps (wrong comments, missing fleet-level tests) | Best done inside item 13. |
 | 13 | In-depth code review and refactor | Only once behaviour stops being tuned. |
 
+- [ ] **Simulation test rig: run what-if simulations faster than real time and in parallel (raised 2026-11-03, operator).** Today every idea is tried on the live
+  fleet and a week (168 h) gives one sample, so opening orders, buy cadence, keeper rotation, gate timing and chart scouting are compared by memory. Wanted: a rig
+  that can play many runs of a week in minutes, side by side, and compare strategies. Prompted by a player on the SpaceTraders Discord (2026-11-02) whose test rig
+  out-earned their live game within 45 minutes. Scope to settle first: (1) a game model behind the same `SpaceTradersAPI` interface the fleet already takes, so the
+  engine runs unchanged (markets with the measured price-against-stock rules in CLAUDE.md, ship travel, gate construction, the rate limit); (2) a clock that can be
+  sped up; (3) seeded runs, so a result can be repeated and many can run at once; (4) calibration against recorded weeks (ledger, `market_snapshots`,
+  `agent_samples`) before any result is trusted. Not started; talk the scope through before building.
+
 - [ ] **In-depth code review and refactor, once the engine stops changing (raised 2026-10-30, operator).** A lot of this week's fixes were patches on patches
   (keeper delivery alone has three: the 30 s hold step, the first-poll cadence, the yard choice). When the engine settles, do a full review for code smells and
   patches that should be one straightforward mechanism, and for efficiency: `fleet.ts` and `dispatcher.ts` first (each is thousands of lines with long
