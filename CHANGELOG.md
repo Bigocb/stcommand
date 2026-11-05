@@ -6,6 +6,17 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-05 — Tower's headline split into trading profit and expansion costs
+
+Tower's profit/hour read -15,437 in an hour where the matched trades made about +1.17M. The headline netted every sale's profit
+against all fuel and jumps, and about 490k of that hour's jumps were probe deliveries and explorers opening staged systems, not
+trading (two thin-market losses, about -240k and -257k, were the rest). New pure module `src/engine/paceSplit.ts`
+(`splitPaceBuckets`, `expansionShipsOf`): realized profit on sales and the fuel and jumps of ships whose role is trader make the
+trading rate; fuel and jumps of every other role (keepers, explorers, tours) are expansion. Trading plus expansion equals the old
+figure. `Store.tradingPaceSplitBuckets` feeds `/api/dashboard` (`pace` is now trading only, new `paceExpansion`), and Tower's
+headline tile shows "Expansion .../hr - all-in .../hr" under it. The notifier (`notify/live.ts`) still uses the combined rate.
+Tests: `tests/paceSplit.test.ts`, `tests/paceSplitStore.test.ts`.
+
 ## 2026-11-05 — Thin markets: trips sized for a steep price fall (clauses thinMarketSellImpactPct, thinMarketMaxLots, on)
 
 Two big losses this week came from one pattern: a full hold of a dear good sold into a market that takes only a few units a

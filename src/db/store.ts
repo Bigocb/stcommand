@@ -1,4 +1,5 @@
 import { chunks } from "../engine/changeTracker.js";
+import { splitPaceBuckets, type PaceRow, type SplitBuckets } from "../engine/paceSplit.js";
 import type { DeliveryState, NotifyPrefs } from "../engine/notify/types.js";
 import type { PushSubscriptionRow } from "../engine/notify/store.js";
 import { shipLedgerEvent } from "../engine/shipLedgerEvent.js";
@@ -1251,6 +1252,24 @@ export class Store {
       }
       return out.map((v) => Math.round(v));
     });
+  }
+
+  /**
+   * The same buckets as tradingPaceBuckets(), split into trading and expansion (engine/paceSplit.ts): fuel and jumps paid by
+   * the ships in `expansionShips` are reported apart from what the traders earn. Trading plus expansion equals the old figure.
+   */
+  async tradingPaceSplitBuckets(tenantId: string, hours: number, bucketMinutes: number, expansionShips: ReadonlySet<string>): Promise<SplitBuckets> {
+    const size = bucketMinutes * 60_000;
+    const count = Math.ceil((hours * 3600_000) / size);
+    const start = Date.now() - count * size;
+    const rows = await withTenant(this.pool, tenantId, async (c) => {
+      const res = await c.query<{ timestamp: Date; type: "SELL" | "REFUEL" | "JUMP"; ship_symbol: string; realized_pnl: number | null; total: number }>(
+        `SELECT timestamp, type, ship_symbol, realized_pnl, total FROM ledger WHERE timestamp >= $1 AND type IN ('SELL', 'REFUEL', 'JUMP')`,
+        [new Date(start).toISOString()],
+      );
+      return res.rows.map((r): PaceRow => ({ timestampMs: r.timestamp.getTime(), type: r.type, shipSymbol: r.ship_symbol, realizedPnl: r.realized_pnl === null ? null : Number(r.realized_pnl), total: Number(r.total) }));
+    });
+    return splitPaceBuckets(rows, start, size, count, expansionShips);
   }
 
   /** Records one credits-plus-holds sample for the tenant (see migrations/046_wealth_samples.sql). */
