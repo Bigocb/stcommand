@@ -6,6 +6,20 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-05 — Keeper purchases priced from what we last paid, not a stale yard reading
+
+Staging AR4, HH6 and JK34 (22:59-23:08) bought 25 keeper probes at X1-SQ43-ZZ6Z for delivery. Every one was logged "for 24089
+credits", the yard's stored snapshot, while each purchase raised the real price: the ledger shows 46,393 rising to 96,476, about
+1.5M in all. The auto-approve cap (`autoApproveKeeperProbes` 60,000) compared against the 24,089 reading, so it never stopped them,
+and the cheapest-yard pick never saw SQ43 getting dear. A yard's snapshot is only re-read when a ship docks there (at most every 30
+minutes), so a burst at one yard always looked as cheap as its first purchase.
+
+New pure module `src/engine/keeperYardPrice.ts`: the price of a keeper hull at a yard is the stored price or the last price we
+actually paid there for that hull in the past hour, whichever is higher. `FleetManager.purchaseKeeperProbe()` records each
+purchase's transaction price, and the keeper-for-market path prices its yards through the rule, so the cap stops a burst once the
+price passes it (a card is raised instead) and the yard picker moves to a cheaper yard. The purchase log line now says the price is
+"by our last reading". Tests: `tests/keeperYardPrice.test.ts` (the rule, and the purchase recording what it paid).
+
 ## 2026-11-05 — A failed leftover sale no longer loops every tick
 
 THEO-1 was assigned a MEDICINE contract buy and, on its way to NA63, sat at the X1-QF29-E24B jump gate from about 21:09 to 22:23 with
