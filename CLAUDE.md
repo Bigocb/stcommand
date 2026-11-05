@@ -391,6 +391,13 @@ fail on a clean checkout (fixtures whose fake `api` lacks methods the `FleetMana
 The test role bypasses row-level security, so one tenant's query can see other tenants' rows: filter to your own ship symbols. To check a change,
 compare the failing subtests before and after (`git worktree add /tmp/base <commit>`, symlink `node_modules`, copy `.env.test`), not the count.
 
+## Week journal: read it first, write to it as you go
+
+`docs/journal/<reset date>.md` (format in `docs/journal/README.md`) is the running record of the current week: decisions, standing
+operator rules, issues and their causes, live fleet actions, findings and open threads. Operator request (2026-11-05). Read the
+current week's file at the start of a session and after any summary, before acting on the fleet, and append to it as things happen,
+not only for code changes. Code changes still get a `CHANGELOG.md` entry; the journal links to it.
+
 ## Docs to keep current
 
 - `docs/TODO.md` — open items; move a closed one to `CHANGELOG.md`
