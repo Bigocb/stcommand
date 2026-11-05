@@ -6,6 +6,10 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-05 — Routes that buy and sell at the same market are dropped
+
+Traders were being handed routes whose buy waypoint and sell waypoint were the same market (THEO-22 `X1-NK98-D12D>X1-NK98-D12D` MICRO_FUSION_GENERATORS lost 855,816 in two hours; earlier THEO-44 `X1-PY72-DD5D` -104,600 and THEO-1 `X1-BG56-G55` -193,421). Such a "trade" only pays the spread, fuel and time. `RouteDispatcher.recompute` (`src/engine/dispatcher.ts`) now drops any route with `buyAt === sellAt` before every other rule, logs it, and lists it in the dispatch-explain held list with the reason "buy and sell are the same market". The single-ship arbitrage finder in `agent.ts` already skipped its own market. Test: `tests/dispatcherSameMarket.test.ts`.
+
 ## 2026-11-03 — Deck: Compare and Queue scroll
 
 Deck's Compare screen could not be scrolled to its lower charts and table. Every Deck view sits in a `.content` box that clips (`overflow:hidden`), and only Metrics, Explorers and Systems had a rule that lets the page scroll. Compare, and the Queue screen added this week, now get the same rule: the view scrolls and its root does not shrink, so charts keep their size. CSS only (`public/deck.css`); a hard refresh picks it up.

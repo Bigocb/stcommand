@@ -1106,6 +1106,14 @@ export class RouteDispatcher {
     const hold = (r: { good: string; buyAt: string; sellAt: string }, reason: string): void => {
       if (held.length < 200) held.push({ good: r.good, buyAt: r.buyAt, sellAt: r.sellAt, reason });
     };
+    // A route that buys and sells at the same waypoint is not a trade: it pays the spread, the fuel and the lost time for
+    // nothing (THEO-22 X1-NK98-D12D>X1-NK98-D12D lost 855,816 in two hours). Dropped before any other rule sees it.
+    const sameMarket = routes.filter((r) => r.buyAt === r.sellAt);
+    if (sameMarket.length > 0) {
+      for (const r of sameMarket) hold(r, "buy and sell are the same market");
+      this.logger(`[dispatcher] ${sameMarket.length} same-market route(s) dropped (${[...new Set(sameMarket.map((r) => r.buyAt))].slice(0, 4).join(", ")})`);
+      routes = routes.filter((r) => r.buyAt !== r.sellAt);
+    }
     if (this.gatedSystems.size > 0) {
       for (const r of routes) {
         const g = this.gatedSystems.has(r.buySystem) ? r.buySystem : this.gatedSystems.has(r.sellSystem) ? r.sellSystem : undefined;
