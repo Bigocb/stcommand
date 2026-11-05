@@ -583,6 +583,40 @@ export class Store {
     return f.universe ? withTenantUniverse(this.pool, tenantId, f.universe, read) : withTenant(this.pool, tenantId, read);
   }
 
+  /**
+   * The ledger rolled up per time bucket in SQL, so a whole finished week comes back in a few hundred rows instead of the 300-row
+   * cap of `opsLedger` (ops `profit_curve`). Sells, units, matched profit and the ships that sold; purchases, jumps/fuel and ships
+   * bought; the last wallet balance seen in the bucket. `universe` reads a named past week, as `opsLedger` does.
+   */
+  async opsLedgerBuckets(tenantId: string, f: { sinceIso: string; untilIso?: string; bucketMin: number; universe?: string }): Promise<{
+    bucket: Date; sells: number; units: number; pnl: number; revenue: number; sellers: number; purchases: number; overhead: number; shipsBought: number; wallet: number | null;
+  }[]> {
+    const read = async (c: pg.PoolClient) => {
+      const size = Math.max(1, Math.round(f.bucketMin)) * 60;
+      const r = await c.query(
+        `SELECT to_timestamp(floor(extract(epoch FROM timestamp) / $1) * $1) AS bucket,
+                COUNT(*) FILTER (WHERE type = 'SELL')::int AS sells,
+                COALESCE(SUM(units) FILTER (WHERE type = 'SELL'), 0) AS units,
+                COALESCE(SUM(realized_pnl) FILTER (WHERE type = 'SELL' AND realized_pnl IS NOT NULL), 0) AS pnl,
+                COALESCE(SUM(total) FILTER (WHERE type = 'SELL'), 0) AS revenue,
+                COUNT(DISTINCT ship_symbol) FILTER (WHERE type = 'SELL')::int AS sellers,
+                COALESCE(SUM(total) FILTER (WHERE type = 'PURCHASE'), 0) AS purchases,
+                COALESCE(SUM(total) FILTER (WHERE type IN ('JUMP', 'REFUEL')), 0) AS overhead,
+                COUNT(*) FILTER (WHERE type = 'SHIP')::int AS ships_bought,
+                (array_agg(wallet_after ORDER BY timestamp DESC) FILTER (WHERE wallet_after IS NOT NULL))[1] AS wallet
+         FROM ledger WHERE timestamp >= $2 AND timestamp < $3
+         GROUP BY 1 ORDER BY 1 ASC`,
+        [size, f.sinceIso, f.untilIso ?? "infinity"],
+      );
+      return r.rows.map((x: any) => ({
+        bucket: new Date(x.bucket), sells: x.sells, units: Number(x.units), pnl: Math.round(Number(x.pnl)), revenue: Math.round(Number(x.revenue)),
+        sellers: x.sellers, purchases: Math.round(Number(x.purchases)), overhead: Math.round(Number(x.overhead)), shipsBought: x.ships_bought,
+        wallet: x.wallet == null ? null : Number(x.wallet),
+      }));
+    };
+    return f.universe ? withTenantUniverse(this.pool, tenantId, f.universe, read) : withTenant(this.pool, tenantId, read);
+  }
+
   /** Every PURCHASE and SELL since `sinceIso`, oldest first, for the ops `deadhead` tool (engine/deadhead.ts). */
   async opsTradeRows(tenantId: string, sinceIso: string): Promise<{ ship_symbol: string; type: string; units: number; timestamp: Date; total: number; realized_pnl: number | null }[]> {
     return withTenant(this.pool, tenantId, async (c) => {
