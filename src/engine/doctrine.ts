@@ -164,6 +164,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "arrivalSurveyMaxAgeMin",
+    name: "Skip the market survey on arrival when it adds nothing",
+    description: "Every jump by a tour ship, explorer or keeper delivery used to read every market and shipyard in the system it arrived in (20 to 25 calls in a big system), even when keepers already read them or the system was surveyed minutes ago; on 2026-11-05 that was a fifth of the API budget. With this on, an arrival in a system with keepers, or one surveyed within this many minutes, loads only its waypoints and gates. Off: every arrival surveys, as before. Takes effect at once.",
+    value: 60, min: 5, max: 1440, step: 5, unit: " min",
+    enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
     key: "routeSoonFreeMin",
     name: "Plan the next route for ships about to finish",
     description: "Route matching only saw idle ships, so a big hull due free in two minutes could not be saved for the best route and a small idle ship took it. With this on, a loaded ship flying the last leg of its trip to its sell market, and due free within this many minutes, joins the matching at that market. When it is the best fit for one of the top routes, that route is held back from the idle ships this cycle and the ship is matched first when it frees up. Same-system routes only for now. Needs Best ship for the best routes on. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",

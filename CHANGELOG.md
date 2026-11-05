@@ -6,6 +6,20 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-05 — No full market survey on arrival in a system keepers already read (clause arrivalSurveyMaxAgeMin, on)
+
+The fleet sat at the 90-call ceiling with about 350 ships, where last week ran close to 1,000 on the same limit. The biggest single
+spender (ops `api_budget`, 19:15) was `GalaxyAtlas.surveyMarkets < FleetManager.surveySystem`: 19 calls a minute, 21% of the
+budget. `FleetManager.jumpShip()` surveyed every market and shipyard of the arrival system after each jump by a tour ship, explorer
+or keeper delivery (20 to 25 calls in BG56, PS31 or TN61), including passes straight through systems our keepers already read.
+With the explorers, tours and probe deliveries of the fresh-system push this ran dozens of times an hour, at a priority that left the
+keepers' own market reads waiting 9 to 15 seconds.
+
+New pure module `src/engine/arrivalSurvey.ts`: survey on arrival only when the system was never surveyed, or when no keeper is
+stationed there and its last survey is older than `arrivalSurveyMaxAgeMin` (60). Otherwise the arrival loads only waypoints and
+gates, which distances and the next hop need, and logs "arrived in X, no market survey (reason)". With the clause off, every arrival
+surveys as before. Tests: `tests/arrivalSurvey.test.ts` (the rule, plus the `jumpShip()` seam). Takes effect at the next restart.
+
 ## 2026-11-05 — A cooldown no longer closes a jump gate
 
 The hour fell to about 600k at 18:30-19:00 and the route list shrank to routes inside B91 and NA63. THEO-128 and THEO-13A at
