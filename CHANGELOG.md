@@ -6,6 +6,16 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-05 — Ops tool profit_curve: rebuild a week's profit curve
+
+Every week the money jumps around Thursday and Friday, and the operator wants to know which conditions allow it. The ledger tool
+stops at 300 rows, so a finished week's curve could not be rebuilt. `stcommand_ops_profit_curve` rolls the ledger up in SQL
+(`Store.opsLedgerBuckets`) and returns, per bucket (default an hour), matched profit, sells, ships that sold, units and profit per
+sell, profit per unit, jump and fuel cost, ships bought, cumulative profit and the wallet, plus per-day totals with the weekday and
+a one-line reading of whether fleet size, load size or price per unit moved. `resetDate` reads a finished week (with `agent` for
+another tenant), otherwise `sinceHours` of the current one. Pure module `src/engine/profitCurve.ts`, tests in
+`tests/profitCurve.test.ts`. Fresh-system count per bucket is not in the ledger and is not included.
+
 ## 2026-11-05 — Queued systems with no shipyard are dropped
 
 The explorer's shipyard minimum (`exploreMinShipyards`, operator rule of 2026-10-22) only judges systems found after it is on, and it had been switched off, so 84 of the 318 queued systems had no shipyard, and X1-CK56 (5 markets, no yard) was staged and released. The operator switched the clause back on 2026-11-05 and asked to dequeue the rest. The fresh-system check (every 5 minutes, `maybeManageFreshSystems`) now calls `pruneYardlessQueue()`, which forgets every SCOUTED, un-held system whose known waypoints hold fewer shipyards than the clause asks and marks it rejected so no explorer or surveyor queues it again. Staged, live and held systems are never dropped, and a system with an uncharted waypoint is kept (an uncharted waypoint hides its traits, so its yard may be there: 15 of the 84). The pure rule is `src/engine/queuePrune.ts` (`systemsToDrop`, tested in `tests/queuePrune.test.ts`); the clause off reproduces today's behaviour. Expect about 69 systems dropped on the first check after deploy, logged as one "fresh systems: dropped ..." line.

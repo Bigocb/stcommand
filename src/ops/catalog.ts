@@ -7,6 +7,7 @@ import { keeperSales, profitByGoodsCount } from "../engine/keeperSales.js";
 import { rivalActivity } from "../engine/rivalActivity.js";
 import { marketSpread } from "../engine/marketSpread.js";
 import { tradeTempo } from "../engine/tradeTempo.js";
+import { profitCurve } from "../engine/profitCurve.js";
 import { chartRewardReport } from "../engine/chartReward.js";
 import { summarizeUncharted } from "../engine/chartCheck.js";
 import { DEFAULT_CANDIDATE_POLICY } from "../engine/systems/candidates.js";
@@ -163,6 +164,22 @@ export const OPS_TOOLS: OpsTool[] = [
       const sinceIso = a.resetDate ? `${a.resetDate}T00:00:00.000Z` : iso(ctx.now() - a.sinceHours * 3_600_000);
       const rows = await ctx.w.store.opsLedger(ctx.w.tenantId, { ship: a.ship, good: a.good, type: a.type, waypoint: a.waypoint, sinceIso, limit: Math.min(a.limit, 300), universe, oldestFirst: a.oldestFirst });
       return { returned: rows.length, ...(universe ? { universeKey: universe } : {}), rows };
+    },
+  },
+
+  {
+    name: "profit_curve",
+    title: "Profit curve: matched profit per bucket for a window or a whole finished week",
+    description:
+      "The ledger rolled up in SQL, so a whole week fits (the ledger tool stops at 300 rows). Per bucket (default 60 minutes): matched profit, sells, ships that sold, units and profit per sell, profit per unit, jump and fuel cost, ships bought, cumulative profit and the wallet. `days` totals each day with its weekday, so a Thursday/Friday step shows at once and `reading` says which of fleet size, load size or price per unit moved. resetDate (e.g. 2026-10-18) reads that finished week, with agent for another tenant on the box; without it, sinceHours of the current week. Read-only.",
+    input: { sinceHours: num(24), bucketMin: num(60), resetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() },
+    async run(ctx, a) {
+      const universe = a.resetDate ? universeKey(ctx.w.agentSymbol, a.resetDate) : undefined;
+      if (a.resetDate && !universe) throw new Error("resetDate must look like 2026-10-11 (the day the week began)");
+      const bucketMin = Math.min(Math.max(Math.round(a.bucketMin), 5), 1440);
+      const sinceIso = a.resetDate ? `${a.resetDate}T00:00:00.000Z` : iso(ctx.now() - Math.min(Math.max(a.sinceHours, 1), 24 * 14) * 3_600_000);
+      const buckets = await ctx.w.store.opsLedgerBuckets(ctx.w.tenantId, { sinceIso, bucketMin, universe });
+      return { since: sinceIso, bucketMin, ...(universe ? { universeKey: universe } : {}), ...profitCurve(buckets, bucketMin) };
     },
   },
 
