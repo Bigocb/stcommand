@@ -127,6 +127,7 @@ import { learnImpact, type ImpactPolicy, type Learned } from "./lotImpact.js";
 import { routeOutsideReach, systemOfWaypoint, type ShipReach } from "./shipReach.js";
 import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
 import { DEFAULT_MATCH_POLICY, holdShare, matchShips, type MatchPolicy } from "./matching.js";
+import { routeFit, type FitPolicy } from "./routeFit.js";
 import { DEFAULT_SPEED_POLICY, scaleSeconds, speedGain, speedReason, type SpeedPolicy } from "./shipSpeed.js";
 import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
 import { goodOfKey, type DispatchExplainSnapshot, type ExplainHeld, type ExplainRejection, type ExplainRoute, type ExplainTrader } from "./dispatchExplain.js";
@@ -1059,7 +1060,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; spacingAutoPct?: number; marketRecoveryMin?: number; routeBlockMin?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; spacingAutoPct?: number; marketRecoveryMin?: number; routeBlockMin?: number; fitMinTrip?: number; fitBigHold?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -1514,6 +1515,8 @@ export class RouteDispatcher {
     work.sort((a, b) => b.profitPerTrip - a.profitPerTrip);
     // Per-ship reasons for dispatch_explain: every work item an idle trader was checked against and turned down, and why.
     const explainRejections = new Map<string, ExplainRejection[]>();
+    const fitFallbacks = new Map<string, string>();
+    const fitPolicy: FitPolicy = { bigHold: tuning?.fitBigHold ?? 0, minTrip: tuning?.fitMinTrip ?? 0 };
 
     let leavingHome = 0;
     // Units already promised to each (buy market, good) THIS cycle. The ask in
@@ -1936,6 +1939,8 @@ export class RouteDispatcher {
         }
       }
       const scoredItems: (typeof work)[number][] = [];
+      // Routes too small a prize for this hull (routeFit.ts): kept apart, the best of them taken only when nothing that fits is left.
+      const unfit: { w: (typeof work)[number]; score: number; reason: string }[] = [];
       for (const w of work) {
         // A ship already on its planned second leg is not scored against the rest: say so for each route it was passed over.
         if (leg2Served) {
@@ -1959,6 +1964,11 @@ export class RouteDispatcher {
         if (holder !== undefined && holder !== t.shipSymbol) { noteRejected(w, "held for another ship's circuit"); continue; }
         const scored = scoreItem(w);
         if (!scored) { noteRejected(w, whyRejected(w)); continue; }
+        // Contract and one-sided work is judged on its own terms; only trading routes face the prize minimum.
+        const fit = slot === 0 && w.contractGood === undefined && w.buyAt !== undefined && w.sellAt !== undefined
+          ? routeFit(w.profitPerTrip * holdShare(w, t.capacity), t.capacity, fitPolicy)
+          : { ok: true as const };
+        if (!fit.ok) { unfit.push({ w, score: scored.score, reason: fit.reason ?? "too small a prize for this hull" }); continue; }
         scoredItems.push(w);
         let score = scored.score;
         let followOn: FollowOn | undefined;
@@ -1979,6 +1989,15 @@ export class RouteDispatcher {
         if (score > bestScore) { bestScore = score; item = w; itemFollowOn = followOn; itemCircuit = circuit; }
       }
       for (const w of scoredItems) if (w !== item) noteRejected(w, `outscored by ${item?.key ?? "nothing"}`);
+      // Nothing that fits this hull was left: take the best route that does not, rather than idle it.
+      if (!item && unfit.length > 0) {
+        const best = unfit.reduce((a, b) => (b.score > a.score ? b : a));
+        item = best.w;
+        bestScore = best.score;
+        fitFallbacks.set(t.shipSymbol, `no route met the minimum for this hull; took ${best.w.key} (${best.reason})`);
+        log?.(`dispatch fit: ${t.shipSymbol} found no route that fits its ${t.capacity}-unit hold; fallback ${best.w.key} — ${best.reason}`);
+      }
+      for (const u of unfit) if (u.w !== item) noteRejected(u.w, u.reason);
       if (item && crossSystem?.enabled && crossSystem.homeSystem !== undefined && t.system === crossSystem.homeSystem && item.buySystem !== undefined && item.buySystem !== t.system) {
         leavingHome += 1;
       }
@@ -2069,6 +2088,7 @@ export class RouteDispatcher {
           : `${a.good}:${a.role}`;
         return {
           ship: t.shipSymbol, system: t.system, waypoint: t.waypoint, busy: t.busy === true, assigned,
+          ...(fitFallbacks.has(t.shipSymbol) ? { fitFallback: fitFallbacks.get(t.shipSymbol) } : {}),
           rejected: explainRejections.get(t.shipSymbol) ?? [],
         };
       }),

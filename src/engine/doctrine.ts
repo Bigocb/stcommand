@@ -150,6 +150,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "routeFitMinTrip",
+    name: "Keep big hulls off small routes",
+    description: "A hull with a big hold (see Big hull size) is only handed a route that pays at least this much a trip at ITS hold. Smaller hulls are not restricted. A route below the minimum is a fallback, not a ban: the ship takes the best route that meets it, and only when none does, the best one that does not, so a big hull never idles on account of this rule. Ore and fuel runs worth 1,000 to 4,000 a trip sat on 225-unit hulls while 30,000 to 50,000 routes went unclaimed (2026-11-05). Every refusal shows in dispatch_explain with its reason. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",
+    value: 10000, min: 1000, max: 200000, step: 1000, unit: " credits a trip",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "routeFitBigHold",
+    name: "Big hull size",
+    description: "The hold size from which a hull counts as big for Keep big hulls off small routes. 150 covers the Heavy and Bulk Freighters; the 80-unit hulls and smaller are never restricted. Does nothing while that clause is off. Takes effect on the next dispatch recompute.",
+    value: 150, min: 40, max: 500, step: 10, unit: " units",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "routeSoonFreeMin",
     name: "Plan the next route for ships about to finish",
     description: "Route matching only saw idle ships, so a big hull due free in two minutes could not be saved for the best route and a small idle ship took it. With this on, a loaded ship flying the last leg of its trip to its sell market, and due free within this many minutes, joins the matching at that market. When it is the best fit for one of the top routes, that route is held back from the idle ships this cycle and the ship is matched first when it frees up. Same-system routes only for now. Needs Best ship for the best routes on. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",
