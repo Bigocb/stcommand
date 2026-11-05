@@ -36,6 +36,8 @@ export interface ExplainTrader {
   busy: boolean;
   /** The work key this trader was assigned this cycle, if any. */
   assigned?: string;
+  /** Set when the assignment is the route-fit fallback: no route met the minimum for this hull, so it took the best one that did not. */
+  fitFallback?: string;
   /** Every route this trader was checked against (idle traders only), one reason each. */
   rejected: ExplainRejection[];
 }
@@ -103,6 +105,7 @@ export function selectExplain(snap: DispatchExplainSnapshot, f: ExplainFilter = 
         waypoint: t.waypoint,
         busy: t.busy,
         assigned: t.assigned,
+        ...(t.fitFallback !== undefined ? { fitFallback: t.fitFallback } : {}),
         rejectedCount: t.rejected.length,
         rejected,
       };

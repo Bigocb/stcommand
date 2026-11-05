@@ -6,6 +6,17 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-05 — Keep big hulls off small routes (clause routeFitMinTrip, off by default)
+
+With the hour falling, the 225-unit Heavy Freighters were handed ore and fuel routes worth 1,000 to 4,000 a trip (THEO-12D: 26k in an hour on 18 sells)
+while 30,000 to 50,000 routes sat unclaimed because they score lower on distance. The operator pinned two by hand and asked for the engine to know which ships a
+route suits. `src/engine/routeFit.ts` (pure): a hull with a hold of `routeFitBigHold` (default 150) or more takes a trading route only when it pays at least
+`routeFitMinTrip` credits a trip at THAT hull's hold; smaller hulls and contract or one-sided work are not restricted. A route below the minimum is a
+fallback, not a ban: the dispatcher hands the hull the best route that fits, and only when none does the best one that does not, so a heavy never idles on
+account of the rule. `dispatch_explain` shows each refusal ("too small a prize for a 225-unit hull: 4344 a trip, needs 10000") and a `fitFallback` line on a
+ship that took the fallback; the dispatch log gets a "dispatch fit" line. Clause off (the default) or a minimum of 0 reproduces the old behaviour. Tests:
+`tests/routeFit.test.ts` (the module, and the dispatcher seam: fits, fallback, explain, small hulls untouched, clause off).
+
 ## 2026-11-05 — MCP tool unstage_system
 
 A staged system could be taken back to scouted only by the engine in auto mode (`FleetManager.unstageSystem`), so in advisory mode (`freshGate` 1) the engine could advise
