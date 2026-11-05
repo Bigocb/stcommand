@@ -1339,6 +1339,28 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_unstage_system",
+    {
+      title: "Unstage a fresh system (take it back to scouted)",
+      description: "Take a staged system back to scouted: its markets come off the keeper list unless they already have a keeper, and traders still get no routes through it. Keepers already bought for it stay where they are (park or scrap them separately). Use it when a staged system cannot be reached or was staged by mistake; the engine does this itself only in auto mode. Works only on a staged system.",
+      inputSchema: { system: z.string().describe("System symbol, e.g. X1-ZZ69"), reason: z.string().optional().describe("Why, for the log (default: operator)") },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ system, reason }) => {
+      try {
+        const before = w.fleet.systemQueueEntry(system);
+        if (!before) throw new Error(`${system} is not in the queue`);
+        if (before.state !== "staged") throw new Error(`${system} is ${before.state}, not staged`);
+        await w.fleet.unstageSystem(system, reason ?? "operator");
+        await recordMcpAction(w, "unstage_system", undefined, `${system} unstaged`, { system });
+        return textResult({ ok: true, system, state: w.fleet.systemQueueEntry(system)?.state ?? "scouted" });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_hold_system",
     {
       title: "Hold or unhold a queued system",
