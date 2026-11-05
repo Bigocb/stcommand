@@ -24,6 +24,7 @@ import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard
 import { blockGood as addBlockedGood, blockedSet, parseBlocked, unblockGood as removeBlockedGood, type BlockedGood } from "./blockedGoods.js";
 import { parseSpaced, spaceRoute as addSpacedRoute, unspaceRoute as removeSpacedRoute, type SpacedRoute } from "./tripSpacing.js";
 import { arrivalSurvey } from "./arrivalSurvey.js";
+import { keeperYardPrice, yardPaidKey, type PaidPrice } from "./keeperYardPrice.js";
 import { goodsFromRows, keeperBudget, marketKeeperScore, median, orderForBuying, type ScoreContext } from "./keeperValue.js";
 import { OFF_POLICY as TRIAGE_OFF_POLICY, reviewParked, triageKeepers, type TriagePolicy } from "./keeperTriage.js";
 import { Reminders } from "./reminders.js";
@@ -527,6 +528,9 @@ export class FleetManager {
   private keepers = new Map<string, ShipAgent>();
   /** Keeper ship → market it polls. Mutable so the fleet can reassign keepers. */
   private keeperMarkets = new Map<string, string>();
+  /** What the last keeper hull bought at each yard really cost (keeperYardPrice.ts): purchases raise the price faster than snapshots catch it. */
+  private keeperYardPaid = new Map<string, PaidPrice>();
+  private static readonly KEEPER_YARD_PAID_MS = 60 * 60_000;
   /** Every trader's open positions, by ship symbol then good — bulk-loaded
    *  from `held_route` at init() and consulted by traderOptions() to seed
    *  each TraderAgent's initialHeldRoutes. See init()'s own comment. */
@@ -7940,7 +7944,7 @@ export class FleetManager {
     }
     let res;
     try {
-      this.log(`purchasing ${hull} at ${waypointSymbol} for ${price} credits (destined for ${targetMarket})`);
+      this.log(`purchasing ${hull} at ${waypointSymbol} for ${price} credits by our last reading (destined for ${targetMarket})`);
       try {
         res = await this.api.purchaseShip(hull as Parameters<typeof this.api.purchaseShip>[0], waypointSymbol);
       } catch (err) {
@@ -7964,6 +7968,7 @@ export class FleetManager {
     // market (2026-10-08, and again in the 2026-10-31 review). Each step is guarded on its own; only the role pin decides whether the
     // market is held back, because an unpinned hull leaves the market uncovered.
     const bought = res.ship.symbol;
+    this.keeperYardPaid.set(yardPaidKey(waypointSymbol, hull), { price: res.transaction.price, at: Date.now() });
     try {
       this.recordLedger?.({
         timestamp: new Date().toISOString(),
@@ -11204,7 +11209,11 @@ export class FleetManager {
    */
   /** A yard the fleet has seen (shipyard_inventory) in this system or one completed gate away: the fallback when the galaxy table's waypoint traits show none (see storedYardFor). */
   private async storedShipyardForSale(systemSymbol: string): Promise<string | undefined> {
-    const yards = (await this.store?.shipyardInventory()) ?? [];
+    const now = Date.now();
+    const yards = ((await this.store?.shipyardInventory()) ?? []).map((y) => ({
+      ...y,
+      purchasePrice: keeperYardPrice(y.purchasePrice, this.keeperYardPaid.get(yardPaidKey(y.waypointSymbol, y.shipType)), now, FleetManager.KEEPER_YARD_PAID_MS),
+    }));
     if (!yards.length) return undefined;
     const adjacent = this.galaxy.connectedSystems(systemSymbol).filter((c) => this.galaxy.canJump(systemSymbol, c));
     return storedYardFor(systemSymbol, yards, adjacent);
