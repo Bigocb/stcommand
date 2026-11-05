@@ -282,6 +282,8 @@ const FLOOR_HOLD_RECHECK_MS = 60_000;
 
 /** A leftover lot worth at least this many credits is never jettisoned after a failed sale; it is held until a market takes it. */
 const JETTISON_MAX_VALUE = 1_000;
+/** How long the leftover sweep leaves a good alone after its sale failed and it was too valuable to jettison. */
+const LEFTOVER_SALE_RETRY_MS = 10 * 60_000;
 const HALT_POLL_MS = 1_000;
 
 /**
@@ -1303,6 +1305,8 @@ export class TraderAgent {
   private floorRedirectTried = new Map<string, Set<string>>();
   /** Held below the floor: when the market may be read again, and the last hold line said (so it is not repeated every tick). */
   private floorRecheckAt = new Map<string, number>();
+  /** Goods whose leftover sale just failed with nothing jettisoned: the sweep leaves them alone until then (LEFTOVER_SALE_RETRY_MS). */
+  private leftoverRetryAt = new Map<string, number>();
   private floorHoldNoted = new Map<string, { at: number; live: number }>();
 
   /** Re-pins a held lot to another reachable market that clears the loss floor (floorRedirect.ts). True when it moved. */
@@ -2025,7 +2029,10 @@ export class TraderAgent {
       this.heldRoute.delete(good); this.floorRedirectTried.delete(good);
       await this.clearPersistedHeldRoute?.(good);
     }
-    const leftover = (this.ship.cargo.inventory ?? []).filter((i) => i.units > 0 && !protectedGoods.has(i.symbol));
+    const now = Date.now();
+    const leftover = (this.ship.cargo.inventory ?? []).filter(
+      (i) => i.units > 0 && !protectedGoods.has(i.symbol) && now >= (this.leftoverRetryAt.get(i.symbol) ?? 0),
+    );
     if (leftover.length === 0) return undefined;
     const item = leftover[0]!;
     // Cargo bought a moment ago for an active route is not "leftover".
@@ -2172,8 +2179,12 @@ export class TraderAgent {
       // Only throw away what is cheap; anything worth real money is held until a market that takes it is reached.
       const unit = this.heldCost.get(item.symbol) ?? this.priceTable.get(this.ship.nav.waypointSymbol)?.get(item.symbol)?.sell ?? this.bestSell(item.symbol, this.ship.nav.systemSymbol)?.sell ?? 0;
       if (unit * stillHeld >= JETTISON_MAX_VALUE) {
-        this.log(`holding ${stillHeld}u ${item.symbol} (~${Math.round(unit * stillHeld)}c): sale failed at ${this.ship.nav.waypointSymbol} (${err instanceof Error ? err.message : String(err)}) — not jettisoning`);
-        return true;
+        // Back off and let the ship get on with its work. Ending the tick here retried the same failed sale every few seconds
+        // for ever: THEO-1 sat at the X1-QF29-E24B jump gate (which buys no MEDICINE) from about 21:09 to 22:23 on 2026-11-05,
+        // two API calls a loop, about 18 a minute, while its contract run to NA63 never moved.
+        this.leftoverRetryAt.set(item.symbol, Date.now() + LEFTOVER_SALE_RETRY_MS);
+        this.log(`holding ${stillHeld}u ${item.symbol} (~${Math.round(unit * stillHeld)}c): sale failed at ${this.ship.nav.waypointSymbol} (${err instanceof Error ? err.message : String(err)}) — not jettisoning; leftover sweep skips it for ${LEFTOVER_SALE_RETRY_MS / 60_000} min`);
+        return undefined;
       }
       this.currentStep = { kind: "transacting", action: "jettison", good: item.symbol };
       const j = await this.api.jettisonCargo(this.symbol, item.symbol, stillHeld);
