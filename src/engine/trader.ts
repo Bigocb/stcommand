@@ -22,6 +22,7 @@ import { tripClosedEvent, tripId, tripPlannedEvent } from "./actionEvents.js";
 import { nextLotDecision } from "./lotGuard.js";
 import { sellFloor, belowSellFloor } from "./lossAllowance.js";
 import { nextBuyLotDecision, sinkCheckShrunk } from "./buyGuard.js";
+import { thinMarket, DEFAULT_THIN_POLICY, type ThinPolicy } from "./thinMarket.js";
 import { sizeTrip } from "./tripSize.js";
 import { withinHaulLimit } from "./haulLimit.js";
 import { CONTRACT_DELIVERY_BACKOFF_MS, isNoGatePathError } from "./contractReach.js";
@@ -165,6 +166,8 @@ export interface TraderOptions {
   /** Expected price move per lot, in percent (doctrine `buyGuardImpactPct`); 0 or undefined = the buy guards are off.
    *  Read live at each buy, so switching the clause off stops the market reads on the next trip. */
   buyGuardImpactPct?: () => number;
+  /** Thin-market policy (thinMarket.ts): caps a trip into a dear, few-units-a-trade market. Off when absent. */
+  thinPolicy?: () => ThinPolicy;
   /** This ship's own cap on units per buy call (its shipLotPolicy lotSize); undefined = the market's tradeVolume alone. Read live at each plan. */
   lotSizeCap?: () => number | undefined;
   /** This ship's reach (shipReach.ts): "system" keeps it to routes inside its own system. Read live at each plan. */
@@ -322,6 +325,7 @@ export class TraderAgent {
   private readonly marginFloor: number;
   private readonly maxLotsPerTrip: () => number;
   private readonly buyGuardImpactPct: () => number;
+  private readonly thinPolicy: () => ThinPolicy;
   private readonly lotSizeCap: () => number | undefined;
   private readonly reach: () => ShipReach | undefined;
   private readonly intelMaxAgeMin: () => number;
@@ -487,6 +491,7 @@ export class TraderAgent {
     this.marginFloor = opts.marginFloor ?? 10;
     this.maxLotsPerTrip = opts.maxLotsPerTrip ?? (() => MAX_LOTS_PER_TRIP);
     this.buyGuardImpactPct = opts.buyGuardImpactPct ?? (() => 0);
+    this.thinPolicy = opts.thinPolicy ?? (() => DEFAULT_THIN_POLICY);
     this.lotSizeCap = opts.lotSizeCap ?? (() => undefined);
     this.reach = opts.reach ?? (() => undefined);
     this.intelMaxAgeMin = opts.intelMaxAgeMin ?? (() => 90);
@@ -2631,7 +2636,10 @@ export class TraderAgent {
       // FOOD with far fewer credits in hand).
       let liveCredits = await this.spendableNow();
       const buyPrice = liveBuy ?? route.buyPrice;
-      const target = Math.max(0, Math.floor(Math.min(route.volume, this.ship.cargo.capacity - this.ship.cargo.units, sinkUnitsCap ?? Infinity)));
+      // A pinned or hand-set route skips the planner's sizing; the thin-market cap still applies to it (thinMarket.ts).
+      const thin = thinMarket({ volume: route.sellVolume ?? route.lotSize, price: sinkNow ?? route.sellPrice }, 0, this.thinPolicy());
+      if (thin.thin && thin.maxUnits < route.volume) this.log(`${route.good}: ${thin.reason}`);
+      const target = Math.max(0, Math.floor(Math.min(route.volume, this.ship.cargo.capacity - this.ship.cargo.units, sinkUnitsCap ?? Infinity, thin.maxUnits)));
       if (target <= 0) return true;
       // A single purchaseCargo() call is capped at the market's own
       // advertised trade volume per transaction (confirmed live: "SILVER has

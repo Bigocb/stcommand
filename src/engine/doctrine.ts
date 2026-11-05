@@ -374,6 +374,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "thinMarketSellImpactPct",
+    name: "Thin markets: plan for a steep price fall",
+    description: "A dear good whose sell market takes only a few units a trade (at most 20, at 10,000 or more a unit) falls far faster than the 4.5% a lot the route model assumes, and the learned impact only knows a market after we have sold into it. 2026-11-05: THEO-13A sold 72 VIRAL_AGENTS into X1-TN61-A1 (18 a trade) for 31,027, 25,902, 19,592 then 11,824 against a 26,138 cost, -292k, and 2026-10-30 THEO-EE lost about 729k on NOVEL_LIFEFORMS the same way. With this on, a trip into such a market is planned with at least this price move per lot and carries at most Thin markets: most lots of them. Off = as before. Takes effect on the next route plan.",
+    value: 15, min: 5, max: 50, step: 1, unit: "%",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "thinMarketMaxLots",
+    name: "Thin markets: most lots per trip",
+    description: "The most of a thin sell market's lots (see Thin markets: plan for a steep price fall) one trip may carry there. 3 at 18 a trade is 54 units. Does nothing while that clause is off.",
+    value: 3, min: 1, max: 10, step: 1, unit: " lots",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "lotImpactMaxFactor",
     name: "Learn price impact per market",
     description: "The route model charges every lot we trade a flat 4.5% move against us (measured on FAB_MATS 2026-10-05). Markets differ: on 2026-10-23 THEOREM-38 bought 80 NEURAL_CHIPS in 15-unit lots and the ask went 21,677 to 30,228 (about +6.8% a lot), then sold 75 and the bid went 31,832 to 19,464 (about -9.3% a lot); the route showed a 47% margin and the trip cleared about 107k. With this on, a market we have traded into in the last 4 hours is planned on the per-lot move our own last runs there measured (never below the 4.5% default, never above default x this value), and a trip is sized to the units where the spread stops paying for the impact instead of always taking the full lots allowed. Off (the default) = the flat 4.5% and the full lots, as before. Takes effect on the next route plan. See src/engine/lotImpact.ts.",
