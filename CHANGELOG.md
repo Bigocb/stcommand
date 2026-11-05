@@ -6,6 +6,24 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-05 — Thin markets: trips sized for a steep price fall (clauses thinMarketSellImpactPct, thinMarketMaxLots, on)
+
+Two big losses this week came from one pattern: a full hold of a dear good sold into a market that takes only a few units a
+trade. 2026-10-30 THEO-EE sold 90 NOVEL_LIFEFORMS at X1-ZV54-A1 from 8,085 down to 1 a unit (about -729k); 2026-11-05 THEO-13A
+sold 72 VIRAL_AGENTS into X1-TN61-A1 (18 a trade) at 31,027, 25,902, 19,592 and 11,824 against a 26,138 cost (-292k), the last 18
+then bid at 2,260. The route model sizes trips on a flat 4.5% fall per lot (measured on FAB_MATS at 20 a trade); the learned
+impact (`lotImpactMaxFactor`) only knows a market after we have sold there, and caps at 3x the default (13.5%), so the first
+trip into a thin market is always sized as if it were deep. Measured falls per lot: generators at SR93-A1 8-10%, NEURAL_CHIPS 9%,
+VIRAL_AGENTS 16-40%.
+
+New pure module `src/engine/thinMarket.ts`: a sell market is thin when it trades at most 20 units a transaction and the good sells
+for at least 10,000. A trip into one is planned with at least `thinMarketSellImpactPct` (15%) fall per lot, which the impact
+sizing then turns into a smaller trip, and carries at most `thinMarketMaxLots` (3) of its lots. Applied in the route build
+(`FleetManager`, before `sizeForImpact`) and again at the trader's purchase (`TraderAgent`), so a pinned or hand-set route is capped
+too. Cheap bulk goods at small lots (FAB_MATS) and deep markets (DRUGS at 35 a trade) are untouched. Both clauses ship on at the
+operator's request; off reproduces the old sizing. Tests: `tests/thinMarket.test.ts` (the rule, and the VIRAL_AGENTS trip sized
+with and without it: more than 54 units without, one or two lots with).
+
 ## 2026-11-05 — Keeper purchases priced from what we last paid, not a stale yard reading
 
 Staging AR4, HH6 and JK34 (22:59-23:08) bought 25 keeper probes at X1-SQ43-ZZ6Z for delivery. Every one was logged "for 24089

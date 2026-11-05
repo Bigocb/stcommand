@@ -25,6 +25,7 @@ import { blockGood as addBlockedGood, blockedSet, parseBlocked, unblockGood as r
 import { parseSpaced, spaceRoute as addSpacedRoute, unspaceRoute as removeSpacedRoute, type SpacedRoute } from "./tripSpacing.js";
 import { arrivalSurvey } from "./arrivalSurvey.js";
 import { keeperYardPrice, yardPaidKey, type PaidPrice } from "./keeperYardPrice.js";
+import { thinMarket, DEFAULT_THIN_POLICY, type ThinPolicy } from "./thinMarket.js";
 import { goodsFromRows, keeperBudget, marketKeeperScore, median, orderForBuying, type ScoreContext } from "./keeperValue.js";
 import { OFF_POLICY as TRIAGE_OFF_POLICY, reviewParked, triageKeepers, type TriagePolicy } from "./keeperTriage.js";
 import { Reminders } from "./reminders.js";
@@ -1639,6 +1640,7 @@ export class FleetManager {
       maxLotsPerTrip: () => effectiveMaxLots(this.maxLotsPerTrip(), this.shipLotPolicies.get(shipSymbol)),
       // Percent per lot; 0 when the clause is off, whatever its value says — the trader treats 0 as "guards off".
       buyGuardImpactPct: () => (this.doctrine.isEnabledOr("buyGuardImpactPct", false) ? this.doctrine.value("buyGuardImpactPct", 0) : 0),
+      thinPolicy: () => this.thinPolicy(),
       lotSizeCap: () => this.shipLotPolicies.get(shipSymbol)?.lotSize,
       reach: () => this.shipReach.get(shipSymbol),
       recordDoctrineFire: (key) => this.doctrine.recordFire(key, shipSymbol),
@@ -2440,6 +2442,7 @@ export class FleetManager {
     const spendable = this.spendableCredits();
     const maxLots = this.maxLotsPerTrip();
     const impactPolicy: ImpactPolicy = { ...DEFAULT_IMPACT_POLICY, maxAgeMs: 4 * 3_600_000, maxFactor: this.doctrine.isEnabledOr("lotImpactMaxFactor", false) ? this.doctrine.value("lotImpactMaxFactor", 0) : 0 };
+    const thinPolicy = this.thinPolicy();
     // Deliberately NOT filtered by gate reachability here: a "buy" or
     // "sell" assignment only needs its own side of the leg (buyAt, or
     // sellAt) to be reachable from the warehouse — not that buyAt and
@@ -2485,14 +2488,16 @@ export class FleetManager {
         // Our own measured price move per lot at these two markets (lotImpact.ts); the flat default with the clause off.
         const buyLearn = this.dispatcher.impactFor("buy", l.goodSymbol, l.buyAt, buyVolume, impactPolicy);
         const sellLearn = this.dispatcher.impactFor("sell", l.goodSymbol, l.sellAt, sellVolume, impactPolicy);
+        // A dear good in a market that takes a few units a trade crashes far faster than the default (thinMarket.ts).
+        const thin = thinMarket({ volume: sellVolume, price: l.sellPrice }, sellLearn.perLot, thinPolicy);
         const sized = sizeForImpact(
-          Math.max(0, Math.min(maxTraderCargo, affordable, l.volume * maxLots)),
-          { buyPrice: l.buyPrice, sellPrice: l.sellPrice, buyVolume, sellVolume, buyImpact: buyLearn.perLot, sellImpact: sellLearn.perLot },
+          Math.max(0, Math.min(maxTraderCargo, affordable, l.volume * maxLots, thin.maxUnits)),
+          { buyPrice: l.buyPrice, sellPrice: l.sellPrice, buyVolume, sellVolume, buyImpact: buyLearn.perLot, sellImpact: thin.sellImpact },
           impactPolicy,
         );
         const volume = sized.units;
         const buyImpact = buyLearn.perLot;
-        const sellImpact = sellLearn.perLot;
+        const sellImpact = thin.sellImpact;
         let fuelCost: number;
         let slippage: number;
         let profitPerTrip: number;
@@ -2585,6 +2590,16 @@ export class FleetManager {
     return this.routeBuild;
   }
   private routeBuild: { at: number; storedLegs: number; offered: number; dropped: Record<string, number>; sample: { reason: string; good: string; buyAt: string; sellAt: string; profitPerTrip?: number }[] } | undefined;
+
+  /** Thin-market policy from the doctrine (thinMarket.ts); off when the clause is off. */
+  private thinPolicy(): ThinPolicy {
+    return {
+      ...DEFAULT_THIN_POLICY,
+      enabled: this.doctrine.isEnabledOr("thinMarketSellImpactPct", false),
+      sellImpact: this.doctrine.value("thinMarketSellImpactPct", 15) / 100,
+      maxLots: this.doctrine.isEnabledOr("thinMarketMaxLots", true) ? this.doctrine.value("thinMarketMaxLots", 3) : DEFAULT_THIN_POLICY.maxLots,
+    };
+  }
 
   /** Keepers stationed on a market in `systemSymbol`. */
   private keepersInSystem(systemSymbol: string): number {
