@@ -6,6 +6,22 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-05 — A cooldown no longer closes a jump gate
+
+The hour fell to about 600k at 18:30-19:00 and the route list shrank to routes inside B91 and NA63. THEO-128 and THEO-13A at
+UP85 and THEO-129 at PJ53 sat idle with "no finished gate path ... within the jump limit" for every route, although PJ53's gate
+was finished and linked straight to NK98. The cause: `FleetManager.hopToward()` (the multi-hop walk tours, explorers and keeper
+deliveries use) caught any jump error and recorded the gate as unfinished. Its first jump after arriving almost always fails with
+"Ship action is still on cooldown" or "Ship is currently in-transit", so three explorers, THEO-1 and four probes flying to UX50
+closed 16 finished gates in an hour (NK98, BG56, AU66, SQ43, PS31, TN61, SR93, UP85, SH31, YY20, NC24, HJ75 and others) and cut the
+network into pieces. The more tours were sent out, the worse it got.
+
+`jumpShip()`, which `hopToward()` calls, already closes a gate when, and only when, the game says it is under construction, so the
+catch-all is gone. The explorer's own jump path in `shipProxy.ts` had the same catch-all and now uses `gateFromJumpRejection()`
+too. Tests in `tests/jumpRejectionFleet.test.ts` cover a cooldown, an in-transit refusal and a real construction rejection. After a
+restart the closed gates recover through the proven edges loaded from `galaxy_jump_costs`; without one, through the 5-minute
+construction re-read.
+
 ## 2026-11-05 — Keep big hulls off small routes (clause routeFitMinTrip, off by default)
 
 With the hour falling, the 225-unit Heavy Freighters were handed ore and fuel routes worth 1,000 to 4,000 a trip (THEO-12D: 26k in an hour on 18 sells)

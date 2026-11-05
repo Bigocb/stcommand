@@ -6,6 +6,7 @@ import type { Store } from "../db/store.js";
 import { type AgentStep, IDLE_STEP, NavigationPending, CooldownPending, Pending } from "./agentStep.js";
 import { chooseFlightMode, flightModeReason } from "./flightMode.js";
 import { supersedes, type ShipIntent } from "./intent.js";
+import { gateFromJumpRejection } from "./jumpRejection.js";
 
 export type Ship = components["schemas"]["Ship"];
 
@@ -866,7 +867,10 @@ export class ShipProxy {
         // with this live, authoritative rejection and abandon the goal so
         // the fleet re-decides next pass instead of hammering the same
         // gate — canJump() will exclude it going forward.
-        this.galaxy?.recordGateNotComplete(intent.goal.gate);
+        // Only a construction rejection closes a gate (jumpRejection.ts): a cooldown or in-transit refusal is not evidence that a
+        // gate is unfinished, and closing finished gates on those cut the network apart on 2026-11-05.
+        const flagged = gateFromJumpRejection(err instanceof Error ? err.message : String(err), { origin: intent.goal.gate, destination: intent.goal.remoteGate });
+        if (flagged) this.galaxy?.recordGateNotComplete(flagged);
         this.explorePhase.delete(key);
         this.exploreMarketIndex.delete(key);
         this.log(`explore: jump to ${intent.goal.system} via ${intent.goal.remoteGate} failed, abandoning: ${err instanceof Error ? err.message : String(err)}`);

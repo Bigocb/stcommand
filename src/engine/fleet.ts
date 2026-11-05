@@ -4839,12 +4839,11 @@ export class FleetManager {
       // scheduler-driven tour ship, nextTourTask()'s, which already
       // reschedules correctly at `err.resumeAt`).
       if (err instanceof Pending) throw err;
-      // Same reasoning as the explore path's own jump-failure handler
-      // (ShipProxy.runFleetDrivenGoal, JUMP phase): a live rejection is
-      // stronger evidence than any cached guess, and correcting the cache
-      // here is what lets the gateComplete() check above actually catch
-      // this next tick instead of retrying the identical doomed jump forever.
-      this.galaxy.recordGateNotComplete(remoteGate.symbol);
+      // No cache correction here: jumpShip() above already closes the gate the game names when, and only when, the rejection
+      // says "under construction". This catch used to close the gate on ANY error, so a cooldown or an in-transit refusal
+      // ("Ship action is still on cooldown for 131 second(s)") marked a finished hub gate unfinished. 2026-11-05: three explorers,
+      // THEO-1 and four keeper-delivery probes did that 16 times in an hour (NK98, BG56, AU66, SQ43, PS31, TN61, ...), cutting the
+      // gate network into pieces; the route list shrank to single systems and traders at PJ53 and UP85 found no path anywhere.
       this.log(`${shipSymbol}: hop to ${nextSystem} (toward ${targetSystem}) failed, will retry: ${err instanceof Error ? err.message : String(err)}`);
       return false;
     }

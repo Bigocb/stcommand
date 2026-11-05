@@ -52,3 +52,33 @@ describe("FleetManager.jumpShip: a live rejection corrects the cache", () => {
     assert.deepEqual(flagged, []);
   });
 });
+
+/** The multi-hop walk (tours, explorers, keeper deliveries) must not close a gate on a refusal that says nothing about the gate. */
+describe("FleetManager.hopToward: only a construction rejection closes a gate", () => {
+  async function hopRig(rejection: string) {
+    const { fleet, flagged } = await rig(rejection);
+    fleet.galaxy.jumpPath = () => ["X1-RB54", "X1-JM97", "X1-FG54"];
+    fleet.galaxy.loadSystem = async () => {};
+    fleet.galaxy.getSystem = () => ({ waypoints: [{ symbol: "X1-JM97-I57", type: "JUMP_GATE" }] });
+    fleet.galaxy.gateComplete = () => true;
+    return { fleet, flagged };
+  }
+
+  it("leaves the gate open when the ship is on cooldown (2026-11-05: 16 hub gates closed this way in an hour)", async () => {
+    const { fleet, flagged } = await hopRig("Ship action is still on cooldown for 131 second(s).");
+    assert.equal(await fleet.hopToward("S-1", "X1-FG54"), false);
+    assert.deepEqual(flagged, []);
+  });
+
+  it("leaves the gate open when the ship is still in transit", async () => {
+    const { fleet, flagged } = await hopRig("Ship is currently in-transit from X1-BG56-A2 to X1-BG56-I63 and arrives in 337 seconds.");
+    assert.equal(await fleet.hopToward("S-1", "X1-FG54"), false);
+    assert.deepEqual(flagged, []);
+  });
+
+  it("still closes the gate the game names as under construction", async () => {
+    const { fleet, flagged } = await hopRig("Failed to execute jump. Destination jump gate X1-JM97-I57 is under construction.");
+    assert.equal(await fleet.hopToward("S-1", "X1-FG54"), false);
+    assert.deepEqual(flagged, ["X1-JM97-I57"]);
+  });
+});
