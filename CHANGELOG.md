@@ -6,6 +6,13 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-05 — MCP tool unstage_system
+
+A staged system could be taken back to scouted only by the engine in auto mode (`FleetManager.unstageSystem`), so in advisory mode (`freshGate` 1) the engine could advise
+"no finished gate path to it and no keeper in place: back to scouted" (X1-PS31, staged by hand at 15:08) and the operator had no tool to act on it.
+`stcommand_unstage_system` calls the same method: the system returns to scouted and its markets leave the keeper list unless they already have a keeper. Keepers
+already bought stay where they are. Refuses a system that is not staged.
+
 ## 2026-11-05 — Ops tool profit_curve: rebuild a week's profit curve
 
 Every week the money jumps around Thursday and Friday, and the operator wants to know which conditions allow it. The ledger tool
