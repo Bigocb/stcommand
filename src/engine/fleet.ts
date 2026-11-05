@@ -23,6 +23,7 @@ import { OpeningRunnerImpl } from "./openingRunner.js";
 import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets } from "./keeperBuy.js";
 import { blockGood as addBlockedGood, blockedSet, parseBlocked, unblockGood as removeBlockedGood, type BlockedGood } from "./blockedGoods.js";
 import { parseSpaced, spaceRoute as addSpacedRoute, unspaceRoute as removeSpacedRoute, type SpacedRoute } from "./tripSpacing.js";
+import { arrivalSurvey } from "./arrivalSurvey.js";
 import { goodsFromRows, keeperBudget, marketKeeperScore, median, orderForBuying, type ScoreContext } from "./keeperValue.js";
 import { OFF_POLICY as TRIAGE_OFF_POLICY, reviewParked, triageKeepers, type TriagePolicy } from "./keeperTriage.js";
 import { Reminders } from "./reminders.js";
@@ -2581,6 +2582,13 @@ export class FleetManager {
   }
   private routeBuild: { at: number; storedLegs: number; offered: number; dropped: Record<string, number>; sample: { reason: string; good: string; buyAt: string; sellAt: string; profitPerTrip?: number }[] } | undefined;
 
+  /** Keepers stationed on a market in `systemSymbol`. */
+  private keepersInSystem(systemSymbol: string): number {
+    let n = 0;
+    for (const market of this.keeperMarkets.values()) if (market.startsWith(`${systemSymbol}-`)) n++;
+    return n;
+  }
+
   /** Refresh a system's waypoints, markets and shipyards (used after jumping/scouting). */
   async surveySystem(systemSymbol: string): Promise<void> {
     await this.galaxy.loadSystem(systemSymbol);
@@ -4464,7 +4472,18 @@ export class FleetManager {
     // already retries this same load every cycle for any system a ship
     // currently sits in, so this can fail safely and self-heal there.
     try {
-      await this.surveySystem(targetSystem);
+      // A system our keepers already read, or one surveyed recently, needs only its waypoints and gates (arrivalSurvey.ts).
+      const verdict = arrivalSurvey(
+        { surveyedAtMs: this.surveyedAt.get(targetSystem), keepers: this.keepersInSystem(targetSystem), now: Date.now() },
+        { enabled: this.doctrine.isEnabledOr("arrivalSurveyMaxAgeMin", true), maxAgeMs: this.doctrine.value("arrivalSurveyMaxAgeMin", 60) * 60_000 },
+      );
+      if (verdict.survey) {
+        await this.surveySystem(targetSystem);
+      } else {
+        await this.galaxy.loadSystem(targetSystem);
+        await this.galaxy.scanJumpGates(targetSystem);
+        this.log(`${shipSymbol}: arrived in ${targetSystem}, no market survey (${verdict.reason})`);
+      }
     } catch (err) {
       this.log(`survey of ${targetSystem} after jump failed, will retry next tick: ${err instanceof Error ? err.message : String(err)}`);
     }
