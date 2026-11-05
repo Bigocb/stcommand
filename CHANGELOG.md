@@ -6,6 +6,10 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-05 — Queued systems with no shipyard are dropped
+
+The explorer's shipyard minimum (`exploreMinShipyards`, operator rule of 2026-10-22) only judges systems found after it is on, and it had been switched off, so 84 of the 318 queued systems had no shipyard, and X1-CK56 (5 markets, no yard) was staged and released. The operator switched the clause back on 2026-11-05 and asked to dequeue the rest. The fresh-system check (every 5 minutes, `maybeManageFreshSystems`) now calls `pruneYardlessQueue()`, which forgets every SCOUTED, un-held system whose known waypoints hold fewer shipyards than the clause asks and marks it rejected so no explorer or surveyor queues it again. Staged, live and held systems are never dropped, and a system with an uncharted waypoint is kept (an uncharted waypoint hides its traits, so its yard may be there: 15 of the 84). The pure rule is `src/engine/queuePrune.ts` (`systemsToDrop`, tested in `tests/queuePrune.test.ts`); the clause off reproduces today's behaviour. Expect about 69 systems dropped on the first check after deploy, logged as one "fresh systems: dropped ..." line.
+
 ## 2026-11-05 — Routes that buy and sell at the same market are dropped
 
 Traders were being handed routes whose buy waypoint and sell waypoint were the same market (THEO-22 `X1-NK98-D12D>X1-NK98-D12D` MICRO_FUSION_GENERATORS lost 855,816 in two hours; earlier THEO-44 `X1-PY72-DD5D` -104,600 and THEO-1 `X1-BG56-G55` -193,421). Such a "trade" only pays the spread, fuel and time. `RouteDispatcher.recompute` (`src/engine/dispatcher.ts`) now drops any route with `buyAt === sellAt` before every other rule, logs it, and lists it in the dispatch-explain held list with the reason "buy and sell are the same market". The single-ship arbitrage finder in `agent.ts` already skipped its own market. Test: `tests/dispatcherSameMarket.test.ts`.

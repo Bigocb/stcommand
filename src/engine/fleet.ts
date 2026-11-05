@@ -36,6 +36,7 @@ import { bidKey, sellPriceVerdict, type BidStat } from "./priceSanity.js";
 import { ReadRate, rotationMin } from "./keeperThroughput.js";
 import { hourOf, hourlySnapshotEvent } from "./hourlySnapshot.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
+import { systemsToDrop } from "./queuePrune.js";
 import type { FleetState } from "./state.js";
 import { ShipSnapshotBoard, combineShipObservers, describeSnapshotSummary } from "./shipSnapshots.js";
 import { DEFAULT_SHIP_BOOK_POLICY, ShipBook, describeShipBookSummary } from "./shipBook.js";
@@ -6218,12 +6219,38 @@ export class FleetManager {
     if (timersChanged) await this.timers()?.save(now);
   }
 
+  /**
+   * Drop scouted systems with no shipyard from the queue and mark them rejected, so no explorer or surveyor queues them again
+   * (clause exploreMinShipyards, queuePrune.ts). Staged, live and held systems and ones with an uncharted waypoint are kept.
+   */
+  private async pruneYardlessQueue(): Promise<void> {
+    const min = this.doctrine.isEnabledOr("exploreMinShipyards", true) ? this.doctrine.value("exploreMinShipyards") : 0;
+    if (min <= 0) return;
+    const counts = new Map<string, { markets: number; shipyards: number }>();
+    const facts = this.systemQueue.list().map((q) => {
+      const wps = this.galaxy.getSystem(q.system)?.waypoints ?? [];
+      if (!wps.length) return { system: q.system, state: q.state, held: q.held };
+      const c = countWaypoints(wps);
+      counts.set(q.system, c);
+      return { system: q.system, state: q.state, held: q.held, shipyards: c.shipyards, uncharted: wps.filter((w) => w.traits.some((t) => t.symbol === "UNCHARTED")).length };
+    });
+    const drop = systemsToDrop(facts, min);
+    if (!drop.length) return;
+    for (const d of drop) {
+      this.systemQueue.forget(d.system);
+      await this.markSystemSurveyed(d.system, "rejected", counts.get(d.system));
+    }
+    this.freshNote(`dropped ${drop.length} scouted system(s) with no shipyard from the queue and marked them rejected (clause exploreMinShipyards): ${drop.slice(0, 5).map((d) => d.system).join(", ")}${drop.length > 5 ? ", …" : ""}`);
+    await this.saveFreshGate();
+  }
+
   private async maybeManageFreshSystems(): Promise<void> {
     const mode = this.freshGateMode();
     if (mode === "off" || !this.tenantId || !this.store) return;
     const now = Date.now();
     if (now - this.lastFreshCheckAt < 5 * 60_000) return;
     this.lastFreshCheckAt = now;
+    await this.pruneYardlessQueue();
     const all = this.systemQueue.list();
     if (!all.length) return;
     const policy = this.releasePolicy();
