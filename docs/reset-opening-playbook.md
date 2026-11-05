@@ -30,6 +30,57 @@ Without explorers (2026-10-29): keepers for systems whose own yard sells no keep
 `remoteSurveyIntake` queues the worth-covering ones. Explorers were parked on 2026-10-29 once that pipeline queued its first
 systems; see the CHANGELOG entries of that date.
 
+## Gate open in 18 hours, not 40-50: what the 2026-11-01 week showed (operator, 2026-11-05)
+
+**Why it matters.** The week's money came after the gate opened, not before: THEO (home X1-UZ49) made about 4.5M on day 1 and
+3.1M on day 2, then 12.6M and 43.6M once the gate was open and fresh systems could be released. Every hour the gate stays shut
+is an hour of that ramp lost. Other players report gates done overnight (about 16-18 hours, helped by two FAB_MATS markets).
+
+**What happened** (ledger, universe `THEO@2026-11-01`). The gate mission started within about an hour of the reset with a low
+price target. The gate needed 1,600 FAB_MATS and 400 ADVANCED_CIRCUITRY; the home system had one producer of each (X1-UZ49-F51
+and X1-UZ49-D47).
+
+| Material | Period | Pace | Price |
+| --- | --- | --- | --- |
+| FAB_MATS | 11-01 15:00 - 11-02 15:00 (24 h) | 20-40 units every 1-2 h, about 900 in all (about 30-40 an hour) | 1,280 -> 4,498 |
+| FAB_MATS | 11-02 15:06 - 20:06 | nothing bought for 5 hours (waiting for the price to come back) | |
+| FAB_MATS | 11-02 20:53 - 11-03 02:24 | 80 units every 30 min, 700 in 5.5 h (about 130 an hour) | 2,500 -> 5,400 |
+| ADVANCED_CIRCUITRY | 11-01 19:10 - 11-03 15:22 (44 h) | 20 units every 1-3 h; the last 140 rushed | 3,721 -> 14,392 |
+
+FAB_MATS was done at about hour 37, the circuitry about 13 hours later, so the gate opened around 11-03 15:30.
+
+**What it shows.**
+1. **Our pacing was the limit, not the market.** F51 delivered 130 units an hour at the end. For the first 30 hours the
+   mission took about 30 an hour: small lots, then waiting for the price to recover. At 130 an hour, 1,600 units is about 12 h.
+2. **Circuitry ran in series, not in parallel.** It trickled 20 at a time and was finished in a rush at triple the price. Bought
+   at full pace from hour 1, beside FAB_MATS, it ends near hour 18 with it.
+3. **Cash is the real constraint.** The wallet sat at 1-2.8M through day 2. A fast gate costs about 6-7M in all (FAB_MATS at
+   about 3k, circuitry at about 5k) against about 4-5M less for the slow one. That is the price of a day of the post-gate ramp,
+   which is worth tens of millions: pay it.
+4. **A low price target holds the price, it does not make the market produce faster.** Feeds into the producer's inputs are
+   what lift its refill rate (see "The ceiling is a target price" below). The low target was right while the producer was
+   starved; it was wrong once cash allowed buying at the market's refill rate.
+
+**The opening for next week (operator, 2026-11-05).** Target: gate open by hour 18.
+
+1. **Hour 0:** the command ship tours until it finds a good route, then trades (as now).
+2. **At about 500,000 credits:** buy a light hauler (about 325k on 2026-10-18), which buys in lots of 80, to double the trading
+   cash rate.
+3. **Instead of keepers right away, one shuttle on tour** (about 85k) keeps every home-system price fresh enough for one system
+   (a tour cycle of an hour or two). The exception: a keeper on each market the gate depends on (the FAB_MATS producer, the
+   circuitry producer, and their input markets), because the mission's pacing reads those prices and needs them current.
+4. **From hour 1, feed the inputs of both producers** (IRON and QUARTZ_SAND into FAB_MATS; ELECTRONICS and MICROPROCESSORS into
+   ADVANCED_CIRCUITRY), `stopAtSupply HIGH`, so their activity climbs to GROWING or STRONG and they refill faster.
+5. **Buy both materials at the same time, in full lots, whenever the market refills.** No multi-hour waits for a price to come
+   back: a ceiling of about 2.5x the opening price, not a flat 2,000. Low while cash is short; raise it as soon as cash allows.
+6. **Cash goes to the gate first until it is done.** More keepers after the gate; ships only if they pay for themselves within
+   the day.
+7. **If the new home system has two FAB_MATS markets, buy from both:** that roughly halves the time.
+
+Balance to watch: the hauler and the tour shuttle (about 410k) compete with the gate for early cash; they are worth it only if
+they raise the trading rate enough to fund the gate sooner. The post-gate strategy (releases, keepers, big hulls) is to be
+revisited separately.
+
 ## Hour 0: register and look
 
 1. Register, sign in on the dashboard, run the admin reset cleanup for the old tenant. `protectChainGoods` is on by
