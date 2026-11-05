@@ -17,6 +17,7 @@ import { jsonErrors } from "./jsonErrors.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
 import { paceFromBuckets } from "../engine/pace.js";
+import { expansionShipsOf } from "../engine/paceSplit.js";
 import { worthRate } from "../engine/worthRate.js";
 import { buildMetrics, bucketMinutesFor, ledgerReadFrom, worthByBucket } from "../engine/metrics.js";
 import { growthPerWeek, hullCapitalAt, type HullEvent } from "../engine/growth.js";
@@ -671,7 +672,11 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         contracts: (state.contracts ?? []) as any[],
       });
 
-      const pace = paceFromBuckets(await w.store.tradingPaceBuckets(w.tenantId, 6, 15), 15);
+      // Trading profit (what the traders earn, their own fuel and jumps included) apart from expansion and upkeep: the fuel and
+      // jumps of keepers, explorers and tours (engine/paceSplit.ts). The headline is the trading figure; both are sent.
+      const split = await w.store.tradingPaceSplitBuckets(w.tenantId, 6, 15, expansionShipsOf(w.fleet.fleetStatusSummary()));
+      const pace = paceFromBuckets(split.trading, 15);
+      const paceExpansion = paceFromBuckets(split.expansion, 15);
       // The rate in wallet plus holds (engine/worthRate.ts): counts cargo at what it should fetch, hull purchases added back.
       // A failed read leaves it out; the overview then shows nothing for it.
       let worthPace: ReturnType<typeof worthRate> = null;
@@ -684,7 +689,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       }
 
       res.json({
-        rate, prevRate: prev, pace, worthPace, forgone,
+        rate, prevRate: prev, pace, paceExpansion: { perHour1h: paceExpansion.perHour1h, perHour3h: paceExpansion.perHour3h }, worthPace, forgone,
         matchedNet: matched.net, matchedTrades: matched.trades, matchedWindowHours: RATE_WINDOW_HOURS,
         series: series.map((p) => p.net),
         credits: state.agent?.credits ?? 0,
