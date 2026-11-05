@@ -111,6 +111,21 @@ describe("TraderAgent step tracking", () => {
     assert.equal(sold, 0, "a lot above the dust threshold keeps the loss floor");
   });
 
+  it("clearLeftoverCargo() backs off after a failed sale it will not jettison, instead of retrying every tick", async () => {
+    // Live 2026-11-05: THEO-1 held 16u MEDICINE (~91k) at a jump gate that buys no MEDICINE, and retried the sale every
+    // 2-10 s for over an hour (about 18 API calls a minute) while its contract run never moved.
+    const ship = makeTraderShip();
+    (ship as any).cargo = { capacity: 40, units: 16, inventory: [{ symbol: "MEDICINE", units: 16 }] };
+    let attempts = 0;
+    const trader = new TraderAgent(ship, { api: { sellCargo: async () => { attempts++; throw new Error("Market sell failed. Trade good MEDICINE is not listed at market X1-A-B1."); } } as any });
+    (trader as any).heldCost.set("MEDICINE", 5688);
+    (trader as any).liveSellPrice = async () => undefined;
+    assert.equal(await (trader as any).clearLeftoverCargo(), undefined, "falls through to routing instead of ending the tick");
+    assert.equal(await (trader as any).clearLeftoverCargo(), undefined);
+    assert.equal(attempts, 1, "the second tick must not try the same sale again");
+    assert.equal((ship as any).cargo.units, 16, "nothing jettisoned");
+  });
+
   it("clearLeftoverCargo() reports 'transacting: sell' during the sell call", async () => {
     const ship = makeTraderShip();
     (ship as any).cargo = { capacity: 40, units: 5, inventory: [{ symbol: "IRON_ORE", units: 5 }] };

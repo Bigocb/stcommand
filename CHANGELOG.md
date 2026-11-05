@@ -6,6 +6,17 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-05 — A failed leftover sale no longer loops every tick
+
+THEO-1 was assigned a MEDICINE contract buy and, on its way to NA63, sat at the X1-QF29-E24B jump gate from about 21:09 to 22:23 with
+16 MEDICINE (about 91k). Every 2 to 10 seconds `TraderAgent.clearLeftoverCargo()` decided the cargo had no route, tried to sell it
+where the ship stood (a gate, which buys no MEDICINE), got "not listed at market", kept the cargo because it was worth more than
+`JETTISON_MAX_VALUE`, and ended the tick. The next tick did the same: about 18 API calls a minute, the second biggest spender in
+ops `api_budget` at 22:12 (keeper market reads were waiting 36 s), and the ship never moved on.
+
+Now the hold-not-jettison path sets a 10-minute backoff for that good (`LEFTOVER_SALE_RETRY_MS`) and falls through to routing, so
+the ship carries on and the sweep tries again later, wherever it is by then. Test in `tests/agentStep.test.ts`.
+
 ## 2026-11-05 — No full market survey on arrival in a system keepers already read (clause arrivalSurveyMaxAgeMin, on)
 
 The fleet sat at the 90-call ceiling with about 350 ships, where last week ran close to 1,000 on the same limit. The biggest single
