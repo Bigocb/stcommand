@@ -612,6 +612,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "freshIdleHoldBound",
+    name: "Fresh systems: keep polling where a loaded ship is heading",
+    description: "On = idle parking never parks a live system while a ship with a loaded hold has its sell market there, and unparks one a loaded ship is bound for. Profit lands when the load is sold, so a system can sit under the profit bar for hours and then earn a whole cargo: on 2026-11-06 the bar parked SR93 (then 1.03M and 1.15M of profit in two parked stretches), TN50 (620k) and RS50, NQ28 and PJ53 (190-260k each), each unparked by the re-check. Only ships already carrying cargo count; a ship still on its way to buy does not. Off = bound ships are ignored, as before. On from 2026-11-06 (operator). Takes effect on the next check (every 5 minutes).",
+    value: 1, min: 1, max: 1, step: 1, unit: "",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "freshLeadMin",
     name: "Fresh systems: lead time",
     description: "Open the next system this long before the live ones are expected to fade (they fade at the fade age below). Raise it when traders sit waiting or the premium goes faster than expected; lower it when systems are opened too early and their premium is wasted. About 240 minutes matches 2026-10-24: the first sale came 3.7 hours after a system was listed. Takes effect on the next check.",
