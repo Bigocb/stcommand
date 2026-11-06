@@ -42,4 +42,32 @@ describe("idle system parking (pure)", () => {
     const d = decideIdleParking([{ ...f("X1-A", 20, 0), checkedAt: NOW - 2 * H }, { ...f("X1-B", 20, 0), checkedAt: NOW - 7 * H }], NOW, on);
     assert.deepEqual(d.park.map((x) => x.system), ["X1-B"]);
   });
+
+  describe("short re-check (recheckMin)", () => {
+    const r = { hours: 3, recheckMin: 45 };
+    const checked = (minAgo: number, used: number, ageH = 20): IdleFacts => ({ ...f("X1-A", ageH, 0, false, 0), checkedAt: NOW - minAgo * 60_000, usedSinceCheck: used });
+    it("parks a reopened system again after 45 minutes with nothing sold or bought since the reopen", () => {
+      const d = decideIdleParking([checked(50, 0)], NOW, r);
+      assert.deepEqual(d.park.map((x) => x.system), ["X1-A"]);
+      assert.match(d.park[0]!.reason, /re-check: reopened 50 min ago/);
+    });
+    it("leaves it open before 45 minutes, and when anything was sold or bought since the reopen", () => {
+      assert.deepEqual(decideIdleParking([checked(30, 0)], NOW, r).park, []);
+      assert.deepEqual(decideIdleParking([checked(50, 2)], NOW, r).park, []);
+    });
+    it("after a re-check that found trading, falls back to the whole-window rule", () => {
+      assert.deepEqual(decideIdleParking([checked(100, 3)], NOW, r).park, []);
+      const later = { ...checked(4 * 60, 3), sells: 0, buys: 0 };
+      assert.deepEqual(decideIdleParking([later], NOW, r).park.map((x) => x.system), ["X1-A"]);
+    });
+    it("with recheckMin 0 or unset it is the single-window behaviour of before", () => {
+      for (const p of [{ hours: 3 }, { hours: 3, recheckMin: 0 }]) {
+        assert.deepEqual(decideIdleParking([checked(50, 0)], NOW, p).park, []);
+        assert.deepEqual(decideIdleParking([checked(4 * 60, 0)], NOW, p).park.map((x) => x.system), ["X1-A"]);
+      }
+    });
+    it("never parks a system younger than the park window", () => {
+      assert.deepEqual(decideIdleParking([checked(50, 0, 2)], NOW, r).park, []);
+    });
+  });
 });

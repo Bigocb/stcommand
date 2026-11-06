@@ -598,6 +598,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "freshIdleRecheckMin",
+    name: "Fresh systems: how long a re-check lasts",
+    description: "When a parked idle system is reopened for its re-check (after the hours set in 'park keepers where nothing sells'), it is parked again once this many minutes have passed with no sells or purchases since the reopen. Without this the re-check lasted a whole window, so a system that never traded polled half the time at any setting. It only has to be long enough for the keepers to refresh prices (one rotation, about 11 minutes at 105 calls a minute) and for traders to pick the system up again. A sell or purchase in the re-check keeps the system open. Off = the re-check lasts the full number of hours. On at 45 minutes from 2026-11-06 (operator). Takes effect on the next check (every 5 minutes).",
+    value: 45, min: 15, max: 180, step: 5, unit: " min",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "freshLeadMin",
     name: "Fresh systems: lead time",
     description: "Open the next system this long before the live ones are expected to fade (they fade at the fade age below). Raise it when traders sit waiting or the premium goes faster than expected; lower it when systems are opened too early and their premium is wasted. About 240 minutes matches 2026-10-24: the first sale came 3.7 hours after a system was listed. Takes effect on the next check.",
