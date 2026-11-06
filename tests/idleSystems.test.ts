@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_IDLE_POLICY, decideIdleParking, runsIdleParking, type IdleFacts } from "../src/engine/idleSystems.js";
+import { DEFAULT_IDLE_POLICY, decideIdleParking, runsIdleParking, systemUse, useSince, type IdleFacts, type UseRow } from "../src/engine/idleSystems.js";
 
 const H = 3_600_000;
 const NOW = 100 * H;
@@ -75,5 +75,58 @@ describe("idle system parking (pure)", () => {
     assert.equal(runsIdleParking("advisory"), true);
     assert.equal(runsIdleParking("auto"), true);
     assert.equal(runsIdleParking("off"), false);
+  });
+
+  describe("profit mode (minHourlyProfit)", () => {
+    const m = { hours: 3, minHourlyProfit: 50_000 };
+    const pf = (system: string, hourly: number[] | undefined, over: Partial<IdleFacts> = {}): IdleFacts => ({ ...f(system, 20, 5, false, 5), hourly, ...over });
+    it("parks a system whose every hour is under the bar even though it still sells and buys a little", () => {
+      const d = decideIdleParking([pf("X1-SMALL", [20_000, 10_000, 40_000])], NOW, m);
+      assert.deepEqual(d.park.map((x) => x.system), ["X1-SMALL"]);
+      assert.match(d.park[0]!.reason, /no hour above 50,000 profit in the last 3 h \(best 40,000\)/);
+    });
+    it("keeps a system polled when any one hour reaches the bar", () => {
+      assert.deepEqual(decideIdleParking([pf("X1-A", [0, 0, 50_000]), pf("X1-B", [120_000, 0, 0])], NOW, m).park, []);
+    });
+    it("treats a missing profit figure as in use, so nothing is parked on a failed read", () => {
+      assert.deepEqual(decideIdleParking([pf("X1-A", undefined)], NOW, m).park, []);
+    });
+    it("unparks a parked system once an hour reaches the bar, and not for small trades", () => {
+      const d = decideIdleParking([pf("X1-BACK", [60_000, 0, 0], { parked: true }), pf("X1-SMALL", [5_000, 0, 0], { parked: true })], NOW, m);
+      assert.deepEqual(d.unpark.map((x) => x.system), ["X1-BACK"]);
+      assert.match(d.unpark[0]!.reason, /an hour with 60,000 profit/);
+    });
+    it("a short re-check is judged on profit pro rata: 50 minutes with 20,000 is under the 41,667 bar, 60,000 is over", () => {
+      const r = { ...m, recheckMin: 45 };
+      const at = (profit: number): IdleFacts => ({ ...pf("X1-A", [10_000, 0, 0]), checkedAt: NOW - 50 * 60_000, profitSinceCheck: profit });
+      assert.deepEqual(decideIdleParking([at(20_000)], NOW, r).park.map((x) => x.system), ["X1-A"]);
+      assert.deepEqual(decideIdleParking([at(60_000)], NOW, r).park, []);
+    });
+    it("minHourlyProfit 0 or unset is the count mode of before", () => {
+      assert.deepEqual(decideIdleParking([{ ...f("X1-A", 20, 3, false, 0), hourly: [0, 0, 0] }], NOW, { hours: 3, minHourlyProfit: 0 }).park, []);
+    });
+  });
+
+  describe("systemUse / useSince", () => {
+    const iso = (minAgo: number) => new Date(NOW - minAgo * 60_000).toISOString();
+    const rows: UseRow[] = [
+      { timestamp: iso(10), type: "SELL", waypoint: "X1-BUY-A1", realizedPnl: 80_000, route: "X1-SRC-B2>X1-BUY-A1 auto" },
+      { timestamp: iso(70), type: "SELL", waypoint: "X1-BUY-A1", realizedPnl: 30_000, route: "X1-BUY-C3>X1-BUY-A1 auto" },
+      { timestamp: iso(130), type: "SELL", waypoint: "X1-OTH-A1", realizedPnl: 5_000, route: null },
+      { timestamp: iso(20), type: "PURCHASE", waypoint: "X1-SRC-B2", realizedPnl: null, route: null },
+      { timestamp: iso(400), type: "SELL", waypoint: "X1-BUY-A1", realizedPnl: 999_999, route: "X1-SRC-B2>X1-BUY-A1 auto" },
+    ];
+    it("credits a sale's profit to the system it sold in and the system its trip started in, by hour, inside the window only", () => {
+      const u = systemUse(rows, NOW, 3);
+      assert.deepEqual(u.get("X1-BUY")!.hourly, [80_000, 30_000, 0]);
+      assert.deepEqual(u.get("X1-SRC")!.hourly, [80_000, 0, 0]);
+      assert.deepEqual(u.get("X1-OTH")!.hourly, [0, 0, 5_000]);
+      assert.equal(u.get("X1-BUY")!.sells, 2);
+      assert.equal(u.get("X1-SRC")!.buys, 1);
+    });
+    it("counts events and profit involving one system since a time", () => {
+      assert.deepEqual(useSince(rows, "X1-SRC", NOW - 60 * 60_000), { events: 1, profit: 80_000 });
+      assert.deepEqual(useSince(rows, "X1-BUY", NOW - 60 * 60_000), { events: 1, profit: 80_000 });
+    });
   });
 });

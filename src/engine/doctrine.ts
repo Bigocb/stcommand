@@ -605,6 +605,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "freshIdleMinHourlyProfit",
+    name: "Fresh systems: profit an hour that keeps a system polled",
+    description: "On = idle parking judges a live system by profit, not by whether anything was sold or bought: it is in use only if at least this much realized profit involved it in one of the last hours of the park window (every sale counts for the system it sold in and for the system its trip started in), and it is parked when every one of those hours is under the bar. A system that trades a little for little profit is then parked, which counting sells could not do (operator 2026-11-06: 50,000 in each hour of the 3-hour window; may be too aggressive, adjust). Parked systems unpark when an hour reaches the bar, or at the re-check. Off = the earlier rule, any sell or purchase in the window keeps it polled. Takes effect on the next check (every 5 minutes).",
+    value: 50000, min: 5000, max: 1000000, step: 5000, unit: " credits",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "freshLeadMin",
     name: "Fresh systems: lead time",
     description: "Open the next system this long before the live ones are expected to fade (they fade at the fade age below). Raise it when traders sit waiting or the premium goes faster than expected; lower it when systems are opened too early and their premium is wasted. About 240 minutes matches 2026-10-24: the first sale came 3.7 hours after a system was listed. Takes effect on the next check.",

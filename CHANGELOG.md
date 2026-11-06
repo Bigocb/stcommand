@@ -6,6 +6,20 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-06 — Idle parking judged by profit: 50,000 an hour in each hour of the 3-hour window (clause freshIdleMinHourlyProfit)
+
+Counting sells and purchases parks only systems with no trades at all; a system that trades a little for little profit stays polled (the
+8 systems with 2 or fewer events last hour earned about 1% of the hour's profit). New clause `freshIdleMinHourlyProfit` (operator
+2026-11-06: 50,000 in each hour of the window; "might be too aggressive", adjust): a live system is in use only if at least that much realized
+profit involved it in one of the last `freshIdleParkHours` hours, and is parked when every one of those hours is under it. Profit is
+credited to the system a sale happened in and to the system its trip started in (the route "buy>sell"), so a supply-only system still
+counts (a trip's profit therefore shows at both ends). A parked system unpark when an hour reaches the bar; the short re-check
+(`freshIdleRecheckMin`) is judged pro rata on profit since the reopen. Off (0 or the clause off) = the sell-or-purchase count of before.
+New pure functions `systemUse` and `useSince` in `src/engine/idleSystems.ts`; the fleet now reads the window's ledger rows fresh each pass
+(the 24-hour slice refreshes only every 30 minutes) and a failed read counts as "in use". Found while looking at it: the release rule's
+premium reading counts only sales in the system, so HH6 (zero sells since release, yet 529k profit from trips starting there in an hour)
+reads as dead; not changed here. Tests: `tests/idleSystems.test.ts`.
+
 ## 2026-11-06 — Fix: idle parking never ran on an advisory fresh-system gate
 
 Found at the 04:00 check of the re-check deploy: the clause `freshIdleParkHours` was on at 3 hours (set 03:00) and nothing had been
