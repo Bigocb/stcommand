@@ -6,6 +6,18 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-06 — Galaxy crawler can go through a proxy (CRAWLER_PROXY_URL); dear-goods tier loosened live to 3 lots at 12%
+
+Why: the box's one IP is at its ceiling (about 104 of 105 calls a minute, 2.3 429s a minute), and the crawler's busy check skips every tick while the box is at 60 or more calls a minute, so it barely ran. The crawler makes only public, tokenless reads, so it is the safest first thing to move to a second IP, and it tests the proxy inside the real server before any tenant call uses it. Operator request (2026-11-06) after a proxy test from the box passed: separate IP, 0.64-0.72 s a call, 60 of 60 stable at one a second, 38 of 80 burst requests accepted (30 burst, then 2 a second).
+
+- `src/engine/crawlerProxy.ts` (new, self-contained): `crawlerProxyFromEnv` reads `CRAWLER_PROXY_URL` (http or https URL; blank, invalid or non-http is ignored) and `CRAWLER_PROXY_RATE` (default 1 a second, clamped 0.2-1.9); `maskProxyUrl` gives `host:port` for the log and never the credentials; `makePublicFetch` returns undici's fetch through a `ProxyAgent` when a URL is given, else Node's global fetch looked up at call time. It never mixes Node's global fetch with an undici dispatcher (client.ts explains why).
+- `src/engine/galaxyCrawler.ts`: the three public reads (`/waypoints/.../construction`, `/waypoints?...`, `fetchPublic`) use `this.fetcher`, default the global fetch, so behaviour without a proxy is unchanged. New `setFetcher`.
+- `src/cli/index.ts`: with a proxy, the crawler gets its own `RateLimiter` and its busy check looks at that limiter only; without, the shared limiter and the box busy check as before. The boot log names the proxy as `host:port` only.
+- `.env.example` documents both variables. Nothing reads them unless set, so deploying this changes nothing until the box's environment file has the URL.
+- Tests: `tests/crawlerProxy.test.ts` (10: masking, env parsing and clamps, a real HTTPS read through a real CONNECT proxy, no proxy never touches it, the global fetch is still used when unproxied, the crawler uses `setFetcher`). The existing crawler and galaxy suites pass unchanged.
+- Not done: no fallback to the box IP if the proxy fails (the crawler logs the error and retries on its next tick), and tenant calls are unchanged. Spreading a tenant's calls across proxies is the next step (priority lanes).
+- Operator change made live the same day: `thinMarketDearMaxLots` 2 to 3 and `thinMarketDearImpactPct` 25 to 12, after VIRAL_AGENTS (3.4% over 2 lots) and 7 MICRO_FUSION_GENERATORS trips fell 1.4-10% a lot. The dear tier now plans at about the base rule (the base 15% still applies, since the larger figure wins).
+
 ## 2026-11-06 — Thin markets: a steeper tier for the dearest goods (clauses thinMarketDearPrice, thinMarketDearImpactPct, thinMarketDearMaxLots)
 
 Why: the base thin-market rule (15% a lot, 3 lots, 20 a trade or fewer at 10,000+) held its lot cap but understated the fall for the dearest goods. Measured: VIRAL_AGENTS (31k) fell 16%, 24% then 40% a lot (-292k, 2026-11-05); RELIC_TECH (30k, THEO-1DC) fell 29% then 49% (-573k, 2026-11-06 03:24); NANOBOTS (-240k), SUPERGRAINS (-157k). MICRO_FUSION_GENERATORS (about 50k, SR93-A1) fell 8-10% a lot and pays (THEO-A3 +1.4M in one hour), so the tier plans dear goods harder instead of banning them.

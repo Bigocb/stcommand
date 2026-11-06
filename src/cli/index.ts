@@ -1,4 +1,4 @@
-import { API_PRIORITY } from "../core/client.js";
+import { API_PRIORITY, RateLimiter } from "../core/client.js";
 import "dotenv/config";
 import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID } from "../core/rateLimitMonitor.js";
@@ -24,6 +24,7 @@ import { createMcpAuth } from "../http/mcpAuth.js";
 import { createMcpRouter } from "../mcp/server.js";
 import { TenantRegistry } from "../engine/tenantRegistry.js";
 import { GalaxyCrawler } from "../engine/galaxyCrawler.js";
+import { crawlerProxyFromEnv, makePublicFetch } from "../engine/crawlerProxy.js";
 import { AgentWatcher } from "../engine/agentWatcher.js";
 import { createResetWatcher } from "../engine/resetWatcherLive.js";
 import { startRunTimeline } from "../engine/runTimeline.js";
@@ -111,8 +112,19 @@ async function main(): Promise<void> {
   // Its calls carry no token but count against the same IP budget as the fleet: draw from the shared limiter, last in line.
   // And only on spare capacity: it skips a tick while the fleet is queueing or the budget is above two thirds used (2026-11-02:
   // unthrottled by priority it made 49 calls a minute, the fleet's calls waited 2-6 s instead of 0.3 s).
-  galaxyCrawler.setBusyCheck(() => { const st = registry.sharedLimiter().stats(); return st.queueDepth > 0 || st.callsPerMin >= 60; });
-  galaxyCrawler.setThrottle(() => registry.sharedLimiter().acquire(API_PRIORITY.BACKGROUND, "galaxy crawler", "public", "GalaxyCrawler"));
+  // With CRAWLER_PROXY_URL set (crawlerProxy.ts) the crawler leaves from a second IP: it gets its own limiter, and the box's busy check
+  // no longer applies to it. Unset, as before: the shared limiter, and only on spare capacity.
+  const crawlerProxy = crawlerProxyFromEnv(process.env);
+  if (crawlerProxy) {
+    const own = new RateLimiter(crawlerProxy.ratePerSec, 2);
+    galaxyCrawler.setFetcher(makePublicFetch(crawlerProxy.url));
+    galaxyCrawler.setBusyCheck(() => own.stats().queueDepth > 0);
+    galaxyCrawler.setThrottle(() => own.acquire(API_PRIORITY.BACKGROUND, "galaxy crawler (proxy)", "public", "GalaxyCrawler"));
+    log(`galaxy crawler: public reads go through proxy ${crawlerProxy.label} with its own limiter (${crawlerProxy.ratePerSec} a second)`);
+  } else {
+    galaxyCrawler.setBusyCheck(() => { const st = registry.sharedLimiter().stats(); return st.queueDepth > 0 || st.callsPerMin >= 60; });
+    galaxyCrawler.setThrottle(() => registry.sharedLimiter().acquire(API_PRIORITY.BACKGROUND, "galaxy crawler", "public", "GalaxyCrawler"));
+  }
   const galaxyCrawlInterval = setInterval(() => {
     galaxyCrawler.tick().catch((err) => log(`galaxy crawl tick failed: ${err instanceof Error ? err.message : String(err)}`));
   }, 5_000);

@@ -3,6 +3,7 @@ import type { Store } from "../db/store.js";
 import { gatesToCheck, type GateRef, type KnownGate } from "./gateCheckQueue.js";
 import { parseWaypointPage, systemsToRead, type WaypointChartRow } from "./chartCheck.js";
 import { rateLimitMonitor, rateLimitHeaders } from "../core/rateLimitMonitor.js";
+import type { PublicFetch } from "./crawlerProxy.js";
 
 /**
  * Crawls the *public* galaxy-wide reference data — every system's
@@ -181,6 +182,14 @@ export class GalaxyCrawler {
   setThrottle(fn: (() => Promise<void>) | undefined): void {
     this.throttle = fn;
   }
+  /**
+   * How a public read is sent. Default: Node's global fetch, looked up at call time. With CRAWLER_PROXY_URL set the CLI swaps in a
+   * fetch that goes through the proxy (crawlerProxy.ts), so these reads leave from a second IP.
+   */
+  private fetcher: PublicFetch = (url) => fetch(url);
+  setFetcher(fn: PublicFetch | undefined): void {
+    this.fetcher = fn ?? ((url) => fetch(url));
+  }
   /** True while the shared budget is busy; the crawl then skips the tick instead of queueing behind (and in front of) the fleet. */
   private isBusy: (() => boolean) | undefined;
   setBusyCheck(fn: (() => boolean) | undefined): void {
@@ -279,7 +288,7 @@ export class GalaxyCrawler {
       did = true;
       try {
         await this.throttle?.();
-        const res = await fetch(new URL(`${API_BASE}/systems/${next.systemSymbol}/waypoints/${next.gateSymbol}/construction`));
+        const res = await this.fetcher(new URL(`${API_BASE}/systems/${next.systemSymbol}/waypoints/${next.gateSymbol}/construction`));
         if (res.status === 429) {
           rateLimitMonitor.record("crawler (no token)", rateLimitHeaders(res.headers));
           this.constructionQueue.unshift(next);
@@ -334,7 +343,7 @@ export class GalaxyCrawler {
     for (let i = 0; i < CHART_PAGES_PER_TICK; i++) {
       try {
         await this.throttle?.();
-        const res = await fetch(new URL(`${API_BASE}/systems/${cur.system}/waypoints?limit=20&page=${cur.page}`));
+        const res = await this.fetcher(new URL(`${API_BASE}/systems/${cur.system}/waypoints?limit=20&page=${cur.page}`));
         if (res.status === 429) {
           rateLimitMonitor.record("crawler (no token)", rateLimitHeaders(res.headers));
           this.chartBackoffUntil = Date.now() + CHART_BACKOFF_MS;
@@ -390,7 +399,7 @@ export class GalaxyCrawler {
     const url = new URL(API_BASE + path);
     for (const [k, v] of Object.entries(query ?? {})) url.searchParams.set(k, String(v));
     await this.throttle?.();
-    const res = await fetch(url);
+    const res = await this.fetcher(url);
     if (res.status === 429) rateLimitMonitor.record("crawler (no token)", rateLimitHeaders(res.headers));
     const json = (await res.json().catch(() => ({}))) as { data?: unknown; error?: { message?: string } };
     if (!res.ok) throw new Error(json?.error?.message ?? `${res.status} ${res.statusText}`);
