@@ -129,4 +129,27 @@ describe("idle system parking (pure)", () => {
       assert.deepEqual(useSince(rows, "X1-BUY", NOW - 60 * 60_000), { events: 1, profit: 80_000 });
     });
   });
+
+  describe("parked systems are judged since they were parked", () => {
+    const m = { hours: 3, minHourlyProfit: 50_000 };
+    const parked = (over: Partial<IdleFacts>): IdleFacts => ({ ...f("X1-P", 20, 0, true, 0), parkedAt: NOW - 20 * 60_000, hourly: [0, 116_000, 0], ...over });
+    it("does not unpark on profit from before it was parked, which the 3-hour window still holds", () => {
+      const d = decideIdleParking([parked({ parkedUse: { events: 0, profit: 0 } })], NOW, m);
+      assert.deepEqual(d.unpark, []);
+    });
+    it("unparks when it earns the bar since it was parked", () => {
+      const d = decideIdleParking([parked({ parkedUse: { events: 3, profit: 60_000 } })], NOW, m);
+      assert.deepEqual(d.unpark.map((x) => x.system), ["X1-P"]);
+      assert.match(d.unpark[0]!.reason, /60,000 profit since it was parked/);
+    });
+    it("count mode: any trade since it was parked unparks, none does not", () => {
+      const c = { hours: 3 };
+      assert.deepEqual(decideIdleParking([parked({ hourly: undefined, parkedUse: { events: 0, profit: 0 }, sells: 4 })], NOW, c).unpark, []);
+      assert.deepEqual(decideIdleParking([parked({ hourly: undefined, parkedUse: { events: 2, profit: 0 }, sells: 4 })], NOW, c).unpark.map((x) => x.system), ["X1-P"]);
+    });
+    it("without a since-parked figure the whole-window reading applies, as before", () => {
+      const d = decideIdleParking([parked({ parkedUse: undefined })], NOW, m);
+      assert.deepEqual(d.unpark.map((x) => x.system), ["X1-P"]);
+    });
+  });
 });

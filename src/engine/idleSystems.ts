@@ -48,6 +48,8 @@ export interface IdleFacts {
   hourly?: number[];
   /** Profit mode: profit involving the system since `checkedAt`. */
   profitSinceCheck?: number;
+  /** Events and profit involving the system since it was parked (only for a parked system). */
+  parkedUse?: { events: number; profit: number };
 }
 
 export interface IdleDecision {
@@ -82,7 +84,13 @@ export function decideIdleParking(facts: readonly IdleFacts[], now: number, p: I
       ? `an hour with ${Math.round(best ?? 0).toLocaleString("en-US")} profit in the last ${p.hours} h (needs ${min.toLocaleString("en-US")})`
       : f.sells > 0 ? `${f.sells} sell(s) in the last ${p.hours} h` : `${f.buys} purchase(s) in the last ${p.hours} h`;
     if (f.parked) {
-      if (inUse) out.unpark.push({ system: f.system, reason: useReason });
+      // A parked system is judged on what happened since it was parked, not on the whole window: the window still holds the hours before it
+      // was parked, so a system parked at its re-check came straight back (2026-11-06 05:48-06:08: PJ53 and GF96 parked and unparked within
+      // 5-10 minutes of each other, the profit of earlier hours reading as "in use"). Without that figure the old reading applies.
+      const since = f.parkedUse;
+      const backNow = since !== undefined ? (min > 0 ? since.profit >= min : since.events > 0) : inUse;
+      const backReason = since !== undefined ? (min > 0 ? `${Math.round(since.profit).toLocaleString("en-US")} profit since it was parked (needs ${min.toLocaleString("en-US")})` : `${since.events} trade(s) since it was parked`) : useReason;
+      if (backNow) out.unpark.push({ system: f.system, reason: backReason });
       // A parked system's prices go stale, so traders see no routes there and nothing sells to unpark it: after `hours` it is opened for
       // one more window to show whether its routes are back.
       else if (f.parkedAt !== undefined && now - f.parkedAt >= p.hours * H) out.unpark.push({ system: f.system, reason: `re-check: parked ${((now - f.parkedAt) / H).toFixed(1)} h, its prices are stale` });
