@@ -18,6 +18,11 @@ export interface IdlePolicy {
   hours: number;
   /** Minutes a reopened system is given to show trading before it is parked again; 0 = a whole `hours` window. */
   recheckMin?: number;
+  /**
+   * Profit mode (credits an hour, 0 = count mode). A system is in use only if at least this much profit involved it in one of the last
+   * `hours` hours (see systemUse); idle when every hour is under it. Count mode (any sell or purchase) is the behaviour of before.
+   */
+  minHourlyProfit?: number;
 }
 
 export const DEFAULT_IDLE_POLICY: IdlePolicy = { hours: 0 };
@@ -38,6 +43,11 @@ export interface IdleFacts {
   checkedAt?: number;
   /** Sells plus purchases in the system since `checkedAt` (0 when there was no re-check). */
   usedSinceCheck?: number;
+  /** Profit mode: profit involving the system in each of the last `hours` hours, most recent first. Missing in profit mode = unknown,
+   *  which counts as in use (nothing is parked on a missing figure). */
+  hourly?: number[];
+  /** Profit mode: profit involving the system since `checkedAt`. */
+  profitSinceCheck?: number;
 }
 
 export interface IdleDecision {
@@ -58,26 +68,97 @@ export function runsIdleParking(gateMode: "off" | "advisory" | "auto"): boolean 
 
 export function decideIdleParking(facts: readonly IdleFacts[], now: number, p: IdlePolicy): IdleDecision {
   const out: IdleDecision = { park: [], unpark: [] };
+  const min = p.minHourlyProfit ?? 0;
   for (const f of facts) {
     if (p.hours <= 0) {
       if (f.parked) out.unpark.push({ system: f.system, reason: "idle parking is switched off" });
       continue;
     }
     const ageH = (now - f.releasedAt) / H;
+    // In use: a profitable enough hour (profit mode, a missing figure counts as in use) or any sell or purchase (count mode).
+    const best = min > 0 && f.hourly ? Math.max(0, ...f.hourly) : undefined;
+    const inUse = min > 0 ? best === undefined || best >= min : f.sells > 0 || f.buys > 0;
+    const useReason = min > 0
+      ? `an hour with ${Math.round(best ?? 0).toLocaleString("en-US")} profit in the last ${p.hours} h (needs ${min.toLocaleString("en-US")})`
+      : f.sells > 0 ? `${f.sells} sell(s) in the last ${p.hours} h` : `${f.buys} purchase(s) in the last ${p.hours} h`;
     if (f.parked) {
-      if (f.sells > 0 || f.buys > 0) out.unpark.push({ system: f.system, reason: f.sells > 0 ? `${f.sells} sell(s) in the last ${p.hours} h` : `${f.buys} purchase(s) in the last ${p.hours} h` });
+      if (inUse) out.unpark.push({ system: f.system, reason: useReason });
       // A parked system's prices go stale, so traders see no routes there and nothing sells to unpark it: after `hours` it is opened for
       // one more window to show whether its routes are back.
       else if (f.parkedAt !== undefined && now - f.parkedAt >= p.hours * H) out.unpark.push({ system: f.system, reason: `re-check: parked ${((now - f.parkedAt) / H).toFixed(1)} h, its prices are stale` });
     } else if (ageH >= p.hours) {
       const recheckMs = (p.recheckMin ?? 0) * 60_000;
-      // A re-check that has run its short window with nothing sold or bought since the reopen.
-      if (recheckMs > 0 && f.checkedAt !== undefined && now - f.checkedAt >= recheckMs && (f.usedSinceCheck ?? 0) === 0) {
-        out.park.push({ system: f.system, reason: `re-check: reopened ${Math.round((now - f.checkedAt) / 60_000)} min ago with no sells or purchases since` });
-      } else if (f.sells === 0 && f.buys === 0 && (f.checkedAt === undefined || now - f.checkedAt >= p.hours * H)) {
-        out.park.push({ system: f.system, reason: `live ${ageH.toFixed(1)} h with no sells or purchases in the last ${p.hours} h` });
+      const sinceMs = f.checkedAt === undefined ? 0 : now - f.checkedAt;
+      // A re-check that has run its short window with nothing earned (profit mode: under the hourly bar pro rata) or sold or bought since the reopen.
+      const quietSinceCheck = min > 0 ? (f.profitSinceCheck ?? Number.POSITIVE_INFINITY) < min * (sinceMs / H) : (f.usedSinceCheck ?? 0) === 0;
+      if (recheckMs > 0 && f.checkedAt !== undefined && sinceMs >= recheckMs && quietSinceCheck) {
+        out.park.push({ system: f.system, reason: `re-check: reopened ${Math.round(sinceMs / 60_000)} min ago with ${min > 0 ? "less than the hourly profit bar" : "no sells or purchases"} since` });
+      } else if (!inUse && (f.checkedAt === undefined || sinceMs >= p.hours * H)) {
+        out.park.push({ system: f.system, reason: min > 0 ? `live ${ageH.toFixed(1)} h, no hour above ${min.toLocaleString("en-US")} profit in the last ${p.hours} h (best ${Math.round(best ?? 0).toLocaleString("en-US")})` : `live ${ageH.toFixed(1)} h with no sells or purchases in the last ${p.hours} h` });
       }
     }
   }
   return out;
+}
+
+/** Ledger rows as idle parking reads them. */
+export interface UseRow { timestamp: string; type: string; waypoint: string | null; realizedPnl: number | null; route: string | null }
+
+/** `X1-AB-C12` -> `X1-AB`. */
+export function systemOfWaypoint(waypoint: string): string {
+  return waypoint.split("-").slice(0, 2).join("-");
+}
+
+export interface SystemUse {
+  sells: number;
+  buys: number;
+  /** Profit involving the system in each of the last `hours` hours, most recent first. */
+  hourly: number[];
+}
+
+/**
+ * What each system did over the last `hours` hours: sells and purchases there, and the realized profit of every sale credited to the
+ * system it sold in AND the system its trip started in (the route "buy>sell ..."), so a system traders only buy from is not read as
+ * idle. A trip's profit therefore appears at both ends; read it as "profit that involved this system", not as a share to add up.
+ */
+export function systemUse(rows: readonly UseRow[], now: number, hours: number): Map<string, SystemUse> {
+  const n = Math.max(1, Math.ceil(hours));
+  const out = new Map<string, SystemUse>();
+  const get = (sys: string): SystemUse => { let u = out.get(sys); if (!u) { u = { sells: 0, buys: 0, hourly: new Array<number>(n).fill(0) }; out.set(sys, u); } return u; };
+  for (const r of rows) {
+    if (!r.waypoint) continue;
+    const at = Date.parse(r.timestamp);
+    const age = now - at;
+    if (!(age >= 0) || age >= hours * H) continue;
+    const bucket = Math.min(n - 1, Math.floor(age / H));
+    const here = systemOfWaypoint(r.waypoint);
+    if (r.type === "PURCHASE") { get(here).buys += 1; continue; }
+    if (r.type !== "SELL") continue;
+    get(here).sells += 1;
+    const pnl = r.realizedPnl ?? 0;
+    if (pnl === 0) continue;
+    const credited = new Set([here]);
+    const origin = r.route?.split(" ")[0]?.split(">")[0];
+    if (origin) credited.add(systemOfWaypoint(origin));
+    for (const sys of credited) get(sys).hourly[bucket]! += pnl;
+  }
+  return out;
+}
+
+/** Events and profit involving one system since `since` (ms). */
+export function useSince(rows: readonly UseRow[], system: string, since: number): { events: number; profit: number } {
+  let events = 0;
+  let profit = 0;
+  for (const r of rows) {
+    if (!r.waypoint || Date.parse(r.timestamp) < since) continue;
+    const here = systemOfWaypoint(r.waypoint);
+    if (r.type === "PURCHASE" && here === system) events += 1;
+    else if (r.type === "SELL") {
+      const origin = r.route?.split(" ")[0]?.split(">")[0];
+      const inv = here === system || (origin !== undefined && systemOfWaypoint(origin) === system);
+      if (here === system) events += 1;
+      if (inv) profit += r.realizedPnl ?? 0;
+    }
+  }
+  return { events, profit };
 }
