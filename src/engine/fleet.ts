@@ -5689,7 +5689,7 @@ export class FleetManager {
   private lastFreshCheckAt = 0;
   private freshLast?: { at: number; mode: ReleaseMode; decision: ReleaseDecision; queue: QueueFacts[]; live: LiveFacts[]; idleTraders: number };
   private freshAdviceKey = "";
-  private freshMature?: { at: number; sells: import("../db/store.js").AnalysisLedgerRow[] };
+  private freshMature?: { at: number; sells: import("../db/store.js").AnalysisLedgerRow[]; buys: import("../db/store.js").AnalysisLedgerRow[] };
   private readonly freshLog: string[] = [];
 
   /** 0 = off, 1 = advisory, 2 = auto (clause freshGate). */
@@ -6316,7 +6316,7 @@ export class FleetManager {
         // 24 hours of sells for the mature rate, refreshed every 30 minutes; the last two hours of them for each live system.
         if (!this.freshMature || now - this.freshMature.at > 30 * 60_000) {
           const rows = await this.store.analysisLedgerRows(this.tenantId, new Date(now - 24 * 3_600_000).toISOString());
-          this.freshMature = { at: now, sells: rows.filter((r) => r.type === "SELL") };
+          this.freshMature = { at: now, sells: rows.filter((r) => r.type === "SELL"), buys: rows.filter((r) => r.type === "PURCHASE") };
         }
         const sells = this.freshMature.sells;
         const mature = buildFreshness(sells, liveQ.map((q) => ({ system: q.system, atMs: q.releasedAt!, markets: q.markets.length }))).mature.profitPerUnit;
@@ -6386,12 +6386,14 @@ export class FleetManager {
     const since = now - Math.max(hours, 1) * 3_600_000;
     const sells = new Map<string, number>();
     for (const r of rows) if (r.waypoint && Date.parse(r.timestamp) >= since) { const sys = systemOf(r.waypoint); sells.set(sys, (sells.get(sys) ?? 0) + 1); }
+    const buys = new Map<string, number>();
+    for (const r of this.freshMature?.buys ?? []) if (r.waypoint && Date.parse(r.timestamp) >= since) { const sys = systemOf(r.waypoint); buys.set(sys, (buys.get(sys) ?? 0) + 1); }
     const parkedSystems = new Set(this.idleParked.values());
     // Parked before the time was kept (an older flag): count from now, or the re-check would never come.
     for (const sys of parkedSystems) if (!this.idleParkedAt.has(sys)) this.idleParkedAt.set(sys, now);
     const releasedAt = new Map(this.systemQueue.list().filter((q) => q.releasedAt !== undefined).map((q) => [q.system, q.releasedAt!]));
     // With no sell data (the ledger read failed) nothing is parked: a missing count would read as "no sales".
-    const facts: IdleFacts[] = liveSystems.filter((s) => releasedAt.has(s)).map((s) => ({ system: s, releasedAt: releasedAt.get(s)!, sells: this.freshMature ? (sells.get(s) ?? 0) : 1, parked: parkedSystems.has(s), parkedAt: this.idleParkedAt.get(s), checkedAt: this.idleCheckedAt.get(s) }));
+    const facts: IdleFacts[] = liveSystems.filter((s) => releasedAt.has(s)).map((s) => ({ system: s, releasedAt: releasedAt.get(s)!, sells: this.freshMature ? (sells.get(s) ?? 0) : 1, buys: buys.get(s) ?? 0, parked: parkedSystems.has(s), parkedAt: this.idleParkedAt.get(s), checkedAt: this.idleCheckedAt.get(s) }));
     const d = decideIdleParking(facts, now, { hours });
     let changed = false;
     for (const x of d.unpark) {

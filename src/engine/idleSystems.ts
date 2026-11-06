@@ -2,8 +2,8 @@
  * Live systems that nobody trades in: park their keepers, unpark them when sales come back.
  *
  * Operator idea (2026-10-30): a system with no sales at all for hours is only costing API calls (a keeper polls about 0.18 times a
- * minute). A live system more than `hours` past its release with zero sells in the last `hours` hours is idle; a parked one that has
- * sells again is not. Parking only stops the polling: the keepers stay on their markets and still cover them.
+ * minute). A live system more than `hours` past its release with zero sells and zero purchases in the last `hours` hours is idle (a system only bought from still feeds routes); a parked one that has
+ * sells or purchases again is not. Parking only stops the polling: the keepers stay on their markets and still cover them.
  *
  * Pure: no I/O, no clock. Policy is data: hours 0 (the clause off) decides nothing. Every decision carries a one-line reason.
  */
@@ -19,6 +19,9 @@ export interface IdleFacts {
   releasedAt: number;
   /** Sells into the system's markets over the last `hours` hours. */
   sells: number;
+  /** Purchases from the system's markets over the same hours. A system traders only buy from is a supply source, not an idle one:
+   *  parking it would stale the prices its routes start from. */
+  buys: number;
   /** Its keepers are parked for being idle right now. */
   parked: boolean;
   /** When they were parked (ms). */
@@ -43,12 +46,12 @@ export function decideIdleParking(facts: readonly IdleFacts[], now: number, p: I
     }
     const ageH = (now - f.releasedAt) / H;
     if (f.parked) {
-      if (f.sells > 0) out.unpark.push({ system: f.system, reason: `${f.sells} sell(s) in the last ${p.hours} h` });
+      if (f.sells > 0 || f.buys > 0) out.unpark.push({ system: f.system, reason: f.sells > 0 ? `${f.sells} sell(s) in the last ${p.hours} h` : `${f.buys} purchase(s) in the last ${p.hours} h` });
       // A parked system's prices go stale, so traders see no routes there and nothing sells to unpark it: after `hours` it is opened for
       // one more window to show whether its routes are back.
       else if (f.parkedAt !== undefined && now - f.parkedAt >= p.hours * H) out.unpark.push({ system: f.system, reason: `re-check: parked ${((now - f.parkedAt) / H).toFixed(1)} h, its prices are stale` });
-    } else if (ageH >= p.hours && f.sells === 0 && (f.checkedAt === undefined || now - f.checkedAt >= p.hours * H)) {
-      out.park.push({ system: f.system, reason: `live ${ageH.toFixed(1)} h with no sells in the last ${p.hours} h` });
+    } else if (ageH >= p.hours && f.sells === 0 && f.buys === 0 && (f.checkedAt === undefined || now - f.checkedAt >= p.hours * H)) {
+      out.park.push({ system: f.system, reason: `live ${ageH.toFixed(1)} h with no sells or purchases in the last ${p.hours} h` });
     }
   }
   return out;

@@ -4,7 +4,7 @@ import { DEFAULT_IDLE_POLICY, decideIdleParking, type IdleFacts } from "../src/e
 
 const H = 3_600_000;
 const NOW = 100 * H;
-const f = (system: string, ageH: number, sells: number, parked = false): IdleFacts => ({ system, releasedAt: NOW - ageH * H, sells, parked });
+const f = (system: string, ageH: number, sells: number, parked = false, buys = 0): IdleFacts => ({ system, releasedAt: NOW - ageH * H, sells, buys, parked });
 const on = { hours: 6 };
 
 describe("idle system parking (pure)", () => {
@@ -16,7 +16,17 @@ describe("idle system parking (pure)", () => {
   it("parks only a system old enough with zero sells in the window", () => {
     const d = decideIdleParking([f("X1-OLD0", 7, 0), f("X1-OLD1", 7, 1), f("X1-NEW0", 3, 0)], NOW, on);
     assert.deepEqual(d.park.map((x) => x.system), ["X1-OLD0"]);
-    assert.match(d.park[0]!.reason, /no sells in the last 6 h/);
+    assert.match(d.park[0]!.reason, /no sells or purchases in the last 6 h/);
+  });
+  it("does not park a system traders only buy from, and unparks one that gets bought from again", () => {
+    const d = decideIdleParking([f("X1-SUPPLY", 9, 0, false, 4), f("X1-QUIET", 9, 0), f("X1-P", 9, 0, true, 2), f("X1-P2", 9, 0, true)], NOW, on);
+    assert.deepEqual(d.park.map((x) => x.system), ["X1-QUIET"]);
+    assert.deepEqual(d.unpark.map((x) => x.system), ["X1-P"]);
+    assert.match(d.unpark[0]!.reason, /2 purchase\(s\)/);
+  });
+  it("at three hours parks a system idle for three, not one idle for two", () => {
+    const d = decideIdleParking([f("X1-A", 3.5, 0), f("X1-B", 2.5, 0)], NOW, { hours: 3 });
+    assert.deepEqual(d.park.map((x) => x.system), ["X1-A"]);
   });
   it("unparks a parked system as soon as it sells, and leaves a still-idle one parked", () => {
     const d = decideIdleParking([f("X1-A", 9, 2, true), f("X1-B", 9, 0, true)], NOW, on);

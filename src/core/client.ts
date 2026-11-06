@@ -1,3 +1,4 @@
+import { apiCallLog } from "./apiCallLog.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ShipObserver } from "../engine/shipSnapshots.js";
 import { shipsTouched } from "../engine/shipBook.js";
@@ -250,6 +251,8 @@ export interface LimiterLabelStats {
 
 export interface LimiterStats {
   windowMs: number;
+  /** The rate this limiter grants, calls a minute (API_RATE x 60). */
+  ratePerMin: number;
   /** Requests waiting for a token right now. */
   queueDepth: number;
   /** How long the oldest still-waiting request has waited, ms. */
@@ -289,6 +292,19 @@ export function apiBurstFromEnv(raw: string | undefined, fallback = DEFAULT_API_
   const n = Number(raw);
   if (raw === undefined || raw.trim() === "" || !Number.isFinite(n)) return fallback;
   return Math.min(30, Math.max(1, Math.round(n)));
+}
+
+/**
+ * Request rate (a second) for the process-wide limiter, from `API_RATE`. The game allows 2 a second per IP; the limiter ran at 1.5
+ * (90 a minute) as a safe margin and sat at 99% of it all week with keeper reads waiting 13-20 s, while 429s were isolated (about one
+ * an hour, never a burst). 1.75 (105 a minute) is the next step; watch `api_calls` / `api_budget` for 429s and set `API_RATE=1.5`
+ * to go back. Clamped to 0.5-1.95: the game's own ceiling is never the target.
+ */
+export const DEFAULT_API_RATE = 1.75;
+export function apiRateFromEnv(raw: string | undefined, fallback = DEFAULT_API_RATE): number {
+  const n = Number(raw);
+  if (raw === undefined || raw.trim() === "" || !Number.isFinite(n)) return fallback;
+  return Math.min(1.95, Math.max(0.5, n));
 }
 
 export class RateLimiter {
@@ -382,6 +398,7 @@ export class RateLimiter {
     const total = this.samples.reduce((n, s) => n + s.waitMs, 0);
     return {
       windowMs,
+      ratePerMin: Math.round(this.ratePerSec * 60),
       queueDepth: this.queue.length,
       oldestWaitMs: this.queue.reduce((m, e) => Math.max(m, now - e.enqueuedAt), 0),
       calls: this.samples.length,
@@ -606,7 +623,14 @@ export class Client {
       // Boot (priority 0) always wins; otherwise the calling context's own
       // urgency (see runWithApiPriority), then this Client's ambient priority.
       const priority = this.priority === 0 ? 0 : (priorityContext.getStore() ?? this.priority);
-      await this.limiter.acquire(priority, this.label, callKind(req.method, req.path), caller);
+      const kind = callKind(req.method, req.path);
+      const waitStart = Date.now();
+      await this.limiter.acquire(priority, this.label, kind, caller);
+      const sentAt = Date.now();
+      // One row per request actually sent (a retry after a 429 is its own request): who asked, how long it waited, what the game said.
+      const note = (status: number): void => {
+        try { apiCallLog.record({ at: sentAt, role: roleContext.getStore() ?? "?", kind, priority, waitMs: sentAt - waitStart, durationMs: status === 0 ? 0 : Date.now() - sentAt, status }); } catch { /* telemetry must never fail the request */ }
+      };
       this.callCount += 1;
       // A proxied Client goes through undici's own fetch, with its own
       // ProxyAgent as the dispatcher — both from the same undici install.
@@ -636,6 +660,7 @@ export class Client {
           ? await undiciFetch(url, { ...init, dispatcher: this.dispatcher, signal: controller.signal })
           : await fetch(url, { ...init, signal: controller.signal });
       } catch (err) {
+        note(0);
         // A stalled connection (or any other fetch-level rejection) must not
         // dead-end the caller's whole scheduler task the way it did before
         // this timeout existed — see REQUEST_TIMEOUT_MS's own comment. Retry
@@ -657,6 +682,7 @@ export class Client {
         clearTimeout(timer);
       }
 
+      note(res.status);
       const retryAfter = res.headers.get("retry-after");
 
       if (res.status === 429) {
