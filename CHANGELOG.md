@@ -24,7 +24,8 @@ Three changes the operator asked for after the week's API review (journal 02:40)
 - **Idle parking.** `freshIdleParkHours` counted sells only, so a system traders only buy from (supply) would have been parked and its
   prices left to go stale. `decideIdleParking` now needs zero sells and zero purchases (`IdleFacts.buys`; the fleet reads PURCHASE rows from
   the same 24-hour ledger slice) and unparks on either. The clause now defaults to on at 3 hours (was off at 6). Expected at the time: 7
-  systems / 74 keepers idle on both sides, about 13 calls a minute freed. Tests: `tests/apiCallLog.test.ts`, `tests/idleSystems.test.ts`.
+  systems / 74 keepers idle on both sides, about 13 calls a minute freed (corrected 2026-11-06: the re-check window equals the park
+  window, so a permanently idle system polls half the time at any hours setting, and the saving is at most about 7 a minute). Tests: `tests/apiCallLog.test.ts`, `tests/idleSystems.test.ts`.
 
 ## 2026-11-05 — Tower's headline split into trading profit and expansion costs
 
