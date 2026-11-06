@@ -64,7 +64,8 @@ import { logBuffer } from "../core/logBuffer.js";
 import { getGameResetDate } from "../core/universe.js";
 import { setTenantUniverse } from "../db/pool.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
-import { tripEconomics, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
+import { tripEconomics, legTravel, fuelCredits, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
+import { cannotProfit, netCeiling } from "./routePrefilter.js";
 import { yardsFirst } from "./keeperOrder.js";
 import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
@@ -2327,6 +2328,35 @@ export class FleetManager {
    * operator sees what the gate is keeping out of trading, so it does not set it.
    */
   async computeDispatchRoutes(dropProtected = false): Promise<DispatchRoute[]> {
+    // One pass at a time per kind: the dispatcher tick, the Markets panel and /dispatch each used to start a full pass of their
+    // own (about 1.5 s of CPU, 9-23 s in a spike on 2026-11-06), and each cleared the other's per-pass memo. A caller that
+    // arrives while one is running waits for it and gets its own copy of the list.
+    const running = this.routeBuilds.get(dropProtected);
+    if (running) return (await running).slice();
+    const pass = this.buildDispatchRoutes(dropProtected).finally(() => this.routeBuilds.delete(dropProtected));
+    this.routeBuilds.set(dropProtected, pass);
+    return pass;
+  }
+  private readonly routeBuilds = new Map<boolean, Promise<DispatchRoute[]>>();
+  private routesCache?: { at: number; routes: DispatchRoute[] };
+
+  /**
+   * The route list for a screen: the last pass if it is under `maxAgeMs` old, else a fresh one. For the dashboard's readers, which
+   * only draw the list and so do not need this second's prices; the dispatcher keeps calling computeDispatchRoutes().
+   */
+  async computeDispatchRoutesCached(maxAgeMs = 15_000): Promise<DispatchRoute[]> {
+    const hit = this.routesCache;
+    if (hit && Date.now() - hit.at < maxAgeMs) return hit.routes.slice();
+    const routes = await this.computeDispatchRoutes();
+    this.routesCache = { at: Date.now(), routes };
+    return routes.slice();
+  }
+
+  /** Legs priced between yields to the event loop (a pass of about 110,000 legs otherwise holds it for seconds). */
+  private static readonly ROUTE_YIELD_EVERY = 2_000;
+
+  private async buildDispatchRoutes(dropProtected: boolean): Promise<DispatchRoute[]> {
+    const timing = { startedAt: Date.now(), queryMs: 0, filterMs: 0, priceMs: 0, sortMs: 0, prefiltered: 0, priced: 0, yields: 0 };
     this.tripCostMemo.clear();
     this.hopsMemo.clear();
     const positions = new Map<string, { x: number; y: number }>();
@@ -2358,7 +2388,10 @@ export class FleetManager {
     const bidStats = sanityOn ? await this.bidStats().catch(() => undefined) : undefined;
     const sanityPolicy = { maxOverMedian: this.doctrine.value("routePriceSanityPct", 0) / 100, minSamples: 4 };
     let sanityLogged = 0;
+    const queryStart = Date.now();
     const storedLegs = (await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin())) ?? [];
+    timing.queryMs = Date.now() - queryStart;
+    const filterStart = Date.now();
     // Where our ships can gate to: from the home system and wherever a trader stands. A graph too small to mean anything (not
     // hydrated yet) filters nothing.
     const netStarts = [...new Set([this.systemSymbol, ...[...this.traders.values()].map((a) => a.getShip().nav.systemSymbol)].filter((x): x is string => !!x))];
@@ -2405,6 +2438,7 @@ export class FleetManager {
         drop("a good reserved for the gate mission or a contract (traders refuse it)", l.goodSymbol, l.buyAt, l.sellAt);
         return false;
       });
+    timing.filterMs = Date.now() - filterStart;
     // A single purchaseCargo() call is capped at the market's own advertised
     // trade volume — l.volume above, straight from tradeLegs()'s
     // LEAST(b.trade_volume, s.trade_volume) — but that is a per-*transaction*
@@ -2454,8 +2488,7 @@ export class FleetManager {
     // via the canJump predicate passed to it below; runBuy()/runSell()/
     // runHaul() check their own side against the warehouse ship's system
     // independently in trader.ts.
-    const built = legs
-      .map((l): DispatchRoute | null => {
+    const priceLeg = (l: (typeof legs)[number]): DispatchRoute | null => {
         const crossSystem = l.buySystem !== l.sellSystem;
         // Waypoint coordinates are per-system — Math.hypot() between a
         // buyAt in one system and a sellAt in another compares two
@@ -2476,6 +2509,22 @@ export class FleetManager {
           return null;
         }
         const affordable = l.buyPrice > 0 ? Math.floor(spendable / l.buyPrice) : maxTraderCargo;
+        // A leg that cannot net above zero even with the largest load and no price impact is dropped before the full pricing below
+        // (see routePrefilter.ts): about 89% of stored legs are dropped as unprofitable, and pricing each was the route pass's cost.
+        const prefilter = {
+          buyPrice: l.buyPrice,
+          sellPrice: l.sellPrice,
+          unitsCeiling: Math.max(0, Math.min(maxTraderCargo, affordable, l.volume * maxLots)),
+          fixedCost: crossSystem
+            ? this.crossSystemTripCost(l.buySystem, l.sellSystem)
+            : fuelCredits(legTravel(dist!, fleetFuelCapacity, fleetSpeed).fuelPerLeg * 2, fuelAt.get(l.buyAt) ?? 72),
+        };
+        if (cannotProfit(prefilter)) {
+          timing.prefiltered++;
+          drop("not profitable after fuel, slippage and jump costs", l.goodSymbol, l.buyAt, l.sellAt, Math.round(netCeiling(prefilter)));
+          return null;
+        }
+        timing.priced++;
         // Real depth beyond a market's own advertised trade volume is not
         // unlimited: each successive lot draws down supply and moves the
         // price further. Capped at a few multiples of the market's own lot
@@ -2563,9 +2612,21 @@ export class FleetManager {
           secPerDist,
           profitPerTrip,
           profitByHold,
-          ageMinutes: Math.round((Date.now() - new Date(l.stalestIso).getTime()) / 60_000),
+          ageMinutes: Math.round((Date.now() - l.stalestMs) / 60_000),
         };
-      })
+    };
+    const priceStart = Date.now();
+    const priced: (DispatchRoute | null)[] = [];
+    for (let i = 0; i < legs.length; i++) {
+      priced.push(priceLeg(legs[i]!));
+      if ((i + 1) % FleetManager.ROUTE_YIELD_EVERY === 0) {
+        timing.yields++;
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    }
+    timing.priceMs = Date.now() - priceStart;
+    const sortStart = Date.now();
+    const built = priced
       .filter((r): r is DispatchRoute => {
         if (r === null) return false;
         if (r.profitPerTrip > 0) {
@@ -2581,7 +2642,11 @@ export class FleetManager {
         return false;
       })
       .sort((a, b) => routePerHour(b) - routePerHour(a));
-    this.routeBuild = { at: Date.now(), storedLegs: storedLegs.length, offered: built.length, dropped: Object.fromEntries(drops), sample: dropSample };
+    timing.sortMs = Date.now() - sortStart;
+    this.routeBuild = {
+      at: Date.now(), storedLegs: storedLegs.length, offered: built.length, dropped: Object.fromEntries(drops), sample: dropSample,
+      timings: { totalMs: Date.now() - timing.startedAt, queryMs: timing.queryMs, filterMs: timing.filterMs, priceMs: timing.priceMs, sortMs: timing.sortMs, prefiltered: timing.prefiltered, priced: timing.priced, yields: timing.yields },
+    };
     return built;
   }
 
@@ -2589,7 +2654,12 @@ export class FleetManager {
   routeBuildReport(): typeof this.routeBuild {
     return this.routeBuild;
   }
-  private routeBuild: { at: number; storedLegs: number; offered: number; dropped: Record<string, number>; sample: { reason: string; good: string; buyAt: string; sellAt: string; profitPerTrip?: number }[] } | undefined;
+  private routeBuild: {
+    at: number; storedLegs: number; offered: number; dropped: Record<string, number>;
+    sample: { reason: string; good: string; buyAt: string; sellAt: string; profitPerTrip?: number }[];
+    /** Where the pass spent its wall time (yields to the event loop included) and how many legs the prefilter skipped. */
+    timings: { totalMs: number; queryMs: number; filterMs: number; priceMs: number; sortMs: number; prefiltered: number; priced: number; yields: number };
+  } | undefined;
 
   /** Thin-market policy from the doctrine (thinMarket.ts); off when the clause is off. */
   private thinPolicy(): ThinPolicy {

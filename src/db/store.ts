@@ -2758,7 +2758,8 @@ export class Store {
       /** Each side's own trade volume; `volume` is the smaller of the two. */
       buyVolume: number;
       sellVolume: number;
-      stalestIso: string;
+      /** When the older of the two prices was read, epoch milliseconds. */
+      stalestMs: number;
     }[]
   > {
     return withPool(this.pool, async (c) => {
@@ -2773,7 +2774,7 @@ export class Store {
         sell_system: string;
         sell_price: number;
         volume: number;
-        stalest: Date;
+        stalest_ms: number;
       }>(
         `-- Every window is cast to int before use. Left untyped the driver
          -- binds these as text, and GREATEST('90','360') compares lexically
@@ -2793,7 +2794,9 @@ export class Store {
            LEAST(b.trade_volume, s.trade_volume)  AS volume,
            b.trade_volume                         AS buy_volume,
            s.trade_volume                         AS sell_volume,
-           LEAST(b.timestamp, s.timestamp)        AS stalest
+           -- Epoch milliseconds as a double, not a timestamp: the driver then returns a plain number and skips building
+           -- a Date for each of the ~110,000 rows (the route pass reads only the age).
+           (EXTRACT(EPOCH FROM LEAST(b.timestamp, s.timestamp)) * 1000)::float8 AS stalest_ms
          FROM latest b
          JOIN latest s
            ON s.good_symbol = b.good_symbol
@@ -2823,7 +2826,7 @@ export class Store {
         volume: r.volume,
         buyVolume: r.buy_volume,
         sellVolume: r.sell_volume,
-        stalestIso: r.stalest.toISOString(),
+        stalestMs: Number(r.stalest_ms),
       }));
     });
   }

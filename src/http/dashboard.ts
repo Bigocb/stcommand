@@ -768,7 +768,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       const snapshots = systemFilter ? allSnapshots.filter((s) => s.systemSymbol === systemFilter) : allSnapshots;
       const systems = [...new Set(allSnapshots.map((s) => s.systemSymbol))].sort();
 
-      const dispatchRoutes = await w.fleet.computeDispatchRoutes();
+      const dispatchRoutes = await w.fleet.computeDispatchRoutesCached();
       let allRoutes = dispatchRoutes.map((r) => ({
         goodSymbol: r.good,
         buyAt: r.buyAt,
@@ -1044,7 +1044,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
     res.json({
-      routes: await w.fleet.computeDispatchRoutes(),
+      routes: await w.fleet.computeDispatchRoutesCached(),
       assignments: w.fleet.dispatcher.list(),
       minerPreferences: w.fleet.minerPreferenceList(),
       contractDuty: w.fleet.contractDutyShips(),
