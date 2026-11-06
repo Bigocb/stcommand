@@ -106,7 +106,7 @@ describe("Store.tradeLegs: local and cross-system freshness", () => {
     await priceAt("X1-AA-BUY", "X1-AA", 5, 100, 50);
     await priceAt("X1-BB-SELL", "X1-BB", 200, 400, 300);
     const [leg] = await legsFor(90, 360);
-    const ageMin = (Date.now() - new Date(leg!.stalestIso).getTime()) / 60_000;
+    const ageMin = (Date.now() - leg!.stalestMs) / 60_000;
     assert.ok(ageMin > 150, `stalest should reflect the 200-minute side, got ${Math.round(ageMin)}m`);
   });
 });

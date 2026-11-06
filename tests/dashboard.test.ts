@@ -501,6 +501,7 @@ describe("GET /api/markets route payload keeps both rankings", () => {
     const origDispatch = fleet.computeDispatchRoutes;
     const origFly = fleet.canFlyBetween;
     fleet.computeDispatchRoutes = async () => allRoutes;
+    fleet.routesCache = undefined; // the panel reads the 15 s cache (computeDispatchRoutesCached); an earlier test may have filled it
     fleet.canFlyBetween = () => true;
     try {
       const data = (await (await get("/api/markets")).json()) as {
@@ -521,7 +522,34 @@ describe("GET /api/markets route payload keeps both rankings", () => {
       );
     } finally {
       fleet.computeDispatchRoutes = origDispatch;
+      fleet.routesCache = undefined;
       fleet.canFlyBetween = origFly;
+    }
+  });
+
+  it("runs one route pass for concurrent callers and serves the screens from a short cache", async () => {
+    const fleet = registry.get(tenantId)!.fleet as any;
+    const origBuild = fleet.buildDispatchRoutes;
+    let passes = 0;
+    fleet.buildDispatchRoutes = async () => {
+      passes++;
+      await new Promise((r) => setTimeout(r, 20));
+      return allRoutes.slice();
+    };
+    fleet.routesCache = undefined;
+    try {
+      const [a, b, c] = await Promise.all([fleet.computeDispatchRoutes(), fleet.computeDispatchRoutes(), fleet.computeDispatchRoutes()]);
+      assert.equal(passes, 1, "three callers at once share one pass");
+      assert.equal(a.length, allRoutes.length);
+      assert.notStrictEqual(b, c, "each caller gets its own list, so one cannot sort the other's");
+      await fleet.computeDispatchRoutes(true); // the dispatcher's kind is its own pass
+      assert.equal(passes, 2);
+      await fleet.computeDispatchRoutesCached(60_000);
+      await fleet.computeDispatchRoutesCached(60_000);
+      assert.equal(passes, 3, "the second screen read inside the window reuses the first");
+    } finally {
+      fleet.buildDispatchRoutes = origBuild;
+      fleet.routesCache = undefined;
     }
   });
 });
