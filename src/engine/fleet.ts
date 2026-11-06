@@ -2598,6 +2598,9 @@ export class FleetManager {
       enabled: this.doctrine.isEnabledOr("thinMarketSellImpactPct", false),
       sellImpact: this.doctrine.value("thinMarketSellImpactPct", 15) / 100,
       maxLots: this.doctrine.isEnabledOr("thinMarketMaxLots", true) ? this.doctrine.value("thinMarketMaxLots", 3) : DEFAULT_THIN_POLICY.maxLots,
+      dearPrice: this.doctrine.isEnabledOr("thinMarketDearPrice", false) ? this.doctrine.value("thinMarketDearPrice", 25_000) : 0,
+      dearImpact: this.doctrine.value("thinMarketDearImpactPct", 25) / 100,
+      dearMaxLots: this.doctrine.value("thinMarketDearMaxLots", 2),
     };
   }
 

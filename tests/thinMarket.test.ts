@@ -30,6 +30,39 @@ describe("thinMarket", () => {
   });
 });
 
+describe("thinMarket dear tier", () => {
+  const dear = { ...on, dearPrice: 25_000 };
+  it("plans a dear good (RELIC_TECH, 30k at 18 a trade) harder: 25% a lot and two lots", () => {
+    const v = thinMarket({ volume: 18, price: 30_000 }, 0.045, dear);
+    assert.deepEqual([v.thin, v.sellImpact, v.maxUnits], [true, 0.25, 36]);
+    assert.match(v.reason ?? "", /dear/);
+  });
+  it("leaves a thin good under the dear price on the base limits (15%, three lots)", () => {
+    const v = thinMarket({ volume: 18, price: 14_000 }, 0.045, dear);
+    assert.deepEqual([v.sellImpact, v.maxUnits], [0.15, 54]);
+  });
+  it("never loosens the base limits (dear lots above the base cap stay at the base cap)", () => {
+    assert.equal(thinMarket({ volume: 18, price: 30_000 }, 0.045, { ...dear, maxLots: 1, dearMaxLots: 4 }).maxUnits, 18);
+  });
+  it("keeps a steeper learned impact", () => {
+    assert.equal(thinMarket({ volume: 18, price: 30_000 }, 0.4, dear).sellImpact, 0.4);
+  });
+  it("dearPrice 0 (the default) reproduces the base rule", () => {
+    const v = thinMarket({ volume: 18, price: 30_000 }, 0.045, on);
+    assert.deepEqual([v.sellImpact, v.maxUnits], [0.15, 54]);
+  });
+  it("a deep market stays untouched however dear", () => {
+    assert.equal(thinMarket({ volume: 60, price: 50_000 }, 0.045, dear).thin, false);
+  });
+  it("sizes RELIC_TECH (bought 30.6k, bid 40k, 18 a trade) to two lots at most; the 54-unit trip at 15% is no longer planned", () => {
+    const input = { buyPrice: 30_600, sellPrice: 40_000, buyVolume: 18, sellVolume: 18, buyImpact: 0.045 };
+    const impact = { ...DEFAULT_IMPACT_POLICY, maxFactor: 3 };
+    const units = (p: typeof on) => { const t = thinMarket({ volume: 18, price: 40_000 }, 0.045, p); return sizeForImpact(Math.min(90, t.maxUnits), { ...input, sellImpact: t.sellImpact }, impact).units; };
+    assert.ok(units(dear) <= 36, `dear ${units(dear)}`);
+    assert.ok(units(on) >= units(dear));
+  });
+});
+
 describe("the VIRAL_AGENTS trip of 2026-11-05, sized with and without the rule", () => {
   // THEO-13A bought 90 at about 26,138 a unit and sold into X1-TN61-A1 (18 a trade) from 31,027.
   const input = { buyPrice: 22_000, sellPrice: 31_027, buyVolume: 18, sellVolume: 18, buyImpact: 0.045 };

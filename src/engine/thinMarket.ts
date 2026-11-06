@@ -13,8 +13,14 @@
  * A trip into a thin market is planned with at least `sellImpact` price move per lot and carries at most `maxLots` of the
  * market's lots. Other markets are untouched.
  *
- * Pure: numbers in, verdict and a one-line reason out. Policy is data, backed by the doctrine clauses thinMarketSellImpactPct
- * and thinMarketMaxLots; with the clause off nothing changes.
+ * The dearest goods fall faster still, and one flat 15% understates them. Measured lot by lot: VIRAL_AGENTS (31k) fell 16%, 24%
+ * then 40%; RELIC_TECH (30k, 2026-11-06 THEO-1DC, -573k) fell 29% then 49%; NANOBOTS and SUPERGRAINS lost 157-258k a trip. Where
+ * MICRO_FUSION_GENERATORS (about 50k, SR93-A1) fell only 8-10% a lot and still pays, so the tier does not stop dear goods: it plans
+ * them at `dearImpact` and `dearMaxLots`, which only a route with a real margin survives, and carries fewer lots.
+ *
+ * Pure: numbers in, verdict and a one-line reason out. Policy is data, backed by the doctrine clauses thinMarketSellImpactPct,
+ * thinMarketMaxLots and (the dear tier) thinMarketDearPrice, thinMarketDearImpactPct, thinMarketDearMaxLots; with the clause off
+ * nothing changes.
  */
 
 export interface ThinPolicy {
@@ -27,9 +33,15 @@ export interface ThinPolicy {
   sellImpact: number;
   /** The most lots of the sell market's size one trip may carry there. */
   maxLots: number;
+  /** A thin market whose good sells for at least this much is "dear" and gets the two limits below; 0 = no dear tier. */
+  dearPrice: number;
+  /** Price move per lot to plan with at a dear thin market (a fraction). */
+  dearImpact: number;
+  /** The most lots one trip may carry into a dear thin market. */
+  dearMaxLots: number;
 }
 
-export const DEFAULT_THIN_POLICY: ThinPolicy = { enabled: false, maxVolume: 20, minPrice: 10_000, sellImpact: 0.15, maxLots: 3 };
+export const DEFAULT_THIN_POLICY: ThinPolicy = { enabled: false, maxVolume: 20, minPrice: 10_000, sellImpact: 0.15, maxLots: 3, dearPrice: 0, dearImpact: 0.25, dearMaxLots: 2 };
 
 export interface ThinVerdict {
   thin: boolean;
@@ -43,12 +55,13 @@ export interface ThinVerdict {
 export function thinMarket(sell: { volume: number; price: number }, base: number, policy: ThinPolicy): ThinVerdict {
   const plain: ThinVerdict = { thin: false, sellImpact: base, maxUnits: Infinity };
   if (!policy.enabled || !(sell.volume > 0) || sell.volume > policy.maxVolume || sell.price < policy.minPrice) return plain;
-  const maxUnits = Math.max(1, Math.floor(policy.maxLots * sell.volume));
-  const sellImpact = Math.max(base, policy.sellImpact);
+  const dear = policy.dearPrice > 0 && sell.price >= policy.dearPrice;
+  const maxUnits = Math.max(1, Math.floor((dear ? Math.min(policy.maxLots, policy.dearMaxLots) : policy.maxLots) * sell.volume));
+  const sellImpact = Math.max(base, policy.sellImpact, dear ? policy.dearImpact : 0);
   return {
     thin: true,
     sellImpact,
     maxUnits,
-    reason: `thin sell market (${sell.volume} a trade at ${Math.round(sell.price)}): planning ${(sellImpact * 100).toFixed(0)}% a lot, at most ${maxUnits} units`,
+    reason: `thin sell market (${sell.volume} a trade at ${Math.round(sell.price)}${dear ? ", dear" : ""}): planning ${(sellImpact * 100).toFixed(0)}% a lot, at most ${maxUnits} units`,
   };
 }
