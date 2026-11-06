@@ -6,6 +6,18 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-06 — Idle parking: a separate, short re-check (clause freshIdleRecheckMin, 45 minutes)
+
+The idle-parking rule (`freshIdleParkHours`, 3 hours) reopened a parked system for a re-check as long as the park window and could not
+park it again until a whole window had passed, so a system that never traded polled half the time at any setting (the earlier
+"13 calls a minute" estimate was wrong for this reason). The re-check only needs to refresh prices (one keeper rotation, about 11
+minutes at 105 calls a minute) and see whether traders come back. New clause `freshIdleRecheckMin` (operator: separate setting, 45
+minutes; range 15-180): a reopened system is parked again once that long has passed with no sells or purchases since the reopen; any
+trade keeps it open, after which the whole-window rule applies again. A dead system now polls 45 minutes in every 3 h 45 instead of 3
+in 6. `decideIdleParking` takes `recheckMin` in its policy (0 or unset = the earlier behaviour, tested) and `IdleFacts.usedSinceCheck`;
+the fleet reads the recent ledger rows fresh while any system is reopened (the 24-hour slice refreshes only every 30 minutes) and a
+failed read counts as "used", so nothing is parked on a missing count. Tests: `tests/idleSystems.test.ts`.
+
 ## 2026-11-06 — API rate 1.75 (API_RATE), per-request call log (ops api_calls), idle parking counts purchases and is on at 3 hours
 
 Three changes the operator asked for after the week's API review (journal 02:40).

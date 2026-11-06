@@ -6393,8 +6393,26 @@ export class FleetManager {
     for (const sys of parkedSystems) if (!this.idleParkedAt.has(sys)) this.idleParkedAt.set(sys, now);
     const releasedAt = new Map(this.systemQueue.list().filter((q) => q.releasedAt !== undefined).map((q) => [q.system, q.releasedAt!]));
     // With no sell data (the ledger read failed) nothing is parked: a missing count would read as "no sales".
-    const facts: IdleFacts[] = liveSystems.filter((s) => releasedAt.has(s)).map((s) => ({ system: s, releasedAt: releasedAt.get(s)!, sells: this.freshMature ? (sells.get(s) ?? 0) : 1, buys: buys.get(s) ?? 0, parked: parkedSystems.has(s), parkedAt: this.idleParkedAt.get(s), checkedAt: this.idleCheckedAt.get(s) }));
-    const d = decideIdleParking(facts, now, { hours });
+        // Sells and purchases in a system since its last re-check began: the evidence a short re-check is judged on. The 24-hour slice is
+    // refreshed only every 30 minutes, longer than a re-check, so while any system is reopened its recent rows are read fresh. A failed
+    // read counts as "used" (nothing is parked on a missing count).
+    const recheckOpen = liveSystems.filter((sys) => this.idleCheckedAt.has(sys) && !parkedSystems.has(sys));
+    let recent: import("../db/store.js").AnalysisLedgerRow[] | undefined;
+    if (recheckOpen.length && this.store && this.tenantId && this.doctrine.isEnabledOr("freshIdleRecheckMin", false)) {
+      const from = Math.max(Math.min(...recheckOpen.map((sys) => this.idleCheckedAt.get(sys)!)), now - Math.max(hours, 1) * 3_600_000);
+      try { recent = (await this.store.analysisLedgerRows(this.tenantId, new Date(from).toISOString(), 20000)).filter((r) => r.type === "SELL" || r.type === "PURCHASE"); } catch { recent = undefined; }
+    }
+    const usedSince = (sys: string): number => {
+      const at = this.idleCheckedAt.get(sys);
+      if (at === undefined || !recheckOpen.includes(sys)) return 0;
+      if (!recent) return 1;
+      let n = 0;
+      for (const r of recent) if (r.waypoint && systemOf(r.waypoint) === sys && Date.parse(r.timestamp) >= at) n += 1;
+      return n;
+    };
+    const facts: IdleFacts[] = liveSystems.filter((s) => releasedAt.has(s)).map((s) => ({ system: s, releasedAt: releasedAt.get(s)!, sells: this.freshMature ? (sells.get(s) ?? 0) : 1, buys: buys.get(s) ?? 0, parked: parkedSystems.has(s), parkedAt: this.idleParkedAt.get(s), checkedAt: this.idleCheckedAt.get(s), usedSinceCheck: usedSince(s) }));
+    const recheckMin = this.doctrine.isEnabledOr("freshIdleRecheckMin", false) ? this.doctrine.value("freshIdleRecheckMin") : 0;
+    const d = decideIdleParking(facts, now, { hours, recheckMin });
     let changed = false;
     for (const x of d.unpark) {
       // The keepers poll again once unparked: with the cap full they stay parked until a slot is free.
