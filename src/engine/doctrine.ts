@@ -684,8 +684,8 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "keeperTopUpMaxCalls",
     name: "Keepers: top-up polling ceiling",
-    description: "Top-up stops while the keepers' own polling would pass this many API calls a minute (the API allows 90 in all; trading, ship moves and surveys need the rest). Check ops keeper_review for the current load. Only applies while Keepers: top up live systems is on.",
-    value: 60, min: 10, max: 90, step: 5, unit: " calls/min",
+    description: "Top-up stops while the keepers' own polling would pass this many API calls a minute (trading, ship moves and surveys need the rest). Up to 90 fits one IP; with the API lane on (apiLaneProxy) the keepers' reads leave from a second IP, so a higher ceiling can be used - watch the lane's calls a minute in ops api_budget and keep it under about 80% of its rate. Check ops keeper_review for the current load. Only applies while Keepers: top up live systems is on.",
+    value: 60, min: 10, max: 150, step: 5, unit: " calls/min",
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
