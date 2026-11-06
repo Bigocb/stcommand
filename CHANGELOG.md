@@ -6,6 +6,16 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-06 — Thin markets: a steeper tier for the dearest goods (clauses thinMarketDearPrice, thinMarketDearImpactPct, thinMarketDearMaxLots)
+
+Why: the base thin-market rule (15% a lot, 3 lots, 20 a trade or fewer at 10,000+) held its lot cap but understated the fall for the dearest goods. Measured: VIRAL_AGENTS (31k) fell 16%, 24% then 40% a lot (-292k, 2026-11-05); RELIC_TECH (30k, THEO-1DC) fell 29% then 49% (-573k, 2026-11-06 03:24); NANOBOTS (-240k), SUPERGRAINS (-157k). MICRO_FUSION_GENERATORS (about 50k, SR93-A1) fell 8-10% a lot and pays (THEO-A3 +1.4M in one hour), so the tier plans dear goods harder instead of banning them.
+
+- `src/engine/thinMarket.ts`: `ThinPolicy` gains `dearPrice`, `dearImpact`, `dearMaxLots`. A thin market whose good sells for at least `dearPrice` is planned at `dearImpact` (never below the base or a steeper learned figure) and carries at most `min(maxLots, dearMaxLots)` lots. `dearPrice` 0 (the default) reproduces the base rule, with a test.
+- `src/engine/doctrine.ts`: `thinMarketDearPrice` 25,000, `thinMarketDearImpactPct` 25, `thinMarketDearMaxLots` 2, all on. The same function serves the dispatcher's route sizing and the trader's pinned-route path, so both pick it up.
+- `src/engine/fleet.ts`: `thinPolicy()` reads the three clauses.
+- Tests: `tests/thinMarket.test.ts` (tier values, below-the-price unchanged, never loosens the base cap, steeper learned impact kept, default off, deep market untouched, RELIC_TECH sized to at most two lots).
+- Not done: the hold value in `get_cargo_value` still uses the flat 4.5% a lot, so a hold of a dear thin good reads high (THEO-1DC's RELIC_TECH read 2.62M and sold for 1.08M).
+
 ## 2026-11-06 — Idle parking: keep a system polled while a loaded ship is heading to it (clause freshIdleHoldBound); profit bar lowered to 20,000
 
 Why: the 50,000 an hour profit bar parked systems that then earned a whole cargo. Seen 2026-11-06: SR93 (parked 08:52, unparked 10:31 with 1,032,204 profit since, parked again and unparked 12:09 with 1,151,924), TN50 (parked 09:03, unparked 09:31 with 620,244; a 1.36M SUPERGRAINS load was bound for TN50-A1 meanwhile), and RS50, NQ28 and PJ53 (190-260k each). Profit lands when a load is sold, so hours under the bar say little about a system a loaded ship is about to sell in.

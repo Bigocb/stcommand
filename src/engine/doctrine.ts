@@ -388,6 +388,27 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "thinMarketDearPrice",
+    name: "Thin markets: the dearest goods get steeper limits",
+    description: "A thin sell market (see Thin markets: plan for a steep price fall) whose good sells for at least this much is planned with the steeper price move and fewer lots set in the next two clauses. The flat 15% a lot understated the dearest goods: VIRAL_AGENTS (31k) fell 16%, 24% then 40% a lot (2026-11-05, -292k); RELIC_TECH (30k) fell 29% then 49% (2026-11-06 THEO-1DC, -573k); NANOBOTS and SUPERGRAINS lost 157-258k a trip. MICRO_FUSION_GENERATORS (about 50k at X1-SR93-A1) fell only 8-10% a lot and pays, so this plans the dear goods harder rather than banning them: a route survives only with a real margin. Off = every thin market gets the base limits, as before. On at 25,000 from 2026-11-06 (operator: tighten sizing for thin high-priced goods). Takes effect on the next dispatch cycle.",
+    value: 25000, min: 10000, max: 100000, step: 1000, unit: " credits",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "thinMarketDearImpactPct",
+    name: "Thin markets: dear goods price fall a lot",
+    description: "The price move per lot to plan with at a dear thin market (see the clause above). Never lower than the base thin-market figure. Does nothing while the dear tier is off.",
+    value: 25, min: 10, max: 60, step: 1, unit: "%",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "thinMarketDearMaxLots",
+    name: "Thin markets: dear goods lots per trip",
+    description: "The most lots of a dear thin market one trip may carry (never more than the base thin-market limit). 2 at 18 a trade is 36 units. Does nothing while the dear tier is off.",
+    value: 2, min: 1, max: 10, step: 1, unit: " lots",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "lotImpactMaxFactor",
     name: "Learn price impact per market",
     description: "The route model charges every lot we trade a flat 4.5% move against us (measured on FAB_MATS 2026-10-05). Markets differ: on 2026-10-23 THEOREM-38 bought 80 NEURAL_CHIPS in 15-unit lots and the ask went 21,677 to 30,228 (about +6.8% a lot), then sold 75 and the bid went 31,832 to 19,464 (about -9.3% a lot); the route showed a 47% margin and the trip cleared about 107k. With this on, a market we have traded into in the last 4 hours is planned on the per-lot move our own last runs there measured (never below the 4.5% default, never above default x this value), and a trip is sized to the units where the spread stops paying for the impact instead of always taking the full lots allowed. Off (the default) = the flat 4.5% and the full lots, as before. Takes effect on the next route plan. See src/engine/lotImpact.ts.",
