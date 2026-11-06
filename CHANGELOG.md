@@ -6,6 +6,10 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-06 — The keeper top-up ceiling (keeperTopUpMaxCalls) can go above 90
+
+Why: with the API lane on, keeper market reads leave from a second IP, so keeper polling no longer has to fit the box's 90 calls a minute. The clause was capped at max 90 (the old single-IP limit), and `set_doctrine` could not raise it; top-up sat blocked at 88-95 polling (2026-11-06) with 13 markets uncovered after FN21 opened. `doctrine.ts`: max 90 -> 150 (value, step and the default unchanged); the description says to watch the lane's calls a minute in ops `api_budget`. Setting the value live is a separate step.
+
 ## 2026-11-06 — The route pass stops stalling the server: prefilter, one pass at a time, a short cache for the app, yields, sub-phase timers
 
 Why: the app loaded slowly (2026-11-06 18:40). The API was healthy (box 52 calls a minute, 204 ms wait); the server's event loop was not: median delay 260 ms, p99 1.4 s, 87% of a core since boot, and `computeDispatchRoutes` spiking to 9-23 s. A 20 s CPU profile put the per-leg pricing, the trip-cost lookups and the row decoding on top. The route pass starts from about 110,000 stored legs (every buy/sell market pair with a spread) and drops about 89% as unprofitable only after pricing each. The Markets panel and `GET /dispatch` also each started a full pass per request, and each pass cleared the other's per-pass memo.
