@@ -47,6 +47,15 @@ export interface IdleDecision {
 
 const H = 3_600_000;
 
+/**
+ * Whether the fresh-system tick should run idle parking. It is its own clause (freshIdleParkHours), switched on by the operator, so it
+ * does not wait for the release rule to be on auto: until 2026-11-06 it ran only in auto mode, and with the gate on advisory (the
+ * operator releases systems by hand) the clause did nothing at all. Only a switched-off gate (no queue, no release times) stops it.
+ */
+export function runsIdleParking(gateMode: "off" | "advisory" | "auto"): boolean {
+  return gateMode !== "off";
+}
+
 export function decideIdleParking(facts: readonly IdleFacts[], now: number, p: IdlePolicy): IdleDecision {
   const out: IdleDecision = { park: [], unpark: [] };
   for (const f of facts) {

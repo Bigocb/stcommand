@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_IDLE_POLICY, decideIdleParking, type IdleFacts } from "../src/engine/idleSystems.js";
+import { DEFAULT_IDLE_POLICY, decideIdleParking, runsIdleParking, type IdleFacts } from "../src/engine/idleSystems.js";
 
 const H = 3_600_000;
 const NOW = 100 * H;
@@ -69,5 +69,11 @@ describe("idle system parking (pure)", () => {
     it("never parks a system younger than the park window", () => {
       assert.deepEqual(decideIdleParking([checked(50, 0, 2)], NOW, r).park, []);
     });
+  });
+
+  it("runs whenever the fresh-system gate is on, advisory included, and only stops when the gate is off", () => {
+    assert.equal(runsIdleParking("advisory"), true);
+    assert.equal(runsIdleParking("auto"), true);
+    assert.equal(runsIdleParking("off"), false);
   });
 });
