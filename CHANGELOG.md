@@ -6,6 +6,15 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-06 — Fix: idle parking never ran on an advisory fresh-system gate
+
+Found at the 04:00 check of the re-check deploy: the clause `freshIdleParkHours` was on at 3 hours (set 03:00) and nothing had been
+idle-parked. The fresh-system tick called `applyIdleParking` only when the gate mode was `auto`; the box runs `advisory` (the operator
+releases systems by hand), so the clause, from its first version on 2026-10-30, did nothing in production. It now runs whenever the
+gate is not off (`runsIdleParking`, `src/engine/idleSystems.ts`, tested): parking is its own operator-enabled clause and does not depend
+on the engine releasing systems itself. Both earlier changes of today (purchases count as use; the 45-minute re-check) only take effect
+with this.
+
 ## 2026-11-06 — Idle parking: a separate, short re-check (clause freshIdleRecheckMin, 45 minutes)
 
 The idle-parking rule (`freshIdleParkHours`, 3 hours) reopened a parked system for a re-check as long as the park window and could not

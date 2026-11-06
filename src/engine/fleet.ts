@@ -33,7 +33,7 @@ import { SystemQueue } from "./systemQueue.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
 import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, type QueueFacts, type ReleaseDecision, type ReleaseMode, type ReleasePolicy } from "./systemRelease.js";
 import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
-import { decideIdleParking, type IdleFacts } from "./idleSystems.js";
+import { decideIdleParking, runsIdleParking, type IdleFacts } from "./idleSystems.js";
 import { BootWatch, assignmentKey } from "./bootWatch.js";
 import { bidKey, sellPriceVerdict, type BidStat } from "./priceSanity.js";
 import { ReadRate, rotationMin } from "./keeperThroughput.js";
@@ -6340,7 +6340,7 @@ export class FleetManager {
       const lines = [...decision.stage.map((d) => `stage ${d.system} (${d.reason})`), ...decision.release.map((d) => `release ${d.system} (${d.reason})`), ...decision.notes];
       if (lines.length) this.freshNote(`${mode === "auto" ? "acting" : "advice"}: ${lines.join("; ")}`);
     }
-    if (mode === "auto") await this.applyIdleParking(liveQ.map((q) => q.system), now);
+    if (runsIdleParking(mode)) await this.applyIdleParking(liveQ.map((q) => q.system), now);
     if (mode !== "auto") return;
     for (const d of decision.unstage) {
       try { await this.unstageSystem(d.system, d.reason); } catch (err) { this.freshNote(`unstage ${d.system} failed: ${describeError(err)}`); }
