@@ -23,6 +23,12 @@ export interface IdlePolicy {
    * `hours` hours (see systemUse); idle when every hour is under it. Count mode (any sell or purchase) is the behaviour of before.
    */
   minHourlyProfit?: number;
+  /**
+   * Never park a system while a loaded ship is bound for one of its markets (and unpark one a loaded ship is bound for). Profit lands
+   * when the load is sold, so a system can read as idle for hours and then earn a ship's whole cargo (2026-11-06: SR93 earned 1.03M and
+   * 1.15M in two parked stretches, TN50 620k, after hours under the bar). Off (the default) = bound ships are ignored, as before.
+   */
+  holdBound?: boolean;
 }
 
 export const DEFAULT_IDLE_POLICY: IdlePolicy = { hours: 0 };
@@ -50,6 +56,8 @@ export interface IdleFacts {
   profitSinceCheck?: number;
   /** Events and profit involving the system since it was parked (only for a parked system). */
   parkedUse?: { events: number; profit: number };
+  /** Loaded ships whose sell market is in this system (see boundLoadedBySystem). Used only when the policy has `holdBound`. */
+  boundLoaded?: number;
 }
 
 export interface IdleDecision {
@@ -80,6 +88,7 @@ export function decideIdleParking(facts: readonly IdleFacts[], now: number, p: I
     // In use: a profitable enough hour (profit mode, a missing figure counts as in use) or any sell or purchase (count mode).
     const best = min > 0 && f.hourly ? Math.max(0, ...f.hourly) : undefined;
     const inUse = min > 0 ? best === undefined || best >= min : f.sells > 0 || f.buys > 0;
+    const bound = p.holdBound ? (f.boundLoaded ?? 0) : 0;
     const useReason = min > 0
       ? `an hour with ${Math.round(best ?? 0).toLocaleString("en-US")} profit in the last ${p.hours} h (needs ${min.toLocaleString("en-US")})`
       : f.sells > 0 ? `${f.sells} sell(s) in the last ${p.hours} h` : `${f.buys} purchase(s) in the last ${p.hours} h`;
@@ -90,11 +99,12 @@ export function decideIdleParking(facts: readonly IdleFacts[], now: number, p: I
       const since = f.parkedUse;
       const backNow = since !== undefined ? (min > 0 ? since.profit >= min : since.events > 0) : inUse;
       const backReason = since !== undefined ? (min > 0 ? `${Math.round(since.profit).toLocaleString("en-US")} profit since it was parked (needs ${min.toLocaleString("en-US")})` : `${since.events} trade(s) since it was parked`) : useReason;
-      if (backNow) out.unpark.push({ system: f.system, reason: backReason });
+      if (bound > 0) out.unpark.push({ system: f.system, reason: `${bound} loaded ship(s) bound for it` });
+      else if (backNow) out.unpark.push({ system: f.system, reason: backReason });
       // A parked system's prices go stale, so traders see no routes there and nothing sells to unpark it: after `hours` it is opened for
       // one more window to show whether its routes are back.
       else if (f.parkedAt !== undefined && now - f.parkedAt >= p.hours * H) out.unpark.push({ system: f.system, reason: `re-check: parked ${((now - f.parkedAt) / H).toFixed(1)} h, its prices are stale` });
-    } else if (ageH >= p.hours) {
+    } else if (ageH >= p.hours && bound === 0) {
       const recheckMs = (p.recheckMin ?? 0) * 60_000;
       const sinceMs = f.checkedAt === undefined ? 0 : now - f.checkedAt;
       // A re-check that has run its short window with nothing earned (profit mode: under the hourly bar pro rata) or sold or bought since the reopen.
@@ -105,6 +115,20 @@ export function decideIdleParking(facts: readonly IdleFacts[], now: number, p: I
         out.park.push({ system: f.system, reason: min > 0 ? `live ${ageH.toFixed(1)} h, no hour above ${min.toLocaleString("en-US")} profit in the last ${p.hours} h (best ${Math.round(best ?? 0).toLocaleString("en-US")})` : `live ${ageH.toFixed(1)} h with no sells or purchases in the last ${p.hours} h` });
       }
     }
+  }
+  return out;
+}
+
+/**
+ * Loaded ships per system they are heading to sell in: a ship with anything in its hold and a trader assignment gives its sell market's
+ * system one. Ships with an empty hold (still going to buy) do not count: the profit this protects is the sale of a load already bought.
+ */
+export function boundLoadedBySystem(ships: readonly { loaded: boolean; sellAt?: string }[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const s of ships) {
+    if (!s.loaded || !s.sellAt) continue;
+    const sys = systemOfWaypoint(s.sellAt);
+    out.set(sys, (out.get(sys) ?? 0) + 1);
   }
   return out;
 }

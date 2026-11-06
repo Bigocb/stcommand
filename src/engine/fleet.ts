@@ -33,7 +33,7 @@ import { SystemQueue } from "./systemQueue.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
 import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, type QueueFacts, type ReleaseDecision, type ReleaseMode, type ReleasePolicy } from "./systemRelease.js";
 import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
-import { decideIdleParking, runsIdleParking, systemUse, useSince, type IdleFacts } from "./idleSystems.js";
+import { boundLoadedBySystem, decideIdleParking, runsIdleParking, systemUse, useSince, type IdleFacts } from "./idleSystems.js";
 import { BootWatch, assignmentKey } from "./bootWatch.js";
 import { bidKey, sellPriceVerdict, type BidStat } from "./priceSanity.js";
 import { ReadRate, rotationMin } from "./keeperThroughput.js";
@@ -6384,6 +6384,14 @@ export class FleetManager {
     const hours = this.doctrine.isEnabledOr("freshIdleParkHours", false) ? this.doctrine.value("freshIdleParkHours") : 0;
     const minHourlyProfit = this.doctrine.isEnabledOr("freshIdleMinHourlyProfit", false) ? this.doctrine.value("freshIdleMinHourlyProfit") : 0;
     const recheckMin = this.doctrine.isEnabledOr("freshIdleRecheckMin", false) ? this.doctrine.value("freshIdleRecheckMin") : 0;
+    // Loaded ships and where they sell (clause freshIdleHoldBound): a system one of them is heading to is not idle, whatever the hours say.
+    const holdBound = this.doctrine.isEnabledOr("freshIdleHoldBound", false);
+    const bound = holdBound
+      ? boundLoadedBySystem((() => {
+        const sellAtOf = new Map(this.dispatcher.list().map((a) => [a.shipSymbol, a.sellAt]));
+        return this.currentShips().map((s) => ({ loaded: (s.cargo?.inventory ?? []).some((i) => i.units > 0), sellAt: sellAtOf.get(s.symbol) }));
+      })())
+      : new Map<string, number>();
     // The rows for the window, read fresh: the 24-hour slice refreshes only every 30 minutes, too stale for an hourly profit bar or a
     // 45-minute re-check. A failed read falls back to that slice for the counts; profit mode and re-checks then count as "in use", so
     // nothing is parked on a missing figure.
@@ -6411,9 +6419,10 @@ export class FleetManager {
         parkedUse: parkedAt !== undefined && fresh ? useSince(fresh, s, parkedAt) : undefined,
         hourly: minHourlyProfit > 0 && fresh ? (u?.hourly ?? new Array<number>(Math.max(1, Math.ceil(hours))).fill(0)) : undefined,
         profitSinceCheck: at === undefined ? 0 : since ? since.profit : undefined,
+        boundLoaded: bound.get(s) ?? 0,
       };
     });
-    const d = decideIdleParking(facts, now, { hours, recheckMin, minHourlyProfit });
+    const d = decideIdleParking(facts, now, { hours, recheckMin, minHourlyProfit, holdBound });
     let changed = false;
     for (const x of d.unpark) {
       // The keepers poll again once unparked: with the cap full they stay parked until a slot is free.

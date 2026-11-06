@@ -6,6 +6,16 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-06 — Idle parking: keep a system polled while a loaded ship is heading to it (clause freshIdleHoldBound); profit bar lowered to 20,000
+
+Why: the 50,000 an hour profit bar parked systems that then earned a whole cargo. Seen 2026-11-06: SR93 (parked 08:52, unparked 10:31 with 1,032,204 profit since, parked again and unparked 12:09 with 1,151,924), TN50 (parked 09:03, unparked 09:31 with 620,244; a 1.36M SUPERGRAINS load was bound for TN50-A1 meanwhile), and RS50, NQ28 and PJ53 (190-260k each). Profit lands when a load is sold, so hours under the bar say little about a system a loaded ship is about to sell in.
+
+- `src/engine/idleSystems.ts`: new pure `boundLoadedBySystem(ships)` (loaded ships counted by the system of their sell market; empty holds and ships with no route do not count), `IdleFacts.boundLoaded`, and `IdlePolicy.holdBound`. With `holdBound` a system with a bound loaded ship is not parked (neither the window park nor the re-check park) and a parked one is unparked ("N loaded ship(s) bound for it"). `holdBound` unset reproduces the earlier behaviour, with a test.
+- `src/engine/fleet.ts`: `applyIdleParking` reads each loaded ship's sell market from the dispatcher's assignments and fills `boundLoaded`.
+- `src/engine/doctrine.ts`: new clause `freshIdleHoldBound` (on). The clause is the switch; turn it off to ignore bound ships.
+- Operator change made live the same day: `freshIdleMinHourlyProfit` 50,000 to 20,000 (the two cases above had best hours of 25.5k and 24.8k).
+- Tests: `tests/idleSystems.test.ts` (off reproduces today; on blocks the window park and the re-check park; unparks with the reason; `boundLoadedBySystem`). Not covered: a ship assigned to a route but not yet carrying cargo is deliberately ignored.
+
 ## 2026-11-06 — Keeper probes: live price checked before buying, paid-price floor applied to the main yard pick; parked systems judged since they were parked
 
 Two problems seen in the 06:13 hourly, the first a repeat of 2026-11-05's.

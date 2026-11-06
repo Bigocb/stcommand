@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_IDLE_POLICY, decideIdleParking, runsIdleParking, systemUse, useSince, type IdleFacts, type UseRow } from "../src/engine/idleSystems.js";
+import { DEFAULT_IDLE_POLICY, boundLoadedBySystem, decideIdleParking, runsIdleParking, systemUse, useSince, type IdleFacts, type UseRow } from "../src/engine/idleSystems.js";
 
 const H = 3_600_000;
 const NOW = 100 * H;
@@ -150,6 +150,40 @@ describe("idle system parking (pure)", () => {
     it("without a since-parked figure the whole-window reading applies, as before", () => {
       const d = decideIdleParking([parked({ parkedUse: undefined })], NOW, m);
       assert.deepEqual(d.unpark.map((x) => x.system), ["X1-P"]);
+    });
+  });
+  describe("a loaded ship bound for a system holds its keepers polling (holdBound)", () => {
+    const m = { hours: 3, minHourlyProfit: 20_000, holdBound: true };
+    const quiet = (over: Partial<IdleFacts> = {}): IdleFacts => ({ ...f("X1-TN50", 20, 3), hourly: [0, 0, 0], ...over });
+    it("off (the default) reproduces today: a quiet system with a bound ship is still parked", () => {
+      const d = decideIdleParking([quiet({ boundLoaded: 1 })], NOW, { hours: 3, minHourlyProfit: 20_000 });
+      assert.deepEqual(d.park.map((x) => x.system), ["X1-TN50"]);
+    });
+    it("on: does not park a quiet system while a loaded ship is bound for it, and parks it once none is", () => {
+      assert.deepEqual(decideIdleParking([quiet({ boundLoaded: 1 })], NOW, m).park, []);
+      assert.deepEqual(decideIdleParking([quiet({ boundLoaded: 0 })], NOW, m).park.map((x) => x.system), ["X1-TN50"]);
+    });
+    it("on: does not re-check park a reopened system with a bound ship", () => {
+      const re = quiet({ checkedAt: NOW - 60 * 60_000, profitSinceCheck: 0, boundLoaded: 2 });
+      assert.deepEqual(decideIdleParking([re], NOW, { ...m, recheckMin: 45 }).park, []);
+      assert.deepEqual(decideIdleParking([{ ...re, boundLoaded: 0 }], NOW, { ...m, recheckMin: 45 }).park.map((x) => x.system), ["X1-TN50"]);
+    });
+    it("on: unparks a parked system a loaded ship is bound for, with the reason", () => {
+      const d = decideIdleParking([{ ...quiet({ boundLoaded: 1 }), parked: true, parkedAt: NOW - 20 * 60_000, parkedUse: { events: 0, profit: 0 } }], NOW, m);
+      assert.deepEqual(d.unpark.map((x) => x.system), ["X1-TN50"]);
+      assert.match(d.unpark[0]!.reason, /1 loaded ship\(s\) bound for it/);
+    });
+  });
+
+  describe("boundLoadedBySystem", () => {
+    it("counts loaded ships by the system of their sell market, ignoring empty holds and ships without a route", () => {
+      const m = boundLoadedBySystem([
+        { loaded: true, sellAt: "X1-TN50-A1" }, { loaded: true, sellAt: "X1-TN50-J67" }, { loaded: false, sellAt: "X1-TN50-A1" },
+        { loaded: true, sellAt: undefined }, { loaded: true, sellAt: "X1-SR93-A1" },
+      ]);
+      assert.equal(m.get("X1-TN50"), 2);
+      assert.equal(m.get("X1-SR93"), 1);
+      assert.equal(m.size, 2);
     });
   });
 });
