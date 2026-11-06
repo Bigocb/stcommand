@@ -6401,12 +6401,14 @@ export class FleetManager {
     const facts: IdleFacts[] = liveSystems.filter((s) => releasedAt.has(s)).map((s) => {
       const u = use.get(s);
       const at = reopened(s);
+      const parkedAt = parkedSystems.has(s) ? this.idleParkedAt.get(s) : undefined;
       const since = at !== undefined && fresh ? useSince(fresh, s, at) : undefined;
       return {
         system: s, releasedAt: releasedAt.get(s)!,
         sells: haveCounts ? (u?.sells ?? 0) : 1, buys: u?.buys ?? 0,
         parked: parkedSystems.has(s), parkedAt: this.idleParkedAt.get(s), checkedAt: this.idleCheckedAt.get(s),
         usedSinceCheck: at === undefined ? 0 : since ? since.events : 1,
+        parkedUse: parkedAt !== undefined && fresh ? useSince(fresh, s, parkedAt) : undefined,
         hourly: minHourlyProfit > 0 && fresh ? (u?.hourly ?? new Array<number>(Math.max(1, Math.ceil(hours))).fill(0)) : undefined,
         profitSinceCheck: at === undefined ? 0 : since ? since.profit : undefined,
       };
@@ -7484,6 +7486,22 @@ export class FleetManager {
     } catch {
       return "failed";
     }
+    // The stored yard price can be hours old and every purchase raises it (2026-11-06 05:20-05:33: six probes at X1-SQ43-ZZ6Z cost 70-89k
+    // each while the stored reading, and the log, said 42,089, against a 60,000 cap). A ship is docked here, so read the live price first:
+    // it is also the freshest reading for keeperYardPrice(), and above the auto-approve cap nothing is bought (the market is held back and
+    // other yards are tried). A failed read falls back to the old behaviour.
+    try {
+      const sys = yard.slice(0, yard.lastIndexOf("-"));
+      const row = (await this.api.getShipyard(sys, yard)).ships?.find((x) => x.type === hull);
+      if (row && typeof row.purchasePrice === "number") {
+        this.keeperYardPaid.set(yardPaidKey(yard, hull), { price: row.purchasePrice, at: Date.now() });
+        if (row.purchasePrice > price && !this.keeperAutoApproves(row.purchasePrice).approve) {
+          this.log(`keeper ${hull} for ${target} not bought at ${yard}: the live price ${row.purchasePrice} is over the auto-approve cap (stored reading ${price})`);
+          await this.coolKeeperMarket(target, 10);
+          return "failed";
+        }
+      }
+    } catch { /* the guard is best effort */ }
     return (await this.purchaseKeeperProbe(yard, target, price, hull)) === "failed" ? "failed" : "bought";
   }
 
@@ -7728,7 +7746,13 @@ export class FleetManager {
     const marketSystem = marketWaypoint.slice(0, marketWaypoint.lastIndexOf("-"));
     const positions = new Map(this.galaxy.allPositions().map((p) => [p.symbol, p]));
     const marketPos = positions.get(marketWaypoint);
-    const yards = (await this.store?.shipyardInventory()) ?? [];
+    const yardsNow = Date.now();
+    // Priced as keeperYardPrice() says (stored price or the last price really paid there, whichever is higher): a purchase raises the yard's price
+    // faster than a snapshot catches it, and this pick feeds the auto-approve cap. (Before 2026-11-06 only storedShipyardForSale applied it.)
+    const yards = ((await this.store?.shipyardInventory()) ?? []).map((y) => ({
+      ...y,
+      purchasePrice: keeperYardPrice(y.purchasePrice, this.keeperYardPaid.get(yardPaidKey(y.waypointSymbol, y.shipType)), yardsNow, FleetManager.KEEPER_YARD_PAID_MS),
+    }));
     // Cheapest keeper hull across the system's yards (fresh prices first), not
     // the nearest yard: see keeperYard.ts.
     const yardDist = (wp: string): number => {

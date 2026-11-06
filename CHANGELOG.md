@@ -6,6 +6,22 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-06 — Keeper probes: live price checked before buying, paid-price floor applied to the main yard pick; parked systems judged since they were parked
+
+Two problems seen in the 06:13 hourly, the first a repeat of 2026-11-05's.
+
+- **Keeper overspend at X1-SQ43-ZZ6Z again.** 05:20-05:33 six probes cost 81,470, 83,793, 86,198, 88,687, 70,343 and 70,343 (about 481k) while
+  the log said "42089c is within the 60000c auto-approve cap" each time. The 2026-11-05 fix (`keeperYardPrice`, price = the higher of the stored
+  price and the last price really paid at that yard within the hour) was applied only in `storedShipyardForSale`; the main pick in
+  `maybeRequestKeeperProbeForMarket` still read the raw stored price, so the floor never reached the auto-approve decision. It is now applied there
+  too. And because the stored price can be hours old and the paid memory is lost at a restart, `buyKeeperThroughPresentShip` now reads the live yard
+  price (a ship is docked there; `getShipyard`) before buying: the reading is kept as the paid price, and above the auto-approve cap nothing is bought
+  (log "live price N is over the auto-approve cap", the market is held back 10 minutes, other yards are tried). A failed read falls back to the
+  earlier behaviour. Tests: `tests/keeperLivePrice.test.ts`.
+- **Idle parking flapping.** PJ53 and GF96 were parked at their re-check and unparked 5-10 minutes later because the 3-hour window still held the
+  profit of the hours before they were parked. A parked system is now judged on what happened since it was parked (profit at least the hourly bar,
+  or any trade in count mode); without that figure the old reading applies. Tests: `tests/idleSystems.test.ts`.
+
 ## 2026-11-06 — Idle parking judged by profit: 50,000 an hour in each hour of the 3-hour window (clause freshIdleMinHourlyProfit)
 
 Counting sells and purchases parks only systems with no trades at all; a system that trades a little for little profit stays polled (the
