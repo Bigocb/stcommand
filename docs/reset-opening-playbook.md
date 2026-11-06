@@ -412,3 +412,12 @@ system (it sells explorers at several yards), CK31 and TB63 are unconfirmed.
 To do once the gate is open: (1) add the yard count per system to the candidate facts and the yard scan, (2) rank systems with 5 or more yards first when the explorers or the
 remote survey pick where to look, (3) note the first heavy and bulk yard found and buy them early in the order set out above. Whether the 5-yard rule holds is the first
 thing to check next week.
+
+## Idle parking at the start of a week (operator, 2026-11-06)
+
+`freshIdleMinHourlyProfit` (50,000) and `freshIdleParkHours` (3) were set for a fleet making 3-5M an hour. They are doctrine clauses, so
+change them live with `stcommand_set_doctrine` (takes effect within 5 minutes), and they must be different at the start of a week: a fleet
+making 100-300k an hour has no system that clears 50k an hour, so the bar would park nearly everything once systems are 3 hours old. At a
+reset either turn the profit bar off (`freshIdleMinHourlyProfit` enabled=false falls back to "any sell or purchase", itself gentle) or set it to
+about 1-2% of the fleet's hourly profit, and raise it as the hourly figure grows. Idea, not built: make the bar a share of the fleet's
+profit an hour (so it scales by itself) with the fixed figure as a floor.
