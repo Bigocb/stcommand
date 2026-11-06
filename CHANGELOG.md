@@ -6,6 +6,26 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-06 — API rate 1.75 (API_RATE), per-request call log (ops api_calls), idle parking counts purchases and is on at 3 hours
+
+Three changes the operator asked for after the week's API review (journal 02:40).
+
+- **Rate.** The shared limiter's 1.5 requests a second was hard-coded and ran at 99% of its 90 a minute all week: traders (77% of calls) waited
+  0.4 s, keeper and survey reads (20%) waited 13-20 s, keeper rotation stretched from 20 to 38 minutes as ships were added, and the
+  fleet-state refresh waited about 30 s (25 ships read "transit overdue" at once). The game allows 2 a second per IP and 429s were isolated
+  (about one an hour). The rate is now `API_RATE` (`apiRateFromEnv`, default 1.75 = 105 a minute, clamped 0.5-1.95), like `API_BURST`; set
+  `API_RATE=1.5` to go back. `api_budget`'s cap now reads the limiter's own rate. Judge it by `api_calls` 429s and keeper wait over the
+  next hours; a burst of 429s means step down.
+- **Instrumentation.** New `src/core/apiCallLog.ts` (pure, 5-minute buckets for 24 hours) records every request the `Client` sends as
+  `<role>:<call type>` (`keeper:market`, `trader:navigate`): calls, calls a minute, share, average and worst wait for a token, average and
+  worst answer time, 429s, errors and timeouts. A retry after a 429 counts as its own request. Ops `api_calls` (`stcommand_ops_api_calls`)
+  gives it over `sinceMin` (to 1440), filtered by `role` and `kind`, or as a time series (`series=true`, `bucketMin`). In memory: a restart
+  empties it and `coveredMin` says how much of the window it holds. `api_budget` is still the live 5-minute view with the queue.
+- **Idle parking.** `freshIdleParkHours` counted sells only, so a system traders only buy from (supply) would have been parked and its
+  prices left to go stale. `decideIdleParking` now needs zero sells and zero purchases (`IdleFacts.buys`; the fleet reads PURCHASE rows from
+  the same 24-hour ledger slice) and unparks on either. The clause now defaults to on at 3 hours (was off at 6). Expected at the time: 7
+  systems / 74 keepers idle on both sides, about 13 calls a minute freed. Tests: `tests/apiCallLog.test.ts`, `tests/idleSystems.test.ts`.
+
 ## 2026-11-05 — Tower's headline split into trading profit and expansion costs
 
 Tower's profit/hour read -15,437 in an hour where the matched trades made about +1.17M. The headline netted every sale's profit

@@ -12,6 +12,7 @@ import { chartRewardReport } from "../engine/chartReward.js";
 import { summarizeUncharted } from "../engine/chartCheck.js";
 import { DEFAULT_CANDIDATE_POLICY } from "../engine/systems/candidates.js";
 import { logBuffer } from "../core/logBuffer.js";
+import { apiCallLog } from "../core/apiCallLog.js";
 import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { classifyShips, hopsWithin, keeperReport, type StateShip, type SummaryShip } from "./classify.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
@@ -277,7 +278,7 @@ export const OPS_TOOLS: OpsTool[] = [
     name: "api_budget",
     title: "API budget: calls a minute against the 90 cap, the queue, and who spends it",
     description:
-      "The shared rate limiter's last 5 minutes: total calls a minute against the 90 the game allows, the queue waiting for a token and how long the oldest has waited, average and worst wait, 429 responses in the last 60 seconds (by who was limited, with the latest 429's rate-limit headers: the headers say which limit was hit), and the top spenders by ship role + call kind and by calling code. keeper_review shows only the keepers' share; this is the whole process (every tenant on this box shares one limit). Read-only.",
+      "The shared rate limiter's last 5 minutes: total calls a minute against the limiter's own rate (cap; 105 at API_RATE 1.75, the game allows 120), the queue waiting for a token and how long the oldest has waited, average and worst wait, 429 responses in the last 60 seconds (by who was limited, with the latest 429's rate-limit headers: the headers say which limit was hit), and the top spenders by ship role + call kind and by calling code. keeper_review shows only the keepers' share; this is the whole process (every tenant on this box shares one limit). Read-only.",
     input: { top: num(12) },
     async run(_ctx, a) {
       const snap = rateLimitMonitor.snapshot();
@@ -288,8 +289,8 @@ export const OPS_TOOLS: OpsTool[] = [
       return {
         windowMin: Math.round(st.windowMs / 60_000),
         callsPerMin: st.callsPerMin,
-        cap: 90,
-        shareOfCap: Math.round((st.callsPerMin / 90) * 100) / 100,
+        cap: st.ratePerMin,
+        shareOfCap: Math.round((st.callsPerMin / st.ratePerMin) * 100) / 100,
         queueDepth: st.queueDepth,
         oldestWaitMs: st.oldestWaitMs,
         avgWaitMs: st.avgWaitMs,
@@ -302,6 +303,21 @@ export const OPS_TOOLS: OpsTool[] = [
         byCaller: top(st.byCaller),
         byTenant: top(st.byLabel),
       };
+    },
+  },
+
+  {
+    name: "api_calls",
+    title: "API calls by <role>:<call type> over minutes to a day",
+    description:
+      "Every API request grouped as <role>:<call type> (keeper:market, trader:navigate, tour:dock, ...) over the last sinceMin minutes (default 60, up to 1440; the log is in memory, so a restart empties it and coveredMin says how much of the window it holds): calls, calls a minute, share of all calls, average and worst wait for a token, average and worst time the game took to answer, 429s, and other errors or timeouts. Filter with role and/or kind. Give series=true with a role and/or kind to see that group over time in bucketMin steps (a multiple of 5) instead, for matching a change (the rate, a release, a parked group) to its effect. api_budget is the live 5-minute view with the queue; this is the longer record. Read-only.",
+    input: { sinceMin: num(60), role: z.string().optional(), kind: z.string().optional(), series: bool, bucketMin: num(15), top: num(40) },
+    async run(ctx, a) {
+      const now = ctx.now();
+      const since = Math.min(Math.max(a.sinceMin, 5), 1440);
+      const filter = { role: a.role, kind: a.kind };
+      if (a.series) return { sinceMin: since, filter, bucketMin: a.bucketMin, series: apiCallLog.series(now, since, filter, a.bucketMin) };
+      return apiCallLog.summary(now, since, filter, a.top);
     },
   },
 

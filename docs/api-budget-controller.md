@@ -23,7 +23,7 @@ Other symptoms of the same gap, all seen this week:
 
 ## 2. The constraint
 
-- **One pipe: 1.5 requests a second, about 90 a minute, for the whole process and both tenants**
+- **One pipe: 1.5 requests a second, about 90 a minute, for the whole process and both tenants** (from 2026-11-06 the rate is `API_RATE`, default 1.75 or 105 a minute; see CHANGELOG)
   (`RateLimiter` in `src/core/client.ts`; two processes on one IP share it, which is why a deploy overlap shows as a burst of 429s).
 - **Urgency tiers** (`API_PRIORITY`): BOOT 0, CRITICAL 1 (trades, movement), ROUTINE 2, DEFERRABLE 3 (keeper reads),
   BACKGROUND 4. A waiting call moves up one tier per 20 seconds.

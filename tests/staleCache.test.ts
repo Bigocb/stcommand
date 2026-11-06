@@ -54,7 +54,7 @@ describe("ops api_budget", () => {
   it("reports the whole process's calls a minute against the cap, and its top spenders", async () => {
     const { rateLimitMonitor } = await import("../src/core/rateLimitMonitor.js");
     rateLimitMonitor.setLimiterSource(() => ({
-      windowMs: 300_000, queueDepth: 3, oldestWaitMs: 4000, calls: 450, callsPerMin: 90, avgWaitMs: 700, maxWaitMs: 9000,
+      windowMs: 300_000, ratePerMin: 90, queueDepth: 3, oldestWaitMs: 4000, calls: 450, callsPerMin: 90, avgWaitMs: 700, maxWaitMs: 9000,
       byLabel: { t1: { calls: 450, avgWaitMs: 700, maxWaitMs: 9000 } }, byPriority: {}, byKind: {},
       byCaller: { "ship <- ShipProxy.refresh": { calls: 100, avgWaitMs: 800, maxWaitMs: 9000 } },
       byRole: { "keeper market": { calls: 105, avgWaitMs: 900, maxWaitMs: 9000 }, "trader market": { calls: 63, avgWaitMs: 600, maxWaitMs: 5000 } },
