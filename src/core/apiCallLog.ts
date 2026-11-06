@@ -21,6 +21,8 @@ export interface ApiCallEvent {
   durationMs: number;
   /** HTTP status; 0 = no answer (timeout or network error). */
   status: number;
+  /** Which IP the request left from (apiLanes.ts); absent = the box, as before lanes existed. */
+  lane?: "box" | "proxy";
 }
 
 interface Agg {
@@ -54,6 +56,17 @@ export interface ApiCallRow {
   errors: number;
 }
 
+/** One lane's share of the window: calls, calls a minute, how long they waited and how long the game took, 429s and errors. */
+export interface ApiLaneRow {
+  lane: string;
+  calls: number;
+  perMin: number;
+  avgWaitMs: number;
+  avgAnswerMs: number;
+  r429: number;
+  errors: number;
+}
+
 export interface ApiCallSummary {
   sinceMin: number;
   /** How much of the window the log actually covers (it starts empty after a restart). */
@@ -62,6 +75,8 @@ export interface ApiCallSummary {
   perMin: number;
   r429: number;
   errors: number;
+  /** Calls by the IP they left from (the box, or the proxy lane when it is on). */
+  lanes: ApiLaneRow[];
   rows: ApiCallRow[];
 }
 
@@ -73,23 +88,11 @@ const blank = (): Agg => ({ calls: 0, waitTotal: 0, waitMax: 0, durTotal: 0, dur
 export class ApiCallLog {
   /** key -> bucket start (ms) -> aggregate */
   private readonly data = new Map<string, Map<number, Agg>>();
+  /** lane -> bucket start (ms) -> aggregate, over every role and call type */
+  private readonly laneData = new Map<string, Map<number, Agg>>();
   private firstAt: number | undefined;
 
-  record(e: ApiCallEvent): void {
-    const key = `${e.role}:${e.kind}`;
-    const start = Math.floor(e.at / BUCKET_MS) * BUCKET_MS;
-    if (this.firstAt === undefined) this.firstAt = e.at;
-    let byBucket = this.data.get(key);
-    if (!byBucket) { byBucket = new Map(); this.data.set(key, byBucket); }
-    let a = byBucket.get(start);
-    if (!a) {
-      a = blank();
-      byBucket.set(start, a);
-      if (byBucket.size > KEEP_BUCKETS) {
-        const oldest = Math.min(...byBucket.keys());
-        byBucket.delete(oldest);
-      }
-    }
+  private static fold(a: Agg, e: ApiCallEvent): void {
     a.calls += 1;
     a.waitTotal += e.waitMs;
     a.waitMax = Math.max(a.waitMax, e.waitMs);
@@ -100,6 +103,50 @@ export class ApiCallLog {
     else if (e.status >= 500) a.err5xx += 1;
     else if (e.status >= 400) a.err4xx += 1;
     else a.ok += 1;
+  }
+
+  private static bucketOf(map: Map<string, Map<number, Agg>>, key: string, start: number): Agg {
+    let byBucket = map.get(key);
+    if (!byBucket) { byBucket = new Map(); map.set(key, byBucket); }
+    let a = byBucket.get(start);
+    if (!a) {
+      a = blank();
+      byBucket.set(start, a);
+      if (byBucket.size > KEEP_BUCKETS) {
+        const oldest = Math.min(...byBucket.keys());
+        byBucket.delete(oldest);
+      }
+    }
+    return a;
+  }
+
+  record(e: ApiCallEvent): void {
+    const key = `${e.role}:${e.kind}`;
+    const start = Math.floor(e.at / BUCKET_MS) * BUCKET_MS;
+    if (this.firstAt === undefined) this.firstAt = e.at;
+    ApiCallLog.fold(ApiCallLog.bucketOf(this.data, key, start), e);
+    ApiCallLog.fold(ApiCallLog.bucketOf(this.laneData, e.lane ?? "box", start), e);
+  }
+
+  /** Calls by lane over the last `sinceMin` minutes. */
+  private laneRows(now: number, sinceMin: number, minutes: number): ApiLaneRow[] {
+    const cutoff = now - sinceMin * 60_000;
+    const rows: ApiLaneRow[] = [];
+    for (const [lane, byBucket] of this.laneData) {
+      const a = blank();
+      for (const [start, b] of byBucket) {
+        if (start + BUCKET_MS <= cutoff) continue;
+        a.calls += b.calls; a.waitTotal += b.waitTotal; a.durTotal += b.durTotal;
+        a.r429 += b.r429; a.err4xx += b.err4xx; a.err5xx += b.err5xx; a.noAnswer += b.noAnswer;
+      }
+      if (a.calls === 0) continue;
+      rows.push({
+        lane, calls: a.calls, perMin: round1(a.calls / minutes),
+        avgWaitMs: Math.round(a.waitTotal / a.calls), avgAnswerMs: Math.round(a.durTotal / a.calls),
+        r429: a.r429, errors: a.err4xx + a.err5xx + a.noAnswer,
+      });
+    }
+    return rows.sort((x, y) => y.calls - x.calls);
   }
 
   /** Calls grouped by role and call type over the last `sinceMin` minutes, busiest first. */
@@ -136,7 +183,7 @@ export class ApiCallLog {
     }
     for (const r of rows) r.share = total ? Math.round((r.calls / total) * 1000) / 1000 : 0;
     rows.sort((x, y) => y.calls - x.calls);
-    return { sinceMin, coveredMin: round1(covered), calls: total, perMin: round1(total / minutes), r429, errors, rows: rows.slice(0, Math.max(1, top)) };
+    return { sinceMin, coveredMin: round1(covered), calls: total, perMin: round1(total / minutes), r429, errors, lanes: this.laneRows(now, sinceMin, minutes), rows: rows.slice(0, Math.max(1, top)) };
   }
 
   /** One key (or every key of a role, or of a call type) over time, in `bucketMin` steps (a multiple of 5). */
@@ -162,7 +209,7 @@ export class ApiCallLog {
     }));
   }
 
-  clear(): void { this.data.clear(); this.firstAt = undefined; }
+  clear(): void { this.data.clear(); this.laneData.clear(); this.firstAt = undefined; }
 }
 
 const round1 = (n: number): number => Math.round(n * 10) / 10;

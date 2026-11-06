@@ -21,7 +21,7 @@ const MIN_RATE = 0.2;
 const MAX_RATE = 1.9;
 
 /** What the crawler reads from a response: the few members both fetch implementations share. */
-export type PublicResponse = Pick<Response, "status" | "ok" | "headers" | "statusText" | "json">;
+export type PublicResponse = Pick<Response, "status" | "ok" | "headers" | "statusText" | "json" | "text">;
 export type PublicFetch = (url: URL) => Promise<PublicResponse>;
 
 /** `http://user:pass@host:port/` -> `host:port`. Never returns the credentials, so it is safe to log. */

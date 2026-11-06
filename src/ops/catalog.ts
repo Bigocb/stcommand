@@ -278,7 +278,7 @@ export const OPS_TOOLS: OpsTool[] = [
     name: "api_budget",
     title: "API budget: calls a minute against the 90 cap, the queue, and who spends it",
     description:
-      "The shared rate limiter's last 5 minutes: total calls a minute against the limiter's own rate (cap; 105 at API_RATE 1.75, the game allows 120), the queue waiting for a token and how long the oldest has waited, average and worst wait, 429 responses in the last 60 seconds (by who was limited, with the latest 429's rate-limit headers: the headers say which limit was hit), and the top spenders by ship role + call kind and by calling code. keeper_review shows only the keepers' share; this is the whole process (every tenant on this box shares one limit). Read-only.",
+      "The shared rate limiter's last 5 minutes: total calls a minute against the limiter's own rate (cap; 105 at API_RATE 1.75, the game allows 120), the queue waiting for a token and how long the oldest has waited, average and worst wait, 429 responses in the last 60 seconds (by who was limited, with the latest 429's rate-limit headers: the headers say which limit was hit), and the top spenders by ship role + call kind and by calling code (the box's IP only; proxyLane shows the second IP's own bucket and breaker when one is configured). keeper_review shows only the keepers' share; this is the whole process (every tenant on this box shares one limit). Read-only.",
     input: { top: num(12) },
     async run(_ctx, a) {
       const snap = rateLimitMonitor.snapshot();
@@ -302,6 +302,8 @@ export const OPS_TOOLS: OpsTool[] = [
         byRole: top(st.byRole),
         byCaller: top(st.byCaller),
         byTenant: top(st.byLabel),
+        // The proxy lane (apiLanes.ts), when API_LANE_PROXY_URL is set: its own token bucket and breaker. The numbers above are the box's IP only.
+        ...(snap.lane ? { proxyLane: snap.lane } : {}),
       };
     },
   },
@@ -310,7 +312,7 @@ export const OPS_TOOLS: OpsTool[] = [
     name: "api_calls",
     title: "API calls by <role>:<call type> over minutes to a day",
     description:
-      "Every API request grouped as <role>:<call type> (keeper:market, trader:navigate, tour:dock, ...) over the last sinceMin minutes (default 60, up to 1440; the log is in memory, so a restart empties it and coveredMin says how much of the window it holds): calls, calls a minute, share of all calls, average and worst wait for a token, average and worst time the game took to answer, 429s, and other errors or timeouts. Filter with role and/or kind. Give series=true with a role and/or kind to see that group over time in bucketMin steps (a multiple of 5) instead, for matching a change (the rate, a release, a parked group) to its effect. api_budget is the live 5-minute view with the queue; this is the longer record. Read-only.",
+      "Every API request grouped as <role>:<call type> (keeper:market, trader:navigate, tour:dock, ...) over the last sinceMin minutes (default 60, up to 1440; the log is in memory, so a restart empties it and coveredMin says how much of the window it holds): calls, calls a minute, share of all calls, average and worst wait for a token, average and worst time the game took to answer, 429s, and other errors or timeouts. Filter with role and/or kind. Give series=true with a role and/or kind to see that group over time in bucketMin steps (a multiple of 5) instead, for matching a change (the rate, a release, a parked group) to its effect. api_budget is the live 5-minute view with the queue; this is the longer record. The lanes list says how many calls left from the box's IP and from the proxy lane (when the clause apiLaneProxy is on). Read-only.",
     input: { sinceMin: num(60), role: z.string().optional(), kind: z.string().optional(), series: bool, bucketMin: num(15), top: num(40) },
     async run(ctx, a) {
       const now = ctx.now();

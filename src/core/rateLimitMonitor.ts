@@ -20,6 +20,7 @@ export class RateLimitMonitor {
   private lastBySource = new Map<string, { at: string; headers: Record<string, string> }>();
   private last = 0;
   private limiterSource: (() => LimiterStats) | undefined;
+  private laneSource: (() => Record<string, unknown>) | undefined;
 
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -44,12 +45,18 @@ export class RateLimitMonitor {
     this.limiterSource = fn;
   }
 
-  snapshot(): { hits60s: number; bySource: Record<string, number>; last: Record<string, { at: string; headers: Record<string, string> }>; lastAt: string | null; limiter?: LimiterStats } {
+  /** Where to read the proxy lane's own numbers from (apiLanes.ts); not set when no lane proxy is configured. */
+  setLaneSource(fn: () => Record<string, unknown>): void {
+    this.laneSource = fn;
+  }
+
+  snapshot(): { hits60s: number; bySource: Record<string, number>; last: Record<string, { at: string; headers: Record<string, string> }>; lastAt: string | null; limiter?: LimiterStats; lane?: Record<string, unknown> } {
     this.prune(this.now());
     const limiter = this.limiterSource?.();
+    const lane = this.laneSource?.();
     const bySource: Record<string, number> = {};
     for (const h of this.hits) bySource[h.source] = (bySource[h.source] ?? 0) + 1;
-    return { hits60s: this.hits.length, bySource, last: Object.fromEntries(this.lastBySource), lastAt: this.last ? new Date(this.last).toISOString() : null, ...(limiter ? { limiter } : {}) };
+    return { hits60s: this.hits.length, bySource, last: Object.fromEntries(this.lastBySource), lastAt: this.last ? new Date(this.last).toISOString() : null, ...(limiter ? { limiter } : {}), ...(lane ? { lane } : {}) };
   }
 }
 
