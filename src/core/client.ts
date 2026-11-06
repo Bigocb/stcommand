@@ -8,6 +8,7 @@ import type { components } from "./schema.js";
 // proxied request goes through undici's own fetch instead of the ambient
 // global one.
 import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from "undici";
+import { chooseLane, type LaneBreaker, type LanePolicy, type Lane } from "../engine/apiLanes.js";
 
 export type { paths, components };
 
@@ -79,6 +80,22 @@ export interface ClientOptions {
    * whatever IP this process itself has.
    */
   proxyUrl?: string;
+  /**
+   * A second IP for the calls nothing waits on (apiLanes.ts): read-only GETs at deferrable or background priority (keeper market reads,
+   * remote surveys, fleet-state refreshes) leave through this proxy with its own limiter, and fall back to the normal path if it
+   * fails. Everything else, and every request while `policy().enabled` is false, goes out as it always did. Not used by a Client
+   * that has its own `proxyUrl`.
+   */
+  lanes?: ClientLanes;
+}
+
+export interface ClientLanes {
+  proxyUrl: string;
+  /** The proxy IP's own token bucket. */
+  limiter: RateLimiter;
+  /** Read per request, so the doctrine clause switches it live. */
+  policy: () => LanePolicy;
+  breaker: LaneBreaker;
 }
 
 type RequestOptions = {
@@ -518,6 +535,8 @@ export class Client {
    *  connection pool to the proxy, so constructing a fresh one per call
    *  would throw that pooling away for no benefit. */
   private readonly dispatcher: Dispatcher | undefined;
+  private readonly lanes: ClientLanes | undefined;
+  private readonly laneDispatcher: Dispatcher | undefined;
 
   /** Why this client's token is permanently unusable, or undefined while it works. */
   deadTokenReason(): string | undefined {
@@ -534,6 +553,8 @@ export class Client {
     this.label = opts.label;
     this.proxyUrl = opts.proxyUrl;
     this.dispatcher = opts.proxyUrl ? new ProxyAgent(opts.proxyUrl) : undefined;
+    this.lanes = opts.proxyUrl ? undefined : opts.lanes;
+    this.laneDispatcher = this.lanes ? new ProxyAgent(this.lanes.proxyUrl) : undefined;
     // SpaceTraders' real per-account limit is 2 req/sec, but that's the
     // server's own ceiling, not headroom to plan around — 2 here regularly
     // triggers live 429s (confirmed in production: near-continuous
@@ -592,6 +613,7 @@ export class Client {
       // budget as its parent even when the parent got a private one by default.
       sharedLimiter: this.limiter,
       proxyUrl: this.proxyUrl,
+      lanes: this.lanes,
     };
   }
 
@@ -619,17 +641,24 @@ export class Client {
       } catch { /* an observer must never fail the request it is watching */ }
     }
     let attempt = 0;
+    // After a failure on the proxy lane the retry goes out on the normal path, once, whatever the breaker says.
+    let forceBox = false;
     for (;;) {
       // Boot (priority 0) always wins; otherwise the calling context's own
       // urgency (see runWithApiPriority), then this Client's ambient priority.
       const priority = this.priority === 0 ? 0 : (priorityContext.getStore() ?? this.priority);
       const kind = callKind(req.method, req.path);
+      // Which IP this request leaves from (apiLanes.ts): the proxy lane only for a read-only call that can wait, only while the clause
+      // is on and the proxy has not just been failing. Without lanes configured this is always "box".
+      const lane: Lane = this.lanes && !forceBox && this.lanes.breaker.allows(Date.now()) ? chooseLane({ priority, method: req.method }, this.lanes.policy()) : "box";
+      forceBox = false;
+      const limiter = lane === "proxy" ? this.lanes!.limiter : this.limiter;
       const waitStart = Date.now();
-      await this.limiter.acquire(priority, this.label, kind, caller);
+      await limiter.acquire(priority, this.label, kind, caller);
       const sentAt = Date.now();
       // One row per request actually sent (a retry after a 429 is its own request): who asked, how long it waited, what the game said.
       const note = (status: number): void => {
-        try { apiCallLog.record({ at: sentAt, role: roleContext.getStore() ?? "?", kind, priority, waitMs: sentAt - waitStart, durationMs: status === 0 ? 0 : Date.now() - sentAt, status }); } catch { /* telemetry must never fail the request */ }
+        try { apiCallLog.record({ at: sentAt, role: roleContext.getStore() ?? "?", kind, priority, waitMs: sentAt - waitStart, durationMs: status === 0 ? 0 : Date.now() - sentAt, status, lane }); } catch { /* telemetry must never fail the request */ }
       };
       this.callCount += 1;
       // A proxied Client goes through undici's own fetch, with its own
@@ -656,11 +685,14 @@ export class Client {
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       let res: Pick<Response, "status" | "ok" | "headers" | "text">;
       try {
-        res = this.dispatcher
-          ? await undiciFetch(url, { ...init, dispatcher: this.dispatcher, signal: controller.signal })
+        const dispatcher = lane === "proxy" ? this.laneDispatcher : this.dispatcher;
+        res = dispatcher
+          ? await undiciFetch(url, { ...init, dispatcher, signal: controller.signal })
           : await fetch(url, { ...init, signal: controller.signal });
       } catch (err) {
         note(0);
+        // The proxy failed (refused, timed out, plan limit): count it against the breaker and send the retry on the normal path.
+        if (lane === "proxy") { this.lanes!.breaker.failure(Date.now()); forceBox = true; }
         // A stalled connection (or any other fetch-level rejection) must not
         // dead-end the caller's whole scheduler task the way it did before
         // this timeout existed — see REQUEST_TIMEOUT_MS's own comment. Retry
@@ -683,6 +715,15 @@ export class Client {
       }
 
       note(res.status);
+      // A proxy that answers 401, 403 or 407 is refusing us, not the game answering: count it, and send the retry on the normal path
+      // instead of showing the caller an auth error the box would not have produced.
+      if (lane === "proxy" && (res.status === 401 || res.status === 403 || res.status === 407) && attempt < this.maxRetries) {
+        this.lanes!.breaker.failure(Date.now());
+        forceBox = true;
+        attempt += 1;
+        continue;
+      }
+      if (lane === "proxy" && res.status < 500) this.lanes!.breaker.success();
       const retryAfter = res.headers.get("retry-after");
 
       if (res.status === 429) {
@@ -690,6 +731,7 @@ export class Client {
         const delayMs = (wait && !Number.isNaN(wait) ? wait * 1000 : undefined) ?? this.retryBackoffMs * 2 ** attempt;
         const limitHeaders: Record<string, string> = {};
         res.headers.forEach((value, key) => { if (/rate|retry|limit/i.test(key)) limitHeaders[key.toLowerCase()] = value; });
+        if (lane === "proxy") limitHeaders["x-stcommand-lane"] = "proxy";
         this.onRateLimited?.(delayMs / 1000, attempt, limitHeaders);
         if (attempt < this.maxRetries) {
           attempt += 1;

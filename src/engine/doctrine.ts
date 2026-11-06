@@ -612,6 +612,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "apiLaneProxy",
+    name: "API: send the calls nothing waits on through a second IP",
+    description: "On = read-only GETs at this priority or lower urgency leave through the proxy lane (API_LANE_PROXY_URL in the box's environment) instead of the box's IP, each lane with its own token bucket: 3 = keeper market and shipyard reads, remote surveys and fleet-state refreshes (about 28% of calls on 2026-11-06), 4 = telemetry only. Trades, jumps, docks and every write stay on the box, and boot never moves. If the proxy fails, a read goes out on the box's IP instead, and a breaker stops trying it for two minutes after three failures in a row. The box's IP is full (104 of 105 calls a minute, keeper market waits of 3-4 s, 2-6 429s a minute), so this is the way to give the keepers more calls without taking any from the traders. Raise keeperTopUpMaxCalls once it is on, so the keeper top-up counts the new capacity. No effect unless API_LANE_PROXY_URL is set. Off (the default) = every call leaves from the box, as before. Takes effect on the next request.",
+    value: 3, min: 3, max: 4, step: 1, unit: " priority",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "freshIdleParkHours",
     name: "Fresh systems: park keepers where nothing sells",
     description: "On = a live system that is this many hours past its release and has had no sells and no purchases at all in the last this-many hours has its keepers parked: they stay on their markets and still cover them, but stop polling, which frees API calls (about 0.18 a minute each). A system traders only buy from counts as in use (counted from 2026-11-06; before that a supply-only system would have been parked). They are unparked as soon as the system sells or is bought from again, or when this is turned off. A parked system's prices go stale, so traders see fewer routes there and it may never sell again on its own: after this many hours parked it is opened for one more window as a re-check, and is parked again only if that window also has no sells. Off = keepers always poll. On at 3 hours from 2026-11-06 (operator: monitor the hours and adjust). Takes effect on the next check (every 5 minutes).",

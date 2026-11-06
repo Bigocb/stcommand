@@ -3,7 +3,7 @@ import type { Store } from "../db/store.js";
 import { gatesToCheck, type GateRef, type KnownGate } from "./gateCheckQueue.js";
 import { parseWaypointPage, systemsToRead, type WaypointChartRow } from "./chartCheck.js";
 import { rateLimitMonitor, rateLimitHeaders } from "../core/rateLimitMonitor.js";
-import type { PublicFetch } from "./crawlerProxy.js";
+import type { PublicFetch, PublicResponse } from "./crawlerProxy.js";
 
 /**
  * Crawls the *public* galaxy-wide reference data — every system's
@@ -296,7 +296,7 @@ export class GalaxyCrawler {
           this.log("gate construction crawl: rate limited, pausing a minute");
           break;
         }
-        if (!res.ok) { this.noteOutcome(`status_${res.status}`); continue; }
+        if (!res.ok) { this.noteOutcome(`status_${res.status}`); await this.noteFailure("gate construction", next.gateSymbol, res); continue; }
         const json = (await res.json().catch(() => undefined)) as { data?: { isComplete?: unknown } } | undefined;
         if (typeof json?.data?.isComplete !== "boolean") { this.noteOutcome("malformed"); continue; }
         await this.store.recordGalaxyGateConstruction(next.gateSymbol, json.data.isComplete);
@@ -329,6 +329,7 @@ export class GalaxyCrawler {
       if (this.chartQueue.length === 0) {
         if (this.chartBuiltAt !== 0 && now - this.chartBuiltAt < CHART_REBUILD_MS) return false;
         this.chartBuiltAt = now;
+        this.failureSamples.delete("chart");
         const [interest, known] = await Promise.all([this.store.systemsOfInterest(), this.store.systemChartStates()]);
         const order = interest.map((i) => i.system);
         this.chartQueue = systemsToRead(order, order, known, now);
@@ -350,7 +351,7 @@ export class GalaxyCrawler {
           this.log("chart crawl: rate limited, pausing a minute");
           return true;
         }
-        if (!res.ok) { this.log(`chart crawl: ${cur.system} page ${cur.page} answered ${res.status}, skipped`); this.chartReading = undefined; return true; }
+        if (!res.ok) { this.log(`chart crawl: ${cur.system} page ${cur.page} answered ${res.status}, skipped`); await this.noteFailure("chart", `${cur.system} page ${cur.page}`, res); this.chartReading = undefined; return true; }
         const page = parseWaypointPage(await res.json().catch(() => undefined));
         if (!page || page.rows.length === 0) { this.chartReading = undefined; return true; }
         cur.rows.push(...page.rows);
@@ -375,6 +376,7 @@ export class GalaxyCrawler {
 
   private async buildConstructionQueue(now: number): Promise<void> {
     this.constructionBuiltAt = now;
+    this.failureSamples.delete("gate construction");
     this.constructionChecked = 0;
     this.constructionOutcomes = {};
     const [systems, recorded] = await Promise.all([this.store.listSystemsForGateCrawl(), this.store.getAllGalaxyGateConstruction()]);
@@ -390,6 +392,26 @@ export class GalaxyCrawler {
       this.log(`gate construction crawl: ${this.constructionQueue.length} of ${all.length} gates to read`);
       this.recordActivity(`Gate construction pass started: ${this.constructionQueue.length} gates to read`);
     }
+  }
+
+  /** Samples of non-OK answers logged this pass, by kind of read: the first few say what the game (or a proxy) actually answered. */
+  private failureSamples = new Map<string, number>();
+  private static readonly FAILURE_SAMPLES_PER_PASS = 3;
+
+  /**
+   * Log the first few non-OK answers of a pass with the thing that was read and the start of the body, so a status like 400 can be
+   * told apart as the game's own answer or a proxy's (2026-11-06: 22 of 253 gate reads answered 400 on the first proxied pass, and
+   * nothing said why). Never throws; the body is cut short and never holds anything but the response text.
+   */
+  private async noteFailure(kind: string, what: string, res: Pick<PublicResponse, "status" | "text" | "headers">): Promise<void> {
+    const n = this.failureSamples.get(kind) ?? 0;
+    if (n >= GalaxyCrawler.FAILURE_SAMPLES_PER_PASS) return;
+    this.failureSamples.set(kind, n + 1);
+    let body = "";
+    try { body = (await res.text()).replace(/\s+/g, " ").slice(0, 160); } catch { /* no body to show */ }
+    let via = "";
+    try { const server = res.headers.get("server"); if (server) via = `, server ${server}`; } catch { /* headers are a nicety */ }
+    this.log(`${kind} crawl: ${what} answered ${res.status}${via}: ${body || "(no body)"}`);
   }
 
   /** Thin wrapper around a plain, tokenless fetch against a public

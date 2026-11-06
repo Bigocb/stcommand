@@ -3,6 +3,7 @@ import { liveSnapshotProvider } from "./notify/live.js";
 import { vapidFromEnv, WebPushTransport, type PushTransport } from "./notify/transport.js";
 import type pg from "pg";
 import { rateLimitMonitor } from "../core/rateLimitMonitor.js";
+import { laneProxyFromEnv, LaneBreaker, LANES_OFF, type LanePolicy } from "./apiLanes.js";
 import { Client, RateLimiter, apiBurstFromEnv, apiRateFromEnv, SpaceTradersAPI, runWithApiPriority, runWithApiRole, taskToApiPriority, API_PRIORITY } from "../core/client.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
@@ -127,6 +128,23 @@ export class TenantRegistry {
   // backlog into one window. See apiBurstFromEnv() in src/core/client.ts.
   private readonly apiLimiter = new RateLimiter(apiRateFromEnv(process.env.API_RATE), apiBurstFromEnv(process.env.API_BURST));
 
+  /**
+   * The proxy lane (apiLanes.ts): API_LANE_PROXY_URL gives the box a second IP for the calls nothing waits on (keeper and survey
+   * reads, fleet-state refreshes). The proxy has its own token bucket (its IP has its own 2 a second), and a breaker that stops
+   * sending to it while it keeps failing. Unset = no lane. Set, the doctrine clause apiLaneProxy still decides whether any call
+   * uses it, live, and it ships off.
+   */
+  private readonly laneProxy = laneProxyFromEnv(process.env, apiRateFromEnv(process.env.API_RATE));
+  private readonly laneLimiter = this.laneProxy ? new RateLimiter(this.laneProxy.ratePerSec, apiBurstFromEnv(process.env.API_BURST)) : undefined;
+  private readonly laneBreaker = new LaneBreaker();
+
+  /** The clause apiLaneProxy as this tenant's doctrine has it now; off until the tenant is booted and the clause is on. */
+  private lanePolicyFor(agentSymbol: string): LanePolicy {
+    const d = [...this.workers.values()].find((w) => w.agentSymbol === agentSymbol)?.fleet?.doctrine;
+    if (!d) return LANES_OFF;
+    try { return { enabled: d.isEnabledOr("apiLaneProxy", false), minPriority: d.value("apiLaneProxy", LANES_OFF.minPriority) }; } catch { return LANES_OFF; }
+  }
+
   /** The process-wide token bucket every tenant draws from (also used by the galaxy crawler's tokenless calls, which share the IP's budget). */
   sharedLimiter(): RateLimiter {
     return this.apiLimiter;
@@ -178,6 +196,7 @@ export class TenantRegistry {
           proxyUrl,
           label: agentSymbol,
           ...(proxyUrl ? {} : { sharedLimiter: this.apiLimiter }),
+          ...(proxyUrl || !this.laneProxy || !this.laneLimiter ? {} : { lanes: { proxyUrl: this.laneProxy.url, limiter: this.laneLimiter, breaker: this.laneBreaker, policy: () => this.lanePolicyFor(agentSymbol) } }),
           onRateLimited: (sec, attempt, headers) => {
             rateLimitMonitor.record(agentSymbol, headers);
             this.log("?", `rate limited, backing off ${sec}s (attempt ${attempt})`);
@@ -188,6 +207,12 @@ export class TenantRegistry {
     },
   ) {
     rateLimitMonitor.setLimiterSource(() => this.apiLimiter.stats());
+    if (this.laneProxy && this.laneLimiter) {
+      const lp = this.laneProxy;
+      const ll = this.laneLimiter;
+      rateLimitMonitor.setLaneSource(() => ({ proxy: lp.label, ratePerMin: Math.round(lp.ratePerSec * 60), limiter: ll.stats(), breaker: this.laneBreaker.state(Date.now()) }));
+      this.log("?", `api lane: proxy ${lp.label} configured at ${lp.ratePerSec} a second; the doctrine clause apiLaneProxy decides whether any call uses it`);
+    }
     const timer = setInterval(() => this.logLimiterStats(), 5 * 60_000);
     timer.unref();
   }

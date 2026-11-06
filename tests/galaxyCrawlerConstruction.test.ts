@@ -88,3 +88,33 @@ describe("gate construction crawl", () => {
     assert.ok(s.logs.some((l) => /pass finished, 1 gates read \(.*status_404 1.*malformed 1.*recorded_unfinished 1.*\)/.test(l)), s.logs.join("\n"));
   });
 });
+
+describe("non-OK answers are sampled in the log", () => {
+  it("logs the first few with the gate, the status and the start of the body, then stops, and clears the count for the next pass", async (t) => {
+    const s = setup(async () => new Response(JSON.stringify({ error: { message: "Bad request: no construction site here", code: 4000 } }), { status: 400 }));
+    s.run(t);
+    await (s.crawler as any).crawlGateConstruction();
+    const samples = s.logs.filter((l) => l.startsWith("gate construction crawl: X1-"));
+    assert.equal(samples.length, 3, "three gates in this fixture, all answered 400: all three sampled");
+    assert.match(samples[0]!, /X1-A-G answered 400.*no construction site here/);
+  });
+  it("caps the samples at three a pass however many gates fail", async (t) => {
+    const many = Array.from({ length: 10 }, (_, i) => ({ symbol: `X1-S${i}-G`, type: "JUMP_GATE" }));
+    const store = {
+      listSystemsForGateCrawl: async () => [{ systemSymbol: "X1-S", crawledWaypoints: many, jumpGates: [] }],
+      getAllGalaxyGateConstruction: async () => [],
+      recordGalaxyGateConstruction: async () => {},
+    };
+    const logs: string[] = [];
+    const crawler = new GalaxyCrawler(store as never, (m) => logs.push(m));
+    t.mock.method(globalThis, "fetch", async () => new Response("nope", { status: 400 }));
+    for (let i = 0; i < 4; i++) await (crawler as any).crawlGateConstruction();
+    assert.equal(logs.filter((l) => /answered 400/.test(l)).length, 3);
+  });
+  it("a body that cannot be read does not break the crawl", async (t) => {
+    const s = setup(async () => ({ status: 400, ok: false, headers: new Headers(), text: async () => { throw new Error("stream closed"); }, json: async () => ({}) }) as unknown as Response);
+    s.run(t);
+    await assert.doesNotReject((s.crawler as any).crawlGateConstruction());
+    assert.ok(s.logs.some((l) => /answered 400: \(no body\)/.test(l)));
+  });
+});
