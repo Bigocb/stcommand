@@ -1,5 +1,10 @@
 # Reset opening playbook
 
+> **Under review (operator, 2026-11-06):** the light-hauler guidance below (80-unit lots, "light haulers first") dates from the
+> first week played and has not been re-checked against heavy freighters (225 hold, speed 36, 1.65M-2.46M on 2026-11-06). The week of
+> 2026-11-01 is testing heavies; go through this playbook after the reset, not before.
+
+
 What to do in the first hours after a weekly reset, written from the 2026-10-04 week (THEO, X1-JX83), where the
 gate stalled at 174/1,600 FAB_MATS because the input chains were only fed from day 2 and the mission bought faster
 than the producer made the material. See `CHANGELOG.md` entries dated 2026-10-05 and the project review doc for the
