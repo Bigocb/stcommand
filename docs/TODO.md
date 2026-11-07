@@ -118,6 +118,15 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   rests E52 > E51 for five minutes even when that sink pays well. A route-level key (`good|buyAt|sellAt`, the shape `routeHeat.routeKey` already uses) fixes it and means changing
   the three `deadRoutes` checks in `trader.ts`; the plan specified the buy-market key, so it was left as specified.
 
+- [ ] **Measure what charting and sensor scans pay, then decide how to chart at the reset (raised 2026-11-07, operator).** Tools exist now
+  (`stcommand_chart_waypoint`, `stcommand_scan_waypoints`, CHANGELOG 2026-11-07). Test under way: THEO-150 (an explorer hull with warp
+  drive and a Sensor Array II) is touring to X1-ST57, 16 gate hops away, to chart X1-ST57-C11D, the nearest still-uncharted waypoint we
+  know of (nothing in the 93 live and staged systems is uncharted, so the test needs a distant system). Read the reward with
+  `ops chart_rewards` and the tool's balance figures; also run one `scan_waypoints` there and see whether the scan lists or pays anything.
+  If it pays enough: at the reset almost everything starts uncharted, so (1) let the crawler read the whole galaxy for uncharted waypoints
+  instead of only the systems of interest, (2) have tour ships and keeper probes chart what they stand on, (3) send a few hulls through dense
+  systems in hour 0 (the leaders chart 10-15k a week, about 90 an hour, from the same supply). Not built; wait for the number.
+
 - [ ] **Scout the neighbouring systems once the gate opens (raised 2026-10-13, operator).** Gate X1-CM13-I61 (needs 1,600 FAB_MATS +
   400 ADVANCED_CIRCUITRY) links to X1-FP91, X1-CK71, X1-CH68, X1-P74 and X1-GR36. First targets: **X1-FP91** (523 away; 92 waypoints,
   59 asteroids, an engineered asteroid, a gas giant, 2 asteroid bases: the closest copy of home) and **X1-CH68** (994 away; 70 waypoints,

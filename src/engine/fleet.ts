@@ -79,6 +79,7 @@ import { maxPriceFor } from "./missionCeiling.js";
 import { pickCheapestKeeperYard, pickKeeperYardWithShip, preferYardWithShip } from "./keeperYard.js";
 import { JUMP_COOLDOWN_SECONDS, CROSS_SYSTEM_FLIGHT_SECONDS } from "./chain.js";
 import { chooseHopMethod, cruiseNeedFromGame, DEFAULT_WARP_POLICY, parseFuelShortfall, pickWarpArrival, warpDriveRange, warpRouteKey, type WarpHopChoice, type WarpPolicy } from "./warpTour.js";
+import { chartPayout, hasSensorArray, summarizeWaypointScan, type ChartPayout, type WaypointScanSummary } from "./chartProbe.js";
 import { nearestShipyard, type NearestYard } from "./shipyardNearest.js";
 import { planSuspendedRepairs, type SuspendedRepairFacts } from "./suspendedRepair.js";
 import { effectiveMaxLots, type ShipLotPolicy } from "./shipLotPolicy.js";
@@ -5584,6 +5585,50 @@ export class FleetManager {
     });
     this.onActivity?.("refuel", `${shipSymbol} refueled to ${res.fuel.current}/${res.fuel.capacity}`, -res.transaction.totalPrice, shipSymbol);
     return { fuel: res.fuel.current, capacity: res.fuel.capacity, cost: res.transaction.totalPrice };
+  }
+
+  /**
+   * Chart the waypoint the ship is standing on and report what it paid (operator, 2026-11-07: "see what it pays").
+   * The payout is the agent balance read just before the call against the balance the chart response carries; it also
+   * holds anything else the fleet earned in that moment, so treat it as an upper-bound estimate (see chartProbe.ts).
+   * Throws the game's own message when the waypoint is already charted.
+   */
+  async chartWaypointNow(
+    shipSymbol: string,
+  ): Promise<{ waypoint: string; type: string; traits: string[]; submittedBy?: string; credits: ChartPayout }> {
+    const ship = await this.api.getShip(shipSymbol);
+    if (ship.nav.status === "IN_TRANSIT") throw new Error(`${shipSymbol} is in transit`);
+    if (ship.nav.status === "DOCKED") await this.api.orbitShip(shipSymbol);
+    const before = (await this.api.getMyAgent()).credits;
+    const res = await this.api.chartShip(shipSymbol);
+    const credits = chartPayout(before, res.agent.credits);
+    const traits = (res.waypoint.traits ?? []).map((t) => t.symbol);
+    this.log(`${shipSymbol}: charted ${res.waypoint.symbol} (${res.waypoint.type}) by hand; balance ${credits.before} -> ${credits.after} (${credits.delta >= 0 ? "+" : ""}${credits.delta})`);
+    this.onActivity?.("chart", `${shipSymbol} charted ${res.waypoint.symbol}${traits.length ? `: ${traits.join(", ")}` : ""}`, undefined, shipSymbol);
+    return { waypoint: res.waypoint.symbol, type: res.waypoint.type, traits, submittedBy: res.chart?.submittedBy, credits };
+  }
+
+  /**
+   * One sensor-array waypoint scan by hand: lists the waypoints in range, which of them nobody has charted (their traits
+   * come back anyway), and the balance either side so the operator can see whether a scan pays. The results also go into
+   * galaxy knowledge, the same as the scout role's scans. The ship enters the scan cooldown, which blocks some actions
+   * (a jump among them) until it ends.
+   */
+  async scanWaypointsNow(
+    shipSymbol: string,
+  ): Promise<WaypointScanSummary & { system: string; cooldownSeconds: number; credits: ChartPayout }> {
+    const ship = await this.api.getShip(shipSymbol);
+    if (ship.nav.status === "IN_TRANSIT") throw new Error(`${shipSymbol} is in transit`);
+    if (!hasSensorArray(ship.mounts)) throw new Error(`${shipSymbol} has no sensor array mount, so it cannot scan`);
+    if (ship.nav.status === "DOCKED") await this.api.orbitShip(shipSymbol);
+    const agent = await this.api.getMyAgent();
+    const res = await this.api.scanWaypoints(shipSymbol);
+    const after = (await this.api.getMyAgent()).credits;
+    const summary = summarizeWaypointScan(res.waypoints, agent.symbol);
+    this.ingestScanResults(shipSymbol, { waypoints: res.waypoints });
+    const credits = chartPayout(agent.credits, after);
+    this.log(`${shipSymbol}: manual waypoint scan at ${ship.nav.systemSymbol}: ${summary.total} waypoints, ${summary.uncharted.length} uncharted; balance ${credits.delta >= 0 ? "+" : ""}${credits.delta}`);
+    return { ...summary, system: ship.nav.systemSymbol, cooldownSeconds: res.cooldown.remainingSeconds ?? res.cooldown.totalSeconds ?? 0, credits };
   }
 
   /** Scrap a ship at a shipyard, removing it from the fleet and returning credits. */

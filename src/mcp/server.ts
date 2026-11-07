@@ -58,6 +58,8 @@ Every ship has exactly one role at a time, set by stcommand_set_ship_role — re
 
 Fuel is charged in full the instant a flight departs, not drained gradually over the trip — an unchanged fuel number mid-flight is normal, not a problem. The game itself falls back between cruise (normal), drift (slow, minimal fuel — used automatically when the tank can't cover cruise), and burn (fast, more fuel); a drift leg across real distance can take hours. stcommand_refuel_ship tops off at the ship's current market and spends credits.
 
+- **stcommand_chart_waypoint** / **stcommand_scan_waypoints** — chart the waypoint a ship is standing on (a one-time credit reward, only for a waypoint nobody has charted yet) / run one sensor-array scan that lists the waypoints in range and which are still uncharted. Both report the balance either side so you can see what they paid. A ship has to be at the waypoint to chart it.
+
 ## Trading and prices
 
 - **stcommand_get_goods** — every trade-good symbol this fleet has ever priced; use it to resolve a plain name to its exact TradeSymbol before calling the other pricing tools.

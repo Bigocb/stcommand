@@ -6,6 +6,14 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-07 — Chart and scan by hand, with what they paid (MCP `chart_waypoint`, `scan_waypoints`)
+
+Why: the operator wanted to see what charting pays before building anything on it, and asked whether a sensor scan charts or pays too. The engine already charted (scout role, new keeper probes) and scanned (scout role, `sensorScanIntervalMin`) but neither could be triggered on a chosen ship, and neither reported the balance move.
+- **`stcommand_chart_waypoint`** (`FleetManager.chartWaypointNow`): charts the waypoint the ship is standing on (orbits first if docked) and returns the traits, who submitted the chart, and the balance read just before against the balance the chart response carries. That delta also holds anything else the fleet earned in the same moment, so it is an estimate; `ops chart_rewards` gives the tighter figure from the books. The game's own refusal comes back as the error when the waypoint is already charted.
+- **`stcommand_scan_waypoints`** (`FleetManager.scanWaypointsNow`): one sensor-array waypoint scan (needs a `MOUNT_SENSOR_ARRAY`): every waypoint in range, which have no chart on record (their traits come back anyway), how many we and others charted, the scan cooldown, and the balance either side. The results go into the galaxy map like the scout role's scans. The cooldown blocks some actions (a jump among them), so it is not for a ship mid-trip.
+- **`src/engine/chartProbe.ts`** (pure): `summarizeWaypointScan`, `chartPayout`, `hasSensorArray`. Tests: `tests/chartProbe.test.ts` (8). Both tools write an `operator_actions` row (`mcp_chart`, `mcp_scan`).
+- Not changed: nothing charts or scans on its own because of these tools. Whether a scan pays or charts is unknown until one runs; the explorer hulls (THEO-14F, 150, 151) carry a Sensor Array II.
+
 ## 2026-11-06 — The keeper top-up ceiling (keeperTopUpMaxCalls) can go above 90
 
 Why: with the API lane on, keeper market reads leave from a second IP, so keeper polling no longer has to fit the box's 90 calls a minute. The clause was capped at max 90 (the old single-IP limit), and `set_doctrine` could not raise it; top-up sat blocked at 88-95 polling (2026-11-06) with 13 markets uncovered after FN21 opened. `doctrine.ts`: max 90 -> 150 (value, step and the default unchanged); the description says to watch the lane's calls a minute in ops `api_budget`. Setting the value live is a separate step.
