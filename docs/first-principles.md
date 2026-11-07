@@ -78,6 +78,20 @@ Numbers are UTC and come from `ops_profit_curve`, `ops_pnl`, `ops_run_results`, 
 - Systems parked by the profit bar turned out to have made 260k to 1.03M while parked (parked 08:52, unparked 10:31 and
   11:51); the rule was wrong several times before the hold-while-a-loaded-ship-is-bound fix. Ship policies off, measure, then turn up.
 
+## E. Added 2026-11-07, from the profit-per-hour chart (hours 90-110 were flat)
+
+**12. Our own regressions cost more than the market does, and a 3-hour average hides them.** (measured)
+- 2026-11-05 about 18:15-19:20: `hopToward()` closed a jump gate on any error (16 finished hub gates in an hour, 14,796 legs
+  dropped as "outside our gate network") while arrival surveys used 19 API calls a minute and made keeper reads wait 9-15 s.
+  The hour fell from about 2M to 200-600k; fixed 19:05 and 19:20, then 3.9M the next full hour. The hourly's Fleet-health
+  table (gates closed, dropped routes, idle traders, top API callers, restarts) exists to catch this.
+
+**13. Rivals share the exporters; spread to where they are not.** (supported)
+- 2026-11-05: buy costs at the exporters rose (FOOD ~30%, EQUIPMENT ~10%, FABRICS ~10%, CLOTHING ~9%) while sell prices held,
+  with rival agents (ASTROBJORN, TANDEM, ODIODIN, HERMES-BRAVO and others) buying at the same exporters; the best route was
+  about 10k a trip. This is the flat stretch at hours ~90-110 on the chart. The ramp that followed matches system releases.
+  Competition cannot be fixed, only moved away from.
+
 ## Open questions
 
 - How much of the week's rise is the nine fresh systems, and what does the rate settle to once their premium fades (about 8 h)?
