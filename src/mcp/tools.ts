@@ -1502,6 +1502,49 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_chart_waypoint",
+    {
+      description:
+        "Chart the waypoint the ship is standing on (it goes into orbit first if docked) and report what the chart paid: the agent balance just before and the balance the game returns with the chart, plus the traits revealed. The payout figure also holds anything else the fleet earned in that moment, so read it as an estimate; stcommand_ops_chart_rewards gives the tighter reading from the books. Fails with the game's own message if the waypoint is already charted. The reward goes to the first agent to chart a waypoint, so it only works at one that is still uncharted (stcommand_ops_uncharted_waypoints lists them).",
+      inputSchema: { shipSymbol: z.string() },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    async ({ shipSymbol }) => {
+      try {
+        const r = await w.fleet.chartWaypointNow(shipSymbol);
+        await recordMcpAction(w, "chart", shipSymbol, `${shipSymbol} charted ${r.waypoint}, balance ${r.credits.delta >= 0 ? "+" : ""}${r.credits.delta}`, r);
+        return textResult({ ok: true, shipSymbol, ...r });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_scan_waypoints",
+    {
+      description:
+        "Run one sensor-array waypoint scan from a ship (needs a MOUNT_SENSOR_ARRAY; it goes into orbit first if docked). Returns every waypoint in range, which of them nobody has charted (their traits come back anyway), how many are charted by us and by others, and the agent balance either side so you can see whether a scan pays. The results also go into the galaxy map. The ship enters a scan cooldown that blocks some actions (a jump among them) until it ends, so do not scan a ship mid-trip you care about. A scan does not chart anything: use stcommand_chart_waypoint for that.",
+      inputSchema: { shipSymbol: z.string() },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    async ({ shipSymbol }) => {
+      try {
+        const r = await w.fleet.scanWaypointsNow(shipSymbol);
+        await recordMcpAction(w, "scan", shipSymbol, `${shipSymbol} scanned ${r.total} waypoints at ${r.system}, ${r.uncharted.length} uncharted`, {
+          system: r.system,
+          total: r.total,
+          uncharted: r.uncharted.length,
+          credits: r.credits,
+        });
+        return textResult({ ok: true, shipSymbol, ...r });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_buy_ship",
     {
       description: "Buy a new ship of the given type at a shipyard waypoint the fleet already knows stocks it. Spends real credits — check stcommand_get_state's credits first.",
