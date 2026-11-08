@@ -35,6 +35,27 @@ Without explorers (2026-10-29): keepers for systems whose own yard sells no keep
 `remoteSurveyIntake` queues the worth-covering ones. Explorers were parked on 2026-10-29 once that pipeline queued its first
 systems; see the CHANGELOG entries of that date.
 
+## Opening v3: queued by the reset itself (operator, 2026-11-08)
+
+The reset recovery now queues a saved opening template for each tenant once its new agent is booted (`applyOpening`, `OPENING_TEMPLATE`, default
+name "Opening: auto at reset"), with every task key ending `-<MMDD>` of the reset date, so last week's finished tasks cannot block them (a task with
+an existing key is only updated, never re-run). The template is `OPENING_V3` in `src/engine/openingTemplates.ts`:
+
+| Order | When | What |
+| --- | --- | --- |
+| 1 | at once | THEO-1 (the command ship) tours; settings: cash floor 20k, keeper top-up and idle parking off, keeper reserve 100k; gate mission created paused with ceilings FAB_MATS 2,000 and ADVANCED_CIRCUITRY 4,000 |
+| 2 | a route pays 15,000 a trip, or 30 minutes after queued | THEO-1 becomes a trader |
+| 3 | 200k | keepers on every shipyard of the home system |
+| 4 | back at 200k, after 3 | a light shuttle (130k at most, keeping 60k) on contract duty |
+| 5 | 1M, after 4 | keeper reserve 300k, top-up back on, cash floor 100k, keepers on the 10 top markets (most goods, at least keeperMinGoods) |
+| 6 | back at 1M, after 5 | a light hauler (400k at most, keeping 300k) put on the gate crew; the gate mission starts buying with the ceilings (gate cash floor 300k, resume 400k) |
+| 7 | gate 85% / 100% | drop the gate floor / cash floor 100k and idle parking back on (20,000 an hour) |
+
+New in the task system for this: triggers `any` and `minutesSinceQueued`, steps `gateCrew` and `keepers`, and the command-ship steps now wait (not fail) while
+the fleet is still empty after a reset. Not in it, because the map is unknown until the reset: feeds into the gate producers' inputs (hour 1-3 below, by
+hand), a ceiling for a third gate material, the heavy freighter yard hunt. "Wait till we get back to" was read as: the next purchase waits for the previous
+task and for cash at its own level again. Adjust live with `stcommand_add_opening_task` (same key updates a queued task) or `stcommand_cancel_opening_task`.
+
 ## Gate open in 18 hours, not 40-50: what the 2026-11-01 week showed (operator, 2026-11-05)
 
 **Why it matters.** The week's money came after the gate opened, not before: THEO (home X1-UZ49) made about 4.5M on day 1 and

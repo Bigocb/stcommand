@@ -10942,12 +10942,45 @@ export class FleetManager {
         setRole: (shipSymbol, role) => this.setShipRole(shipSymbol, role as never),
         setContractDuty: (shipSymbol, on) => this.setContractDuty(shipSymbol, on),
         setDoctrine: (key, patch) => this.doctrine.set(key, patch),
+        assignGateCarrier: async (shipSymbol) => {
+          const gate = this.galaxy.getSystem(this.systemSymbol)?.waypoints.find((w) => w.type === "JUMP_GATE");
+          if (!gate) throw new Error(`no jump gate known in ${this.systemSymbol}`);
+          await this.assignMissionCarrier(gate.symbol, shipSymbol);
+        },
+        addKeeperMarkets: (scope, count) => this.addOpeningKeeperMarkets(scope, count),
         log: (msg) => this.log(msg),
       });
       await runner.run(this.tenantId);
     } catch (err) {
       this.log(`opening automation skipped this tick: ${err instanceof Error ? err.message : String(err)}`);
     }
+  }
+
+  /**
+   * The keepers step of an opening task: add home-system markets to the keeper priority list and let the normal buying path
+   * (approval gate, or auto-approve under keeperAutoApproveMinCash) put a probe on each. "shipyards" = every waypoint with a
+   * shipyard; "top" = the marketplaces trading the most goods (at least keeperMinGoods) that are not listed yet, best first, up
+   * to `count`. Returns the markets newly added (already-listed ones are skipped, so the step is safe to repeat).
+   */
+  private async addOpeningKeeperMarkets(scope: "shipyards" | "top", count: number): Promise<string[]> {
+    const waypoints = this.galaxy.getSystem(this.homeSystem)?.waypoints ?? [];
+    const listed = await this.keeperPriorityMarkets();
+    let pick: string[];
+    if (scope === "shipyards") {
+      pick = waypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD")).map((w) => w.symbol);
+    } else {
+      const minGoods = this.doctrine.isEnabledOr("keeperMinGoods", true) ? this.doctrine.value("keeperMinGoods") : 0;
+      const goods = new Map(this.markets.filter((m) => m.systemSymbol === this.homeSystem).map((m) => [m.symbol, distinctGoods(m)]));
+      pick = waypoints
+        .filter((w) => w.traits.some((t) => t.symbol === "MARKETPLACE") && (goods.get(w.symbol) ?? 0) >= minGoods)
+        .map((w) => w.symbol)
+        .filter((sym) => !listed.includes(sym))
+        .sort((a, b) => (goods.get(b) ?? 0) - (goods.get(a) ?? 0) || a.localeCompare(b))
+        .slice(0, Math.max(1, count));
+    }
+    const added = pick.filter((m) => !listed.includes(m));
+    if (added.length > 0) await this.setKeeperPriorityMarkets([...listed, ...added]);
+    return added;
   }
 
   /**
