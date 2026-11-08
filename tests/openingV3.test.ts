@@ -223,6 +223,22 @@ describe("Store.applyOpeningTemplate", () => {
     assert.ok(added.every((a) => a.key.endsWith("-1108") && a.by === "reset-recovery"));
     assert.match(out, /queued 10 of 10/);
   });
+  it("a missing template is seeded from the fallback when one is given, and an existing one is never overwritten", async () => {
+    const saved: string[] = [];
+    let templates: { id: number; name: string; tasks: TaskSpec[] }[] = [];
+    const added: string[] = [];
+    const fake = {
+      listOpeningTemplates: async () => templates,
+      saveOpeningTemplate: async (_t: string, name: string, tasks: TaskSpec[]) => { saved.push(name); templates = [{ id: 1, name, tasks }]; },
+      listOpeningTasks: async () => [],
+      addOpeningTask: async (_t: string, task: TaskSpec) => { added.push(task.key); },
+    };
+    const applyWith = (name: string) => (Store.prototype as unknown as { applyOpeningTemplate: (this: unknown, t: string, n: string, s: string, f?: TaskSpec[]) => Promise<string> }).applyOpeningTemplate.call(fake, "t1", name, "1108", OPENING_V3);
+    assert.match(await applyWith("Opening: auto at reset"), /queued 10 of 10/);
+    assert.deepEqual(saved, ["Opening: auto at reset"]);
+    await applyWith("Opening: auto at reset");
+    assert.deepEqual(saved, ["Opening: auto at reset"], "already saved: not saved again");
+  });
   it("applying twice queues nothing new, and an unknown template is reported, not thrown", async () => {
     const keys = OPENING_V3.map((t) => `${t.key}-1108`);
     const { fake, added } = fakeStore([{ id: 1, name: "X", tasks: OPENING_V3 }], keys);

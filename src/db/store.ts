@@ -497,8 +497,13 @@ export class Store {
    * tasks cannot hold them back, and tasks already queued under those keys are left as they are (re-applying is safe).
    * Returns what happened in one line; an unknown template is reported, not thrown.
    */
-  async applyOpeningTemplate(tenantId: string, templateName: string, suffix: string): Promise<string> {
-    const templates = await this.listOpeningTemplates(tenantId);
+  async applyOpeningTemplate(tenantId: string, templateName: string, suffix: string, fallback?: TaskSpec[]): Promise<string> {
+    let templates = await this.listOpeningTemplates(tenantId);
+    // No template of that name saved yet: seed it from `fallback` (the built-in opening), so a reset never depends on someone having saved it first.
+    if (fallback && !templates.some((t) => t.name === templateName)) {
+      await this.saveOpeningTemplate(tenantId, templateName, fallback);
+      templates = await this.listOpeningTemplates(tenantId);
+    }
     const tpl = templates.find((t) => t.name === templateName);
     if (!tpl) return `no opening template named "${templateName}" for this tenant (${templates.map((t) => t.name).join(", ") || "none saved"}); nothing queued`;
     const inst = instantiateTemplate(tpl.tasks, suffix);
