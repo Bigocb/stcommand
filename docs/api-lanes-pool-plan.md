@@ -60,5 +60,5 @@ chooseLane(req, pool, now) -> { lane, reason }
 ## Open questions for the operator
 
 - How many proxies to switch on at first (suggest 3)?
-- Does the plan's 256 GB reset monthly on a fixed date, and is it counted per request and response both?
+- ~~Does the plan's 256 GB reset monthly on a fixed date?~~ Answered 2026-11-08 (operator): the plan renews on the same day each month, so the current period ends 2026-12-08 (it started 2026-11-08). Still open: whether the 256 GB counts request and response bytes both (ByteMeter counts the response only).
 - Should the crawler's proxy join the pool or stay separate?
