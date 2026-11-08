@@ -55,11 +55,39 @@ export function crawlerProxyFromEnv(env: Record<string, string | undefined>): Cr
 }
 
 /**
- * The fetch the crawler uses for public reads. With a proxy URL: undici's fetch through a ProxyAgent built once. Without: Node's
- * global fetch, looked up at call time (tests replace globalThis.fetch).
+ * Wrap a fetch so the size of every response body is reported (the proxy plan is billed in bytes, and the crawler's page reads are
+ * large: its traffic must be in the same ledger as the lane's, src/engine/laneBytes.ts). The body is read once, here, and the
+ * caller gets a response whose json() and text() answer from it, so callers are unchanged. If the body cannot be read, the
+ * error is held and thrown from json()/text(), as it would have been, and nothing is reported.
  */
-export function makePublicFetch(proxyUrl?: string): PublicFetch {
-  if (!proxyUrl) return (url) => fetch(url);
-  const dispatcher = new ProxyAgent(proxyUrl);
-  return (url) => undiciFetch(url, { dispatcher }) as unknown as Promise<PublicResponse>;
+export function meteredFetch(inner: PublicFetch, onBytes: (bytes: number) => void): PublicFetch {
+  return async (url) => {
+    const res = await inner(url);
+    let text = "";
+    let readError: unknown;
+    try {
+      text = await res.text();
+      try { onBytes(Buffer.byteLength(text)); } catch { /* telemetry must never fail a read */ }
+    } catch (err) { readError = err; }
+    const body = (): string => { if (readError !== undefined) throw readError; return text; };
+    return {
+      status: res.status, ok: res.ok, headers: res.headers, statusText: res.statusText,
+      text: async () => body(),
+      json: async () => JSON.parse(body()),
+    };
+  };
+}
+
+/**
+ * The fetch the crawler uses for public reads. With a proxy URL: undici's fetch through a ProxyAgent built once. Without: Node's
+ * global fetch, looked up at call time (tests replace globalThis.fetch). `onBytes` (optional) is told each response's size.
+ */
+export function makePublicFetch(proxyUrl?: string, onBytes?: (bytes: number) => void): PublicFetch {
+  let f: PublicFetch;
+  if (!proxyUrl) f = (url) => fetch(url);
+  else {
+    const dispatcher = new ProxyAgent(proxyUrl);
+    f = (url) => undiciFetch(url, { dispatcher }) as unknown as Promise<PublicResponse>;
+  }
+  return onBytes ? meteredFetch(f, onBytes) : f;
 }
