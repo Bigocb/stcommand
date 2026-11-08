@@ -93,6 +93,14 @@ describe("periodReport", () => {
     assert.deepEqual(r.byDay, [{ day: "2026-11-09", proxyGB: 8, boxGB: 0 }, { day: "2026-11-10", proxyGB: 2, boxGB: 1 }]);
     assert.equal(r.byKind.find((k) => k.kind === "ships")!.avgBytes, 30_000_000);
   });
+  it("data that starts after the period does says so, because the projection is then understated", () => {
+    const r = periodReport(rows, period, T("2026-11-18T00:00:00Z"), 256);
+    assert.equal(r.dataStartsOn, "2026-11-09");
+    assert.match(r.projectionNote ?? "", /understated/);
+    const full = periodReport([{ day: "2026-11-08", label: "a:1", kind: "market", calls: 1, bytes: 1e9 }], period, T("2026-11-18T00:00:00Z"), 256);
+    assert.equal(full.dataStartsOn, "2026-11-08");
+    assert.equal(full.projectionNote, undefined, "data from the first day of the period needs no note");
+  });
   it("almost none of the period gone: no projection rather than a wild one", () => {
     const early = periodReport([{ day: "2026-11-08", label: "a:1", kind: "market", calls: 10, bytes: 50_000 }], billingPeriod(T("2026-11-08T00:30:00Z"), 8), T("2026-11-08T00:30:00Z"), 256);
     assert.equal(early.projectedGB, 0);

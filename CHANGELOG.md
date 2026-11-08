@@ -6,6 +6,10 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-08 — `planBilling` says when its projection is understated
+
+Why: the stored ledger only counts from the restart that switched it on (04:10 on 2026-11-08), while the plan's period began on the 7th, so its month projection averaged a few hours of data over 1.2 days and read 1.7 GB against the provider's 37 GB (stored use itself agreed with the provider: 69 MB against its 65 MB over the same hour). `periodReport` now returns `dataStartsOn` and, when that is after the period start, a `projectionNote` saying the projection is understated until a day or two of data has built up.
+
 ## 2026-11-08 — The crawler's bytes are in the stored ledger too
 
 Why: the galaxy crawler's page reads leave through `CRAWLER_PROXY_URL`, which draws on the same Webshare plan, but it fetches through `crawlerProxy.ts` and not `Client`, so `lane_bytes` and `planBilling` left them out and would have undercounted the month (the operator moved the crawler to its own address on 2026-11-08).
