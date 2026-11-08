@@ -6,6 +6,15 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-08 — Tour ships price the staged systems: clause `freshTours` (the 2026-11-01 "fresh-system hybrid", automated)
+
+Why: a staged system has its keepers parked, so nobody reads its markets and the release rule's priced-share test (`releaseMinPricedPct`) can never pass; in the week of 2026-11-01 the operator sent tour ships by hand into staged systems, let them price the markets, and moved them on (docs/journal/2026-11-01.md). The operator asked on 2026-11-08 for that to be built.
+- **`src/engine/queueTours.ts`** (new, pure): `decideQueueTours` picks which free tour/explorer ship goes to which staged system. A system needs a tour while staged, not held, reachable and under the priced share; the nearest free ship in gate hops goes to each, best-ready system first; a ship working a system that still needs it keeps it covered; a ship moves on once the share is reached and `minStayMs` has passed. Every send carries a one-line reason, notes say why a system got none. Policy off (`maxShips` 0) decides nothing.
+- **Clause `freshTours`** (doctrine.ts, off by default; value = most ships at once, default 2). The move-on share follows `releaseMinPricedPct`. Needs `freshGate` on auto.
+- **Seam** (`fleet.ts`, `maybeManageFreshSystems` -> `maybeSendQueueTours`): after the release loop, builds targets from the same `QueueFacts`, ships from the tour and explorer maps, and sends with `dispatchTourShip`. A ship with a destination the engine did not set (operator trip, charting) is never touched; held ships are never touched. Notes go to the fresh-system log (`tours: ...`).
+- Tests: `tests/queueTours.test.ts` (9). Typecheck clean.
+- Known limits: scouted systems are only toured with `includeScouted` (no code path turns it on yet); an explorer that is sent becomes a tour ship (dispatchTourShip sets the role).
+
 ## 2026-11-08 — The reset queues the opening itself: "Opening v3" and four additions to the task system
 
 Why: the opening automation existed (tasks, templates, a runner) but nothing applied a template at a reset (the watcher registered the agent and stopped, "phase 2" in its own header), a finished task's key blocks a new task with that key, and the operator's plan needed a gate-crew step, keeper steps and a minutes trigger. Reset is scheduled for 2026-11-08 13:00 UTC.
