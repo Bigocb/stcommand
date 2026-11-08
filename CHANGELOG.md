@@ -6,6 +6,14 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-08 — The running build can be read from outside (`/version.json`, MCP `initialize`)
+
+Why: on 2026-11-07 the chart and scan tools were on main but missing from the live tool list, and nobody could say from outside which commit the box was running: `/version.json` answered `{"build":"local"}` because the label read only `RENDER_GIT_COMMIT`, a Render variable this box does not have (the fleet has not deployed there for a while).
+- **`src/engine/buildInfo.ts`** (pure `resolveBuildInfo`): the commit comes from `RENDER_GIT_COMMIT`, `GIT_COMMIT` or `BUILD_COMMIT` (any deploy script can set one), else `git rev-parse HEAD` in the app's directory, else "local"; non-commit values are ignored. Tests: `tests/buildInfo.test.ts` (6).
+- **`GET /version.json`** now returns `{ build, source, startedAt, loadedFileMtime }`: the seven-character commit, where it came from (`env`, `git`, `none`), when the process started, and when the file it runs from was last written. `npm start` runs `dist/`, so a box that pulled but did not rebuild shows the new commit with an old `loadedFileMtime`, which is the case this exists to catch. The UIs' build label (`public/m.js`, `deck.js`, `guide.html`) reads `build` and now shows the commit.
+- **MCP `initialize`** reports the server version as `1.0.0+<commit>` so a connected agent can tell which build it is talking to. The start-up log prints the same line.
+- Takes effect on the next restart of the box.
+
 ## 2026-11-07 — Chart and scan by hand, with what they paid (MCP `chart_waypoint`, `scan_waypoints`)
 
 Why: the operator wanted to see what charting pays before building anything on it, and asked whether a sensor scan charts or pays too. The engine already charted (scout role, new keeper probes) and scanned (scout role, `sensorScanIntervalMin`) but neither could be triggered on a chosen ship, and neither reported the balance move.

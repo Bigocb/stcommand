@@ -4,7 +4,9 @@ import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID } from "../core/rateLimitMonitor.js";
 import { waitForPredecessor } from "../core/instanceGate.js";
 import express from "express";
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { resolveBuildInfo, setBuildInfo } from "../engine/buildInfo.js";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPool } from "../db/pool.js";
@@ -263,12 +265,22 @@ async function main(): Promise<void> {
 
   // Public galaxy-crawl viewer — no key, no tenant session, same free-
   // standing pattern as /admin's dedicated route.
-  // Build label for the UIs: the commit this process was built from (Render sets RENDER_GIT_COMMIT), so each
-  // screen can show which version it is. Public and uncached; it reveals only a commit id.
-  const BUILD = (process.env.RENDER_GIT_COMMIT ?? "").slice(0, 7) || "local";
+  // Build label for the UIs: the commit this process runs, so each screen can show which version it is. From a deploy variable
+  // (RENDER_GIT_COMMIT, GIT_COMMIT, BUILD_COMMIT) or, on this box, from `git rev-parse HEAD` in the app's directory (buildInfo.ts).
+  // Public and uncached; it reveals a commit id, when the process started and when the file it runs from was last written
+  // (a box that pulled but did not rebuild dist/ shows an old loadedFileMtime).
+  let gitHead: string | undefined;
+  try {
+    gitHead = execFileSync("git", ["rev-parse", "HEAD"], { cwd: resolve(__dirname, "../.."), timeout: 2000, stdio: ["ignore", "pipe", "ignore"] }).toString();
+  } catch { /* no git here, or no repository: the label stays "local" */ }
+  let loadedFileMtimeMs: number | undefined;
+  try { loadedFileMtimeMs = statSync(fileURLToPath(import.meta.url)).mtimeMs; } catch { /* unreadable: leave it out */ }
+  const BUILD_INFO = resolveBuildInfo({ env: process.env, gitHead, startedAtMs: Date.now(), loadedFileMtimeMs });
+  setBuildInfo(BUILD_INFO);
+  log(`build ${BUILD_INFO.build} (${BUILD_INFO.source}), running from a file written ${BUILD_INFO.loadedFileMtime ?? "at an unknown time"}`);
   app.get("/version.json", (_req, res) => {
     res.set("Cache-Control", "no-store");
-    res.json({ build: BUILD });
+    res.json(BUILD_INFO);
   });
 
   app.get("/cartography", (_req, res) => {

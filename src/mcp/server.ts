@@ -5,6 +5,7 @@ import type { TenantRegistry } from "../engine/tenantRegistry.js";
 import { registerTools } from "./tools.js";
 import { enableAgentArg } from "./agentSwitch.js";
 import { isOperator, operatorAgents } from "../http/operatorFlag.js";
+import { currentBuildInfo } from "../engine/buildInfo.js";
 
 /**
  * Sent back on `initialize` (MCP's `InitializeResult.instructions` field)
@@ -199,7 +200,9 @@ export function createMcpRouter(registry: TenantRegistry): Router {
       return;
     }
 
-    const server = new McpServer({ name: "stcommand", version: "1.0.0" }, { instructions: PLAYER_INSTRUCTIONS });
+    // The commit goes into the version a client sees on `initialize` ("1.0.0+c312bc4"), so a connected agent can tell which build it talks to.
+    const build = currentBuildInfo()?.build;
+    const server = new McpServer({ name: "stcommand", version: build && build !== "local" ? `1.0.0+${build}` : "1.0.0" }, { instructions: PLAYER_INSTRUCTIONS });
     const tools = instrumentTools(server, tenantId);
     // One key for every agent on a one-owner box: each tool takes an optional `agent` (agentSwitch.ts).
     enableAgentArg(server, {
