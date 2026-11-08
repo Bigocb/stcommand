@@ -1,7 +1,7 @@
 /**
  * What the proxy plan has used, kept across restarts (operator, 2026-11-08: "Do you think I want things only in memory?").
  *
- * The plan is billed in bytes for a month (256 GB, renewing on the 8th), and the in-memory ByteMeter (lanePool.ts) forgets everything
+ * The plan is billed in bytes for a month (250 GB, renewing on the 7th at 17:32 UTC), and the in-memory ByteMeter (lanePool.ts) forgets everything
  * when the box restarts, so it can say what the last half hour looked like but not what the month has cost. This keeps a ledger of
  * response bytes by UTC day, lane (host:port, or "box") and call kind: counted in memory as calls finish, written to the database
  * every minute as increments (migration 067), and read back for the billing period. Writes that fail are put back and tried again,
@@ -146,9 +146,9 @@ export function periodReport(rows: LaneByteRow[], period: BillingPeriod, now: nu
   };
 }
 
-/** The plan size and renewal day from the environment: API_LANE_PLAN_GB (default 256) and API_LANE_PLAN_RESET_DAY (default 8). */
+/** The plan size and renewal day from the environment: API_LANE_PLAN_GB (default 250) and API_LANE_PLAN_RESET_DAY (default 7); both read from the Webshare subscription on 2026-11-08 (plan 14802851: 250 GB, term 2026-11-07 17:32 to 2026-12-07 17:32 UTC). Usage is kept by UTC day, so the period starts on the reset day's midnight, about 17 hours early. */
 export function planFromEnv(env: Record<string, string | undefined>): { planGB: number; resetDay: number } {
   const gb = Number(env.API_LANE_PLAN_GB);
   const day = Number(env.API_LANE_PLAN_RESET_DAY);
-  return { planGB: Number.isFinite(gb) && gb > 0 ? gb : 256, resetDay: Number.isFinite(day) && day >= 1 && day <= 31 ? Math.floor(day) : 8 };
+  return { planGB: Number.isFinite(gb) && gb > 0 ? gb : 250, resetDay: Number.isFinite(day) && day >= 1 && day <= 31 ? Math.floor(day) : 7 };
 }
