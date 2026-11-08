@@ -36,6 +36,8 @@ interface Agg {
   err4xx: number;
   err5xx: number;
   noAnswer: number;
+  /** Response bytes (recordBytes). */
+  bytes: number;
 }
 
 export interface ApiCallRow {
@@ -54,6 +56,8 @@ export interface ApiCallRow {
   r429: number;
   /** Other 4xx, 5xx and requests that got no answer. */
   errors: number;
+  /** Average response size, bytes (0 when no size was recorded). */
+  avgBytes: number;
 }
 
 /** One lane's share of the window: calls, calls a minute, how long they waited and how long the game took, 429s and errors. */
@@ -65,6 +69,9 @@ export interface ApiLaneRow {
   avgAnswerMs: number;
   r429: number;
   errors: number;
+  /** Response bytes in the window, and per call. */
+  bytes: number;
+  avgBytes: number;
 }
 
 export interface ApiCallSummary {
@@ -83,7 +90,7 @@ export interface ApiCallSummary {
 const BUCKET_MS = 5 * 60_000;
 const KEEP_BUCKETS = 288;
 
-const blank = (): Agg => ({ calls: 0, waitTotal: 0, waitMax: 0, durTotal: 0, durMax: 0, ok: 0, r429: 0, err4xx: 0, err5xx: 0, noAnswer: 0 });
+const blank = (): Agg => ({ calls: 0, waitTotal: 0, waitMax: 0, durTotal: 0, durMax: 0, ok: 0, r429: 0, err4xx: 0, err5xx: 0, noAnswer: 0, bytes: 0 });
 
 export class ApiCallLog {
   /** key -> bucket start (ms) -> aggregate */
@@ -128,6 +135,14 @@ export class ApiCallLog {
     ApiCallLog.fold(ApiCallLog.bucketOf(this.laneData, e.lane ?? "box", start), e);
   }
 
+  /** Add the size of a response to the buckets its call was counted in. */
+  recordBytes(e: { at: number; role: string; kind: string; lane?: "box" | "proxy"; bytes: number }): void {
+    if (!Number.isFinite(e.bytes) || e.bytes < 0) return;
+    const start = Math.floor(e.at / BUCKET_MS) * BUCKET_MS;
+    ApiCallLog.bucketOf(this.data, `${e.role}:${e.kind}`, start).bytes += e.bytes;
+    ApiCallLog.bucketOf(this.laneData, e.lane ?? "box", start).bytes += e.bytes;
+  }
+
   /** Calls by lane over the last `sinceMin` minutes. */
   private laneRows(now: number, sinceMin: number, minutes: number): ApiLaneRow[] {
     const cutoff = now - sinceMin * 60_000;
@@ -137,10 +152,11 @@ export class ApiCallLog {
       for (const [start, b] of byBucket) {
         if (start + BUCKET_MS <= cutoff) continue;
         a.calls += b.calls; a.waitTotal += b.waitTotal; a.durTotal += b.durTotal;
-        a.r429 += b.r429; a.err4xx += b.err4xx; a.err5xx += b.err5xx; a.noAnswer += b.noAnswer;
+        a.r429 += b.r429; a.err4xx += b.err4xx; a.err5xx += b.err5xx; a.noAnswer += b.noAnswer; a.bytes += b.bytes;
       }
       if (a.calls === 0) continue;
       rows.push({
+        bytes: a.bytes, avgBytes: Math.round(a.bytes / a.calls),
         lane, calls: a.calls, perMin: round1(a.calls / minutes),
         avgWaitMs: Math.round(a.waitTotal / a.calls), avgAnswerMs: Math.round(a.durTotal / a.calls),
         r429: a.r429, errors: a.err4xx + a.err5xx + a.noAnswer,
@@ -169,7 +185,7 @@ export class ApiCallLog {
         if (start + BUCKET_MS <= cutoff) continue;
         a.calls += b.calls; a.waitTotal += b.waitTotal; a.waitMax = Math.max(a.waitMax, b.waitMax);
         a.durTotal += b.durTotal; a.durMax = Math.max(a.durMax, b.durMax);
-        a.ok += b.ok; a.r429 += b.r429; a.err4xx += b.err4xx; a.err5xx += b.err5xx; a.noAnswer += b.noAnswer;
+        a.ok += b.ok; a.r429 += b.r429; a.err4xx += b.err4xx; a.err5xx += b.err5xx; a.noAnswer += b.noAnswer; a.bytes += b.bytes;
       }
       if (a.calls === 0) continue;
       const errs = a.err4xx + a.err5xx + a.noAnswer;
@@ -178,7 +194,7 @@ export class ApiCallLog {
         key, role, kind, calls: a.calls, perMin: round1(a.calls / minutes), share: 0,
         avgWaitMs: Math.round(a.waitTotal / a.calls), maxWaitMs: a.waitMax,
         avgAnswerMs: Math.round(a.durTotal / a.calls), maxAnswerMs: a.durMax,
-        r429: a.r429, errors: errs,
+        r429: a.r429, errors: errs, avgBytes: Math.round(a.bytes / a.calls),
       });
     }
     for (const r of rows) r.share = total ? Math.round((r.calls / total) * 1000) / 1000 : 0;

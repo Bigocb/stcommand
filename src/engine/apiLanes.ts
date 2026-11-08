@@ -24,6 +24,8 @@ export interface LanePolicy {
   enabled: boolean;
   /** Requests at this priority or lower urgency (a higher number) may use the proxy lane. 3 = deferrable and background. */
   minPriority: number;
+  /** How many of the configured proxies (the first N, lanePool.ts) are active; absent = all of them. */
+  active?: number;
 }
 
 export const LANES_OFF: LanePolicy = { enabled: false, minPriority: 3 };
