@@ -60,5 +60,6 @@ chooseLane(req, pool, now) -> { lane, reason }
 ## Open questions for the operator
 
 - How many proxies to switch on at first (suggest 3)?
-- Does the plan's 256 GB reset monthly on a fixed date, and is it counted per request and response both?
+- ~~Does the plan's 256 GB reset monthly on a fixed date?~~ Answered 2026-11-08 (operator): the plan renews on the same day each month, so the current period ends 2026-12-08 (it started 2026-11-08).
+  **Corrected 2026-11-08 from the Webshare subscription record:** plan 14802851 is 250 GB (not 256), and its term is 2026-11-07 17:32 to 2026-12-07 17:32 UTC, so it renews on the 7th. Webshare's own projection for the period is 36.2 GB. Still open: whether the 256 GB counts request and response bytes both (ByteMeter counts the response only).
 - Should the crawler's proxy join the pool or stay separate?

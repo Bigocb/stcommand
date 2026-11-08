@@ -99,9 +99,9 @@ describe("periodReport", () => {
 });
 
 describe("planFromEnv", () => {
-  it("defaults to 256 GB renewing on the 8th; takes sane overrides and ignores nonsense", () => {
-    assert.deepEqual(planFromEnv({}), { planGB: 256, resetDay: 8 });
+  it("defaults to 250 GB renewing on the 7th; takes sane overrides and ignores nonsense", () => {
+    assert.deepEqual(planFromEnv({}), { planGB: 250, resetDay: 7 });
     assert.deepEqual(planFromEnv({ API_LANE_PLAN_GB: "512", API_LANE_PLAN_RESET_DAY: "15" }), { planGB: 512, resetDay: 15 });
-    assert.deepEqual(planFromEnv({ API_LANE_PLAN_GB: "-3", API_LANE_PLAN_RESET_DAY: "40" }), { planGB: 256, resetDay: 8 });
+    assert.deepEqual(planFromEnv({ API_LANE_PLAN_GB: "-3", API_LANE_PLAN_RESET_DAY: "40" }), { planGB: 250, resetDay: 7 });
   });
 });
