@@ -9,6 +9,8 @@
  * Pure apart from the module-level instance: record() takes the time, summary() and series() take `now`. In memory only: a restart
  * empties it. Bounded: 288 buckets per key at most, and keys are role x call type (about 100).
  */
+import { ByteLedger, type LaneByteRow } from "../engine/laneBytes.js";
+
 export interface ApiCallEvent {
   at: number;
   role: string;
@@ -98,6 +100,8 @@ export class ApiCallLog {
   /** lane -> bucket start (ms) -> aggregate, over every role and call type */
   private readonly laneData = new Map<string, Map<number, Agg>>();
   private firstAt: number | undefined;
+  /** Response bytes by day, lane and call kind, waiting to be written to the database (laneBytes.ts). */
+  private readonly ledger = new ByteLedger();
 
   private static fold(a: Agg, e: ApiCallEvent): void {
     a.calls += 1;
@@ -136,8 +140,9 @@ export class ApiCallLog {
   }
 
   /** Add the size of a response to the buckets its call was counted in. */
-  recordBytes(e: { at: number; role: string; kind: string; lane?: "box" | "proxy"; bytes: number }): void {
+  recordBytes(e: { at: number; role: string; kind: string; lane?: "box" | "proxy"; /** host:port of the proxy, or "box" */ label?: string; bytes: number }): void {
     if (!Number.isFinite(e.bytes) || e.bytes < 0) return;
+    this.ledger.record(e.at, e.label ?? e.lane ?? "box", e.kind, e.bytes);
     const start = Math.floor(e.at / BUCKET_MS) * BUCKET_MS;
     ApiCallLog.bucketOf(this.data, `${e.role}:${e.kind}`, start).bytes += e.bytes;
     ApiCallLog.bucketOf(this.laneData, e.lane ?? "box", start).bytes += e.bytes;
@@ -224,6 +229,13 @@ export class ApiCallLog {
       avgWaitMs: a.calls ? Math.round(a.waitTotal / a.calls) : 0, r429: a.r429, errors: a.err4xx + a.err5xx + a.noAnswer,
     }));
   }
+
+  /** Bytes counted since the last drain, for the database writer; cleared. */
+  drainBytes(): LaneByteRow[] { return this.ledger.drain(); }
+  /** Put rows back after a failed write. */
+  restoreBytes(rows: LaneByteRow[]): void { this.ledger.restore(rows); }
+  /** Bytes counted but not yet written, so a report can include the last minute. */
+  pendingBytes(): LaneByteRow[] { return this.ledger.peek(); }
 
   clear(): void { this.data.clear(); this.laneData.clear(); this.firstAt = undefined; }
 }

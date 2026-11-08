@@ -10,6 +10,7 @@ import type { components } from "./schema.js";
 import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from "undici";
 import { chooseLane, type LaneBreaker, type LanePolicy, type Lane } from "../engine/apiLanes.js";
 import { pickProxy, laneKeyOf, type ByteMeter } from "../engine/lanePool.js";
+import { maskProxyUrl } from "../engine/crawlerProxy.js";
 
 export type { paths, components };
 
@@ -780,7 +781,7 @@ export class Client {
       // Bytes the game sent back, by lane and call kind: the proxy plan is billed in bytes (docs/api-lanes-pool-plan.md, step 0).
       try {
         const bytes = Buffer.byteLength(text);
-        apiCallLog.recordBytes({ at: sentAt, role: roleContext.getStore() ?? "?", kind, lane, bytes });
+        apiCallLog.recordBytes({ at: sentAt, role: roleContext.getStore() ?? "?", kind, lane, label: slot ? maskProxyUrl(slot.proxyUrl) : "box", bytes });
         slot?.meter?.record(sentAt, kind, bytes);
       } catch { /* telemetry must never fail the request */ }
       const json = text ? safeJson(text) : undefined;
