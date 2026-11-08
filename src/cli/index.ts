@@ -120,7 +120,8 @@ async function main(): Promise<void> {
   const crawlerProxy = crawlerProxyFromEnv(process.env);
   if (crawlerProxy) {
     const own = new RateLimiter(crawlerProxy.ratePerSec, 2);
-    galaxyCrawler.setFetcher(makePublicFetch(crawlerProxy.url));
+    // Its bytes go into the same stored ledger as the lane's (laneBytes.ts), under the proxy's host:port and kind "crawler".
+    galaxyCrawler.setFetcher(makePublicFetch(crawlerProxy.url, (bytes) => apiCallLog.recordLedgerBytes(Date.now(), crawlerProxy.label, "crawler", bytes)));
     galaxyCrawler.setBusyCheck(() => own.stats().queueDepth > 0);
     galaxyCrawler.setThrottle(() => own.acquire(API_PRIORITY.BACKGROUND, "galaxy crawler (proxy)", "public", "GalaxyCrawler"));
     log(`galaxy crawler: public reads go through proxy ${crawlerProxy.label} with its own limiter (${crawlerProxy.ratePerSec} a second)`);

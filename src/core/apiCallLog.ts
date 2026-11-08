@@ -230,6 +230,11 @@ export class ApiCallLog {
     }));
   }
 
+  /** Bytes for a source that is not a Client call (the crawler's page reads): the stored ledger only, no call row. */
+  recordLedgerBytes(at: number, label: string, kind: string, bytes: number): void {
+    this.ledger.record(at, label, kind, bytes);
+  }
+
   /** Bytes counted since the last drain, for the database writer; cleared. */
   drainBytes(): LaneByteRow[] { return this.ledger.drain(); }
   /** Put rows back after a failed write. */

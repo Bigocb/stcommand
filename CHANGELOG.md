@@ -6,6 +6,14 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-08 — The crawler's bytes are in the stored ledger too
+
+Why: the galaxy crawler's page reads leave through `CRAWLER_PROXY_URL`, which draws on the same Webshare plan, but it fetches through `crawlerProxy.ts` and not `Client`, so `lane_bytes` and `planBilling` left them out and would have undercounted the month (the operator moved the crawler to its own address on 2026-11-08).
+- **`meteredFetch`** (`src/engine/crawlerProxy.ts`) wraps the crawler's fetch: it reads each body once, reports its size in bytes, and hands the caller a response whose `json()` and `text()` answer from that body, so `galaxyCrawler.ts` is unchanged. A body that cannot be read fails from `json()` and `text()` exactly as before; a failing counter never fails a read.
+- **`apiCallLog.recordLedgerBytes`** writes those sizes to the stored ledger only (no call row, so the lane's calls and average sizes stay right), under the proxy's `host:port` and kind `crawler`. `planBilling` therefore lists the crawler's share beside the lane's by lane and by call kind.
+- Only the proxied crawler is counted. Unset `CRAWLER_PROXY_URL`, it reads from the box's IP, which is not billed by the plan.
+- Takes effect on the next restart.
+
 ## 2026-11-08 — The proxy plan's bytes are kept in the database (`lane_bytes`, `planBilling` in `ops api_budget`)
 
 Why: the byte meter added with the proxy pool lived in memory and started again at every restart, so it could say what the last half hour looked like but not what the month had cost against the 250 GB plan (operator: "Do you think I want things only in memory?"). The first comparison against the provider's dashboard was muddied by exactly that: the meter had 25 minutes, the dashboard a whole day.

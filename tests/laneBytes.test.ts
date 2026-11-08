@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { ByteLedger, billingPeriod, periodReport, planFromEnv, type LaneByteRow } from "../src/engine/laneBytes.js";
 import { ApiCallLog } from "../src/core/apiCallLog.js";
+import { meteredFetch, type PublicResponse } from "../src/engine/crawlerProxy.js";
 
 const T = (s: string): number => Date.parse(s);
 
@@ -103,5 +104,55 @@ describe("planFromEnv", () => {
     assert.deepEqual(planFromEnv({}), { planGB: 250, resetDay: 7 });
     assert.deepEqual(planFromEnv({ API_LANE_PLAN_GB: "512", API_LANE_PLAN_RESET_DAY: "15" }), { planGB: 512, resetDay: 15 });
     assert.deepEqual(planFromEnv({ API_LANE_PLAN_GB: "-3", API_LANE_PLAN_RESET_DAY: "40" }), { planGB: 250, resetDay: 7 });
+  });
+});
+
+const fakeRes = (body: string | (() => Promise<string>), status = 200): PublicResponse => ({
+  status, ok: status < 400, statusText: "", headers: new Headers(),
+  text: typeof body === "string" ? async () => body : body,
+  json: async () => JSON.parse(typeof body === "string" ? body : await body()),
+});
+
+describe("meteredFetch (the crawler's page reads)", () => {
+  it("reports each response's size once and the caller still reads json() and text() as before", async () => {
+    const seen: number[] = [];
+    const f = meteredFetch(async () => fakeRes('{"data":[{"symbol":"X1-AB"}]}'), (b) => seen.push(b));
+    const res = await f(new URL("https://api.example/systems"));
+    assert.deepEqual(seen, [29]);
+    assert.deepEqual(await res.json(), { data: [{ symbol: "X1-AB" }] });
+    assert.equal(await res.text(), '{"data":[{"symbol":"X1-AB"}]}');
+    assert.equal(res.status, 200);
+    assert.equal(res.ok, true);
+    assert.deepEqual(seen, [29], "reading the body again does not count it again");
+  });
+  it("counts multi-byte characters as bytes, not characters", async () => {
+    const seen: number[] = [];
+    await meteredFetch(async () => fakeRes("é"), (b) => seen.push(b))(new URL("https://x.example/"));
+    assert.deepEqual(seen, [2]);
+  });
+  it("an error status keeps its status and body, and is counted too", async () => {
+    const seen: number[] = [];
+    const res = await meteredFetch(async () => fakeRes('{"error":{"message":"slow down"}}', 429), (b) => seen.push(b))(new URL("https://x.example/"));
+    assert.equal(res.status, 429);
+    assert.equal(res.ok, false);
+    assert.equal(seen.length, 1);
+  });
+  it("a body that cannot be read fails from json() and text() as before, and nothing is reported", async () => {
+    const seen: number[] = [];
+    const res = await meteredFetch(async () => fakeRes(async () => { throw new Error("socket closed"); }), (b) => seen.push(b))(new URL("https://x.example/"));
+    await assert.rejects(res.json(), /socket closed/);
+    await assert.rejects(res.text(), /socket closed/);
+    assert.deepEqual(seen, []);
+  });
+  it("a failure in the counter never fails the read; a failed fetch still fails", async () => {
+    const res = await meteredFetch(async () => fakeRes("{}"), () => { throw new Error("ledger down"); })(new URL("https://x.example/"));
+    assert.deepEqual(await res.json(), {});
+    await assert.rejects(meteredFetch(async () => { throw new Error("refused"); }, () => {})(new URL("https://x.example/")), /refused/);
+  });
+  it("ApiCallLog.recordLedgerBytes puts the crawler's bytes in the stored ledger without adding a call row", () => {
+    const log = new ApiCallLog();
+    log.recordLedgerBytes(T("2026-11-08T12:00:00Z"), "c.example:9", "crawler", 40_000);
+    assert.deepEqual(log.drainBytes(), [{ day: "2026-11-08", label: "c.example:9", kind: "crawler", calls: 1, bytes: 40_000 }]);
+    assert.equal(log.summary(T("2026-11-08T12:01:00Z"), 60).calls, 0);
   });
 });
