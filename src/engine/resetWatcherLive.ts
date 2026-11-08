@@ -12,6 +12,9 @@ import { ResetWatcher, setActiveResetWatcher, type ResetWatcherPorts, type Token
 
 const CRAWL_KEY = "reset_watcher";
 
+/** The saved opening template a reset queues for each tenant unless OPENING_TEMPLATE names another. */
+export const DEFAULT_OPENING_TEMPLATE = "Opening: auto at reset";
+
 /** Wires the ResetWatcher to the real game, database and tenant registry. */
 export function createResetWatcher(
   pool: pg.Pool,
@@ -70,6 +73,12 @@ export function createResetWatcher(
     },
     async boot(tenantId, agentSymbol) {
       await registry.getOrCreate(tenantId, agentSymbol);
+    },
+    async applyOpening(tenantId, _agentSymbol, resetDate) {
+      // The template is named by OPENING_TEMPLATE (default "Opening: auto at reset"); its keys end -<MMDD> of the reset date.
+      const name = process.env.OPENING_TEMPLATE?.trim() || DEFAULT_OPENING_TEMPLATE;
+      const suffix = resetDate.slice(5).replace("-", "");
+      return store.applyOpeningTemplate(tenantId, name, suffix);
     },
   };
 

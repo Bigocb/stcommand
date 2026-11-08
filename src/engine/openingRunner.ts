@@ -55,12 +55,17 @@ export interface OpeningHost {
   startGateMission(opts: Extract<Step, { kind: "startGateMission" }>): Promise<void>;
   startFeed(opts: Extract<Step, { kind: "startFeed" }>): Promise<void>;
   setDoctrine(key: string, patch: { value?: number; enabled?: boolean }): Promise<unknown>;
+  /** Put a ship on the home gate's construction crew; throws while the ship's agent is not ready (the runner then retries next tick). */
+  assignGateCarrier?(shipSymbol: string): Promise<void>;
+  /** Add keeper markets of the home system to the keeper list (see the keepers step); returns the markets newly added. */
+  addKeeperMarkets?(scope: "shipyards" | "top", count: number): Promise<string[]>;
   log(msg: string): void;
 }
 
 type StepResult =
   | { ok: true; shipSymbol?: string }
-  | { ok: false; error: string; needsReview?: boolean };
+  /** retry: nothing is recorded and the step is tried again on the next tick (a ship's agent that is not ready yet). */
+  | { ok: false; error: string; needsReview?: boolean; retry?: boolean };
 
 export class OpeningRunnerImpl {
   constructor(
@@ -105,6 +110,7 @@ export class OpeningRunnerImpl {
     }
 
     const result = await this.executeStep(task, decision.stepIndex, step, facts);
+    if (!result.ok && result.retry) return;
     if (!result.ok) {
       await this.store.updateOpeningTask(tenantId, task.id, {
         status: result.needsReview ? "needs_review" : "failed",
@@ -178,12 +184,41 @@ export class OpeningRunnerImpl {
       if (step.kind === "waitFor") return { ok: true };
 
       if (step.kind === "startGateMission") {
-        await this.host.startGateMission(step);
+        try {
+          await this.host.startGateMission(step);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          // Right after a reset the home system's gate is not known for the first minutes (the galaxy data loads in the background).
+          if (/no jump gate known/i.test(msg)) return { ok: false, retry: true, error: msg };
+          throw err;
+        }
         return { ok: true };
       }
 
       if (step.kind === "startFeed") {
         await this.host.startFeed(step);
+        return { ok: true };
+      }
+
+      if (step.kind === "gateCrew") {
+        const symbol = this.resolveShip(step.ship, task.refs, facts);
+        if (!symbol) return { ok: false, error: `could not resolve ship ref ${JSON.stringify(step.ship)}` };
+        try {
+          if (!this.host.assignGateCarrier) return { ok: false, error: "this host cannot assign a gate carrier" };
+          await this.host.assignGateCarrier(symbol);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          // A hull that was just given the trader role has no agent for a tick or two; anything else is a real refusal.
+          if (/is not a miner or trader/i.test(msg)) return { ok: false, retry: true, error: msg };
+          throw err;
+        }
+        return { ok: true, shipSymbol: symbol };
+      }
+
+      if (step.kind === "keepers") {
+        if (!this.host.addKeeperMarkets) return { ok: false, error: "this host cannot add keeper markets" };
+        const added = await this.host.addKeeperMarkets(step.scope, step.count ?? 10);
+        this.host.log(`opening task ${task.key}: keepers ${step.scope}: ${added.length} market(s) added${added.length ? " (" + added.slice(0, 6).join(", ") + (added.length > 6 ? ", ..." : "") + ")" : ""}`);
         return { ok: true };
       }
 
@@ -216,6 +251,7 @@ export class OpeningRunnerImpl {
     const needsCoverage = tasks.some((t) => t.status !== "done" && usesCoverage(t));
     const needsGate = tasks.some((t) => t.status !== "done" && (triggerUsesGate(t.trigger) || t.steps.some((s) => s.kind === "waitFor" && triggerUsesGate(s.trigger))));
     return {
+      nowMs: Date.now(),
       gatePct: needsGate ? await this.host.gateProgress() : undefined,
       surveyMissing: needsCoverage ? await this.host.surveyMissing() : undefined,
       spendable: this.host.spendable(),
@@ -228,11 +264,11 @@ export class OpeningRunnerImpl {
 }
 
 function triggerUsesGate(t: Trigger): boolean {
-  return t.kind === "gateProgressAtLeast" || (t.kind === "all" && t.of.some(triggerUsesGate));
+  return t.kind === "gateProgressAtLeast" || ((t.kind === "all" || t.kind === "any") && t.of.some(triggerUsesGate));
 }
 
 function triggerUsesCoverage(t: Trigger): boolean {
-  return t.kind === "marketsSurveyed" || (t.kind === "all" && t.of.some(triggerUsesCoverage));
+  return t.kind === "marketsSurveyed" || ((t.kind === "all" || t.kind === "any") && t.of.some(triggerUsesCoverage));
 }
 
 /** Only tasks that wait on market coverage pay for gathering it. */

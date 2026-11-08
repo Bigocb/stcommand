@@ -29,6 +29,9 @@ delivery and the remote surveyor reads systems with no ship (see the 2026-10-29 
 Which agent plays (2026-10-30): the week of 2026-10-25 ran on the THEO agent (home X1-BT10); the next reset (about 2026-11-01) runs on
 THEOREM, which holds the saved opening template. Opening templates belong to one agent, so check which agent is live (`get_fleet_status`,
 the key's own agent) before saving or reading one, and name `agent` explicitly when it is not the key's own.
+Operator's start for the 2026-11-08 reset (13:00 UTC) and after (stated 2026-11-08): agent THEO (the only agent on the box; THEOREM is gone). The reset recovery queues the
+saved template "Opening: auto at reset" itself (`docs/reset-opening-playbook.md`, "Opening v3"): THEO-1 tours then trades; 200k keepers on the shipyards; back at 200k a contract
+shuttle; 1M keepers on the top markets; back at 1M a light hauler on the gate crew; gate ceilings FAB_MATS 2,000 and ADVANCED_CIRCUITRY 4,000. Adjust in real time.
 Update this section when the operator states a layout for a following week.
 
 ## Operating the fleet via the stcommand MCP server

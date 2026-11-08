@@ -21,7 +21,11 @@ export type Trigger =
   | { kind: "marketsSurveyed" }
   /** The home system's jump gate has had this share (0-100) of its materials delivered; 100 means the gate is open. */
   | { kind: "gateProgressAtLeast"; pct: number }
-  | { kind: "all"; of: Trigger[] };
+  | { kind: "all"; of: Trigger[] }
+  /** Any one member is enough (for example "a route pays 15,000 a trip, or 30 minutes have passed"). Members cannot be all/any themselves. */
+  | { kind: "any"; of: Trigger[] }
+  /** This many minutes have passed since the task was queued (the template applied), whatever the fleet does. */
+  | { kind: "minutesSinceQueued"; minutes: number };
 
 export type Step =
   /** keepCash: the purchase waits unless this much cash is left after paying (a hull is no use if it leaves nothing to trade with). */
@@ -34,7 +38,11 @@ export type Step =
   /** Start a feeder tier: a crew that sources `good` and sells it into `waypoint`. carrier: a ship symbol to crew it, so the engine's own picker (biggest empty hold first) cannot take a better-placed hull. */
   | { kind: "startFeed"; waypoint: string; good: string; mine?: boolean; carrierTarget?: number; buyAt?: string; stopAtSupply?: "MODERATE" | "HIGH" | "ABUNDANT"; maxLossPerUnit?: number; carrier?: string }
   /** Does nothing itself: the task waits here until the trigger is met, then carries on with the next step. */
-  | { kind: "waitFor"; trigger: Trigger };
+  | { kind: "waitFor"; trigger: Trigger }
+  /** Put a ship (a trader or miner with a cargo hold) on the home gate's construction crew, so it carries the gate's materials. Retries on later ticks while the ship's agent is not ready yet. */
+  | { kind: "gateCrew"; ship: ShipRef }
+  /** Add keepers to the home system's keeper list: "shipyards" = every waypoint with a shipyard; "top" = the marketplaces trading the most goods (at least keeperMinGoods) that are not listed yet, up to `count` (default 10). Each new entry asks for a probe through the normal approval gate (auto-approved under keeperAutoApproveMinCash). */
+  | { kind: "keepers"; scope: "shipyards" | "top"; count?: number };
 
 export interface TaskSpec { key: string; name: string; trigger: Trigger; steps: Step[] }
 
@@ -42,6 +50,8 @@ export type TaskStatus = "queued" | "active" | "done" | "failed" | "needs_review
 
 export interface TaskRun extends TaskSpec {
   id: number;
+  /** When the task was queued (ISO); the clock for minutesSinceQueued triggers. */
+  createdAt?: string;
   status: TaskStatus;
   stepIndex: number;
   stepPhase: "idle" | "started";
@@ -117,10 +127,15 @@ export function validateTaskSpec(x: unknown): Validation<TaskSpec> {
     } else if (step.kind === "startFeed") {
       const e = validateFeedStep(step);
       if (e) return { ok: false, error: "Step " + i + ": " + e };
+    } else if (step.kind === "gateCrew") {
+      if (!validateShipRef(step.ship, i, s.steps)) return { ok: false, error: "Step " + i + ": invalid ship ref" };
+    } else if (step.kind === "keepers") {
+      if (step.scope !== "shipyards" && step.scope !== "top") return { ok: false, error: "Step " + i + ": scope must be shipyards or top" };
+      if (step.count !== undefined && !posInt(step.count, 1, 100)) return { ok: false, error: "Step " + i + ": count must be a whole number 1 to 100" };
     } else if (step.kind === "waitFor") {
       const w = validateTrigger(step.trigger);
       if (!w.ok) return { ok: false, error: "Step " + i + ": " + w.error };
-      if (w.value.kind === "all" ? w.value.of.some((m) => m.kind === "shipHoldEmpty" && m.ship.by === "step") : false) {
+      if ((w.value.kind === "all" || w.value.kind === "any") ? w.value.of.some((m) => m.kind === "shipHoldEmpty" && m.ship.by === "step") : false) {
         return { ok: false, error: "Step " + i + ": a waitFor trigger cannot refer to a bought ship by step" };
       }
       cleanedSteps.push({ kind: "waitFor", trigger: w.value });
@@ -211,18 +226,23 @@ function validateTrigger(t: any): Validation<Trigger> {
     if (typeof t.taskKey !== "string" || t.taskKey.length === 0) return { ok: false, error: "taskKey required" };
     return { ok: true, value: { kind: "taskDone", taskKey: t.taskKey } };
   }
-  if (t.kind === "all") {
+  if (t.kind === "minutesSinceQueued") {
+    if (typeof t.minutes !== "number" || !Number.isFinite(t.minutes) || t.minutes < 0 || t.minutes > 10080) return { ok: false, error: "minutes must be 0 to 10,080" };
+    return { ok: true, value: { kind: "minutesSinceQueued", minutes: t.minutes } };
+  }
+  if (t.kind === "all" || t.kind === "any") {
     if (!Array.isArray(t.of) || t.of.length === 0 || t.of.length > 6) {
       return { ok: false, error: "must have 1 to 6 members" };
     }
     const cleanedOf: Trigger[] = [];
     for (const m of t.of) {
       if (m?.kind === "all") return { ok: false, error: "nested 'all' triggers not allowed" };
+      if (m?.kind === "any" && t.kind === "any") return { ok: false, error: "nested 'any' triggers not allowed" };
       const v = validateTrigger(m);
       if (!v.ok) return { ok: false, error: v.error };
       cleanedOf.push(v.value);
     }
-    return { ok: true, value: { kind: "all", of: cleanedOf } };
+    return { ok: true, value: { kind: t.kind, of: cleanedOf } };
   }
   return { ok: false, error: "unknown trigger kind" };
 }
@@ -256,7 +276,7 @@ export function validateTemplateTasks(x: unknown): Validation<TaskSpec[]> {
   for (const s of cleaned) {
     const checkTaskDone = (t: Trigger): boolean => {
       if (t.kind === "taskDone") return keys.has(t.taskKey);
-      if (t.kind === "all") return t.of.every(checkTaskDone);
+      if (t.kind === "all" || t.kind === "any") return t.of.every(checkTaskDone);
       return true;
     };
     if (!checkTaskDone(s.trigger)) return { ok: false, error: "Task " + s.key + " references unknown taskKey" };
@@ -265,6 +285,8 @@ export function validateTemplateTasks(x: unknown): Validation<TaskSpec[]> {
 }
 
 export interface OpeningFacts {
+  /** The time of this evaluation, ms; needed by minutesSinceQueued triggers (undefined = such a trigger is not met). */
+  nowMs?: number;
   spendable: number;
   bestRouteProfit: number | undefined;
   ships: { symbol: string; isCommand: boolean; cargoUnits: number; waypoint: string; docked: boolean }[];
@@ -276,7 +298,7 @@ export interface OpeningFacts {
   surveyMissing?: { total: number; missing: string[]; minGoods: number };
 }
 
-export function triggerMet(t: Trigger, f: OpeningFacts): { met: boolean; reason: string } {
+export function triggerMet(t: Trigger, f: OpeningFacts, queuedAtMs?: number): { met: boolean; reason: string } {
   switch (t.kind) {
     case "always": return { met: true, reason: "always met" };
     case "cashAtLeast": {
@@ -312,12 +334,27 @@ export function triggerMet(t: Trigger, f: OpeningFacts): { met: boolean; reason:
       const met = c.missing.length === 0;
       return { met, reason: met ? c.total + " markets with " + c.minGoods + "+ goods all priced" : c.missing.length + " of " + c.total + " markets with " + c.minGoods + "+ goods still unpriced (" + c.missing.slice(0, 4).join(", ") + (c.missing.length > 4 ? ", ..." : "") + ")" };
     }
+    case "minutesSinceQueued": {
+      if (f.nowMs === undefined || queuedAtMs === undefined || !Number.isFinite(queuedAtMs)) return { met: false, reason: "queue time not known" };
+      const min = Math.max(0, (f.nowMs - queuedAtMs) / 60_000);
+      const met = min >= t.minutes;
+      return { met, reason: Math.floor(min) + " min since queued" + (met ? " >= " : " < ") + t.minutes };
+    }
     case "all": {
       for (const m of t.of) {
-        const res = triggerMet(m, f);
+        const res = triggerMet(m, f, queuedAtMs);
         if (!res.met) return res;
       }
       return { met: true, reason: "all triggers met" };
+    }
+    case "any": {
+      const reasons: string[] = [];
+      for (const m of t.of) {
+        const res = triggerMet(m, f, queuedAtMs);
+        if (res.met) return { met: true, reason: res.reason };
+        reasons.push(res.reason);
+      }
+      return { met: false, reason: "none of: " + reasons.join("; ") };
     }
   }
   throw new Error("unknown trigger kind");
@@ -329,19 +366,22 @@ export type Decision =
   | { kind: "done"; reason: string }
   | { kind: "fail"; reason: string };
 
-export function decide(task: Pick<TaskRun, "trigger" | "steps" | "stepIndex" | "refs">, f: OpeningFacts): Decision {
+export function decide(task: Pick<TaskRun, "trigger" | "steps" | "stepIndex" | "refs"> & { createdAt?: string }, f: OpeningFacts): Decision {
   if (task.stepIndex >= task.steps.length) return { kind: "done", reason: "all steps finished" };
+  const queuedAtMs = task.createdAt ? Date.parse(task.createdAt) : undefined;
   if (task.stepIndex === 0) {
-    const trig = triggerMet(task.trigger, f);
+    const trig = triggerMet(task.trigger, f, queuedAtMs);
     if (!trig.met) return { kind: "wait", reason: trig.reason };
   }
   const step = task.steps[task.stepIndex];
   if (!step) return { kind: "fail", reason: "step missing at index" };
-  if (step.kind === "setRole" || step.kind === "contractDuty") {
+  if (step.kind === "setRole" || step.kind === "contractDuty" || step.kind === "gateCrew") {
     const shipRef = (step as any).ship;
     if (!shipRef) return { kind: "fail", reason: "step missing ship ref: " + JSON.stringify(step) };
     const symbol = resolveShipRef(shipRef, task.refs, f);
     if (!symbol) {
+      // Right after a reset the fleet snapshot can be empty for a few ticks: the command ship is certain to appear, so wait for it.
+      if (shipRef.by === "command") return { kind: "wait", reason: "the command ship is not in the fleet yet" };
       // A ship an earlier step just bought is recorded in refs at once but only shows in the fleet snapshot a moment later. Failing here
       // killed the task for good (2026-10-25: "Ship for touring" bought THEOREM-7, then failed on step 2 with the ship already in the fleet).
       const bought = shipRef.by === "step" ? task.refs[String(shipRef.step)] : undefined;
@@ -350,11 +390,11 @@ export function decide(task: Pick<TaskRun, "trigger" | "steps" | "stepIndex" | "
     }
     return { kind: "run", stepIndex: task.stepIndex, reason: "execute " + step.kind };
   }
-  if (step.kind === "setDoctrine" || step.kind === "startGateMission" || step.kind === "startFeed") {
+  if (step.kind === "setDoctrine" || step.kind === "startGateMission" || step.kind === "startFeed" || step.kind === "keepers") {
     return { kind: "run", stepIndex: task.stepIndex, reason: "execute " + step.kind };
   }
   if (step.kind === "waitFor") {
-    const w = triggerMet(step.trigger, f);
+    const w = triggerMet(step.trigger, f, queuedAtMs);
     if (!w.met) return { kind: "wait", reason: "step " + (task.stepIndex + 1) + " waits: " + w.reason };
     return { kind: "run", stepIndex: task.stepIndex, reason: "wait over: " + w.reason };
   }
@@ -402,6 +442,28 @@ function resolveShipRef(ref: ShipRef, refs: Record<string, string>, f: OpeningFa
     return f.ships.some(s => s.symbol === symbol) ? symbol : null;
   }
   return null;
+}
+
+/**
+ * A template's tasks ready to queue in a new universe: every key gets `-<suffix>` (a task with an existing key is only updated, so a
+ * key already marked done last week would never run again) and the taskDone triggers inside the template follow the new keys.
+ * Pure. The suffix must keep every key within the 24-character limit; the result is re-validated, so a bad one is an error.
+ */
+export function instantiateTemplate(tasks: TaskSpec[], suffix: string): Validation<TaskSpec[]> {
+  if (!/^[a-z0-9]{1,8}$/.test(suffix)) return { ok: false, error: "suffix must be 1-8 lowercase letters or digits" };
+  const rekey = (k: string): string => k + "-" + suffix;
+  const rewrite = (t: Trigger): Trigger => {
+    if (t.kind === "taskDone") return { kind: "taskDone", taskKey: rekey(t.taskKey) };
+    if (t.kind === "all" || t.kind === "any") return { kind: t.kind, of: t.of.map(rewrite) };
+    return t;
+  };
+  const out = tasks.map((task): TaskSpec => ({
+    key: rekey(task.key),
+    name: task.name,
+    trigger: rewrite(task.trigger),
+    steps: task.steps.map((st) => (st.kind === "waitFor" ? { kind: "waitFor", trigger: rewrite(st.trigger) } : st)),
+  }));
+  return validateTemplateTasks(out);
 }
 
 export const STANDARD_OPENING: TaskSpec[] = [

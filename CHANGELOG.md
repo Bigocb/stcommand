@@ -6,6 +6,16 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-08 — The reset queues the opening itself: "Opening v3" and four additions to the task system
+
+Why: the opening automation existed (tasks, templates, a runner) but nothing applied a template at a reset (the watcher registered the agent and stopped, "phase 2" in its own header), a finished task's key blocks a new task with that key, and the operator's plan needed a gate-crew step, keeper steps and a minutes trigger. Reset is scheduled for 2026-11-08 13:00 UTC.
+- **Reset recovery** (`resetWatcher.ts`, `resetWatcherLive.ts`): after each tenant is registered and booted, `applyOpening` queues the template named by `OPENING_TEMPLATE` (default "Opening: auto at reset") via `Store.applyOpeningTemplate`, once per reset, before the reset is marked handled. A failure is logged and never holds recovery. Without the port nothing changes.
+- **`instantiateTemplate`** (`openingTasks.ts`, pure): keys get `-<MMDD>`, taskDone triggers follow, result re-validated (24-character keys). Tasks already queued under those keys are left alone, so applying twice is safe.
+- **Triggers** `any` (one member is enough) and `minutesSinceQueued` (the task's own queue time); **steps** `gateCrew` (put a ship on the home gate's construction crew, retried while its agent is not ready) and `keepers` (`shipyards`, or `top` N by goods traded); `startGateMission` is retried while the home gate is not known yet; a `setRole` on the command ship waits while the fleet is empty (it used to fail the task for good).
+- **`OPENING_V3`** (`openingTemplates.ts`): THEO-1 tours then trades (15k a trip or 30 minutes); 200k keepers on shipyards; back at 200k a contract shuttle; 1M keepers on the top markets; back at 1M a light hauler on the gate crew and gate buying starts with ceilings FAB_MATS 2,000 and ADVANCED_CIRCUITRY 4,000. See the playbook table.
+- Tests: `tests/openingV3.test.ts` (22), including a simulated morning that checks the order the tasks unlock in as cash grows.
+- Takes effect on the next restart; the template must also be saved on the tenant (`stcommand_add_opening_template`), under "Opening: auto at reset".
+
 ## 2026-11-08 — `planBilling` says when its projection is understated
 
 Why: the stored ledger only counts from the restart that switched it on (04:10 on 2026-11-08), while the plan's period began on the 7th, so its month projection averaged a few hours of data over 1.2 days and read 1.7 GB against the provider's 37 GB (stored use itself agreed with the provider: 69 MB against its 65 MB over the same hour). `periodReport` now returns `dataStartsOn` and, when that is after the period start, a `projectionNote` saying the projection is understated until a day or two of data has built up.

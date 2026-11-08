@@ -62,6 +62,12 @@ export interface ResetWatcherPorts {
   /** Register a fresh agent and store its token on that tenant's row. Returns the tenant id now holding the new token. */
   registerAndStore(symbol: string): Promise<{ tenantId: string; agentSymbol: string }>;
   boot(tenantId: string, agentSymbol: string): Promise<void>;
+  /**
+   * Queue the opening template for this tenant in the new universe (keys end with the reset date, so last week's finished tasks do not
+   * hold them back). Optional and best effort: it runs once per reset after the tenant is booted, a failure is logged and never holds
+   * recovery. Resolves a one-line outcome.
+   */
+  applyOpening?(tenantId: string, agentSymbol: string, resetDate: string): Promise<string>;
 }
 
 export type WatcherState =
@@ -99,6 +105,8 @@ export class ResetWatcher {
   private readonly accountTokenConfigured: boolean;
   private cleanedFor: string | undefined;
   private readonly captureFailures = new Map<string, number>();
+  /** Tenants whose opening template was queued for a reset date ("<tenantId>@<resetDate>"). */
+  private readonly openingApplied = new Set<string>();
   private warnedFor: string | undefined;
   private running = false;
   private timer: NodeJS.Timeout | undefined;
@@ -296,6 +304,18 @@ export class ResetWatcher {
     if (!allDone) {
       this.current.state = "error";
       return;
+    }
+    if (this.ports.applyOpening) {
+      for (const t of tenants) {
+        const id = `${t.id}@${status.resetDate}`;
+        if (this.openingApplied.has(id)) continue;
+        try {
+          this.log(`opening: ${t.agentSymbol}: ${await this.ports.applyOpening(t.id, t.agentSymbol, status.resetDate)}`);
+        } catch (err) {
+          this.log(`opening: ${t.agentSymbol}: could not queue the opening template (queue it by hand): ${err instanceof Error ? err.message : String(err)}`);
+        }
+        this.openingApplied.add(id);
+      }
     }
     await this.ports.setSeenResetDate(status.resetDate);
     this.current.handledResetDate = status.resetDate;

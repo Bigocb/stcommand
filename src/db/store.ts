@@ -6,7 +6,7 @@ import { shipLedgerEvent } from "../engine/shipLedgerEvent.js";
 import type pg from "pg";
 import { withTenant, withTenantUniverse, withTenantAllUniverses, tenantUniverse, withPool } from "./pool.js";
 import { isUniverseKey, universeKey } from "../engine/universe.js";
-import type { TaskSpec, TaskRun, TaskStatus, Trigger, Step, OpeningTemplateRow, OpeningTaskRow } from "../engine/openingTasks.js";
+import { instantiateTemplate, type TaskSpec, type TaskRun, type TaskStatus, type Trigger, type Step, type OpeningTemplateRow, type OpeningTaskRow } from "../engine/openingTasks.js";
 import { getCurrentResetDate } from "../core/universe.js";
 
 /**
@@ -471,9 +471,9 @@ export class Store {
       const r = await c.query<{
         id: number; task_key: string; name: string; trigger_spec: Trigger; steps: Step[];
         status: TaskStatus; step_index: number; step_phase: "idle" | "started";
-        refs: Record<string, string>; note: string | null;
+        refs: Record<string, string>; note: string | null; created_at: Date;
       }>(
-        `SELECT id, task_key, name, trigger_spec, steps, status, step_index, step_phase, refs, note
+        `SELECT id, task_key, name, trigger_spec, steps, status, step_index, step_phase, refs, note, created_at
            FROM opening_tasks ORDER BY id ASC`,
       );
       return r.rows.map((row) => ({
@@ -487,8 +487,30 @@ export class Store {
         stepPhase: row.step_phase,
         refs: row.refs ?? {},
         note: row.note,
+        createdAt: new Date(row.created_at).toISOString(),
       }));
     });
+  }
+
+  /**
+   * Queue a saved template's tasks for a new universe: keys get `-<suffix>` (see instantiateTemplate), so last week's finished
+   * tasks cannot hold them back, and tasks already queued under those keys are left as they are (re-applying is safe).
+   * Returns what happened in one line; an unknown template is reported, not thrown.
+   */
+  async applyOpeningTemplate(tenantId: string, templateName: string, suffix: string): Promise<string> {
+    const templates = await this.listOpeningTemplates(tenantId);
+    const tpl = templates.find((t) => t.name === templateName);
+    if (!tpl) return `no opening template named "${templateName}" for this tenant (${templates.map((t) => t.name).join(", ") || "none saved"}); nothing queued`;
+    const inst = instantiateTemplate(tpl.tasks, suffix);
+    if (!inst.ok) return `template "${templateName}" could not be queued: ${inst.error}`;
+    const existing = new Set((await this.listOpeningTasks(tenantId)).map((t) => t.key));
+    let added = 0;
+    for (const task of inst.value) {
+      if (existing.has(task.key)) continue;
+      await this.addOpeningTask(tenantId, task, "reset-recovery");
+      added += 1;
+    }
+    return `queued ${added} of ${inst.value.length} tasks from "${templateName}" (keys end -${suffix})${added < inst.value.length ? "; the rest were already queued" : ""}`;
   }
 
   async addOpeningTask(tenantId: string, task: TaskSpec, createdBy = "operator"): Promise<void> {

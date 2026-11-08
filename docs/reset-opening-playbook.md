@@ -1,5 +1,10 @@
 # Reset opening playbook
 
+> **Under review (operator, 2026-11-06):** the light-hauler guidance below (80-unit lots, "light haulers first") dates from the
+> first week played and has not been re-checked against heavy freighters (225 hold, speed 36, 1.65M-2.46M on 2026-11-06). The week of
+> 2026-11-01 is testing heavies; go through this playbook after the reset, not before.
+
+
 What to do in the first hours after a weekly reset, written from the 2026-10-04 week (THEO, X1-JX83), where the
 gate stalled at 174/1,600 FAB_MATS because the input chains were only fed from day 2 and the mission bought faster
 than the producer made the material. See `CHANGELOG.md` entries dated 2026-10-05 and the project review doc for the
@@ -29,6 +34,78 @@ Without explorers (2026-10-29): keepers for systems whose own yard sells no keep
 (`keeperDeliveryHops`), the remote surveyor (`remoteSurveyPerPass`) reads each system's markets and yards with no ship, and
 `remoteSurveyIntake` queues the worth-covering ones. Explorers were parked on 2026-10-29 once that pipeline queued its first
 systems; see the CHANGELOG entries of that date.
+
+## Opening v3: queued by the reset itself (operator, 2026-11-08)
+
+The reset recovery now queues a saved opening template for each tenant once its new agent is booted (`applyOpening`, `OPENING_TEMPLATE`, default
+name "Opening: auto at reset"), with every task key ending `-<MMDD>` of the reset date, so last week's finished tasks cannot block them (a task with
+an existing key is only updated, never re-run). The template is `OPENING_V3` in `src/engine/openingTemplates.ts`:
+
+| Order | When | What |
+| --- | --- | --- |
+| 1 | at once | THEO-1 (the command ship) tours; settings: cash floor 20k, keeper top-up and idle parking off, keeper reserve 100k; gate mission created paused with ceilings FAB_MATS 2,000 and ADVANCED_CIRCUITRY 4,000 |
+| 2 | a route pays 15,000 a trip, or 30 minutes after queued | THEO-1 becomes a trader |
+| 3 | 200k | keepers on every shipyard of the home system |
+| 4 | back at 200k, after 3 | a light shuttle (130k at most, keeping 60k) on contract duty |
+| 5 | 1M, after 4 | keeper reserve 300k, top-up back on, cash floor 100k, keepers on the 10 top markets (most goods, at least keeperMinGoods) |
+| 6 | back at 1M, after 5 | a light hauler (400k at most, keeping 300k) put on the gate crew; the gate mission starts buying with the ceilings (gate cash floor 300k, resume 400k) |
+| 7 | gate 85% / 100% | drop the gate floor / cash floor 100k and idle parking back on (20,000 an hour) |
+
+New in the task system for this: triggers `any` and `minutesSinceQueued`, steps `gateCrew` and `keepers`, and the command-ship steps now wait (not fail) while
+the fleet is still empty after a reset. Not in it, because the map is unknown until the reset: feeds into the gate producers' inputs (hour 1-3 below, by
+hand), a ceiling for a third gate material, the heavy freighter yard hunt. "Wait till we get back to" was read as: the next purchase waits for the previous
+task and for cash at its own level again. Adjust live with `stcommand_add_opening_task` (same key updates a queued task) or `stcommand_cancel_opening_task`.
+
+## Gate open in 18 hours, not 40-50: what the 2026-11-01 week showed (operator, 2026-11-05)
+
+**Why it matters.** The week's money came after the gate opened, not before: THEO (home X1-UZ49) made about 4.5M on day 1 and
+3.1M on day 2, then 12.6M and 43.6M once the gate was open and fresh systems could be released. Every hour the gate stays shut
+is an hour of that ramp lost. Other players report gates done overnight (about 16-18 hours, helped by two FAB_MATS markets).
+
+**What happened** (ledger, universe `THEO@2026-11-01`). The gate mission started within about an hour of the reset with a low
+price target. The gate needed 1,600 FAB_MATS and 400 ADVANCED_CIRCUITRY; the home system had one producer of each (X1-UZ49-F51
+and X1-UZ49-D47).
+
+| Material | Period | Pace | Price |
+| --- | --- | --- | --- |
+| FAB_MATS | 11-01 15:00 - 11-02 15:00 (24 h) | 20-40 units every 1-2 h, about 900 in all (about 30-40 an hour) | 1,280 -> 4,498 |
+| FAB_MATS | 11-02 15:06 - 20:06 | nothing bought for 5 hours (waiting for the price to come back) | |
+| FAB_MATS | 11-02 20:53 - 11-03 02:24 | 80 units every 30 min, 700 in 5.5 h (about 130 an hour) | 2,500 -> 5,400 |
+| ADVANCED_CIRCUITRY | 11-01 19:10 - 11-03 15:22 (44 h) | 20 units every 1-3 h; the last 140 rushed | 3,721 -> 14,392 |
+
+FAB_MATS was done at about hour 37, the circuitry about 13 hours later, so the gate opened around 11-03 15:30.
+
+**What it shows.**
+1. **Our pacing was the limit, not the market.** F51 delivered 130 units an hour at the end. For the first 30 hours the
+   mission took about 30 an hour: small lots, then waiting for the price to recover. At 130 an hour, 1,600 units is about 12 h.
+2. **Circuitry ran in series, not in parallel.** It trickled 20 at a time and was finished in a rush at triple the price. Bought
+   at full pace from hour 1, beside FAB_MATS, it ends near hour 18 with it.
+3. **Cash is the real constraint.** The wallet sat at 1-2.8M through day 2. A fast gate costs about 6-7M in all (FAB_MATS at
+   about 3k, circuitry at about 5k) against about 4-5M less for the slow one. That is the price of a day of the post-gate ramp,
+   which is worth tens of millions: pay it.
+4. **A low price target holds the price, it does not make the market produce faster.** Feeds into the producer's inputs are
+   what lift its refill rate (see "The ceiling is a target price" below). The low target was right while the producer was
+   starved; it was wrong once cash allowed buying at the market's refill rate.
+
+**The opening for next week (operator, 2026-11-05).** Target: gate open by hour 18.
+
+1. **Hour 0:** the command ship tours until it finds a good route, then trades (as now).
+2. **At about 500,000 credits:** buy a light hauler (about 325k on 2026-10-18), which buys in lots of 80, to double the trading
+   cash rate.
+3. **Instead of keepers right away, one shuttle on tour** (about 85k) keeps every home-system price fresh enough for one system
+   (a tour cycle of an hour or two). The exception: a keeper on each market the gate depends on (the FAB_MATS producer, the
+   circuitry producer, and their input markets), because the mission's pacing reads those prices and needs them current.
+4. **From hour 1, feed the inputs of both producers** (IRON and QUARTZ_SAND into FAB_MATS; ELECTRONICS and MICROPROCESSORS into
+   ADVANCED_CIRCUITRY), `stopAtSupply HIGH`, so their activity climbs to GROWING or STRONG and they refill faster.
+5. **Buy both materials at the same time, in full lots, whenever the market refills.** No multi-hour waits for a price to come
+   back: a ceiling of about 2.5x the opening price, not a flat 2,000. Low while cash is short; raise it as soon as cash allows.
+6. **Cash goes to the gate first until it is done.** More keepers after the gate; ships only if they pay for themselves within
+   the day.
+7. **If the new home system has two FAB_MATS markets, buy from both:** that roughly halves the time.
+
+Balance to watch: the hauler and the tour shuttle (about 410k) compete with the gate for early cash; they are worth it only if
+they raise the trading rate enough to fund the gate sooner. The post-gate strategy (releases, keepers, big hulls) is to be
+revisited separately.
 
 ## Hour 0: register and look
 
@@ -356,3 +433,12 @@ system (it sells explorers at several yards), CK31 and TB63 are unconfirmed.
 To do once the gate is open: (1) add the yard count per system to the candidate facts and the yard scan, (2) rank systems with 5 or more yards first when the explorers or the
 remote survey pick where to look, (3) note the first heavy and bulk yard found and buy them early in the order set out above. Whether the 5-yard rule holds is the first
 thing to check next week.
+
+## Idle parking at the start of a week (operator, 2026-11-06)
+
+`freshIdleMinHourlyProfit` (50,000) and `freshIdleParkHours` (3) were set for a fleet making 3-5M an hour. They are doctrine clauses, so
+change them live with `stcommand_set_doctrine` (takes effect within 5 minutes), and they must be different at the start of a week: a fleet
+making 100-300k an hour has no system that clears 50k an hour, so the bar would park nearly everything once systems are 3 hours old. At a
+reset either turn the profit bar off (`freshIdleMinHourlyProfit` enabled=false falls back to "any sell or purchase", itself gentle) or set it to
+about 1-2% of the fleet's hourly profit, and raise it as the hourly figure grows. Idea, not built: make the bar a share of the fleet's
+profit an hour (so it scales by itself) with the fixed figure as a floor.
