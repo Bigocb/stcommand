@@ -1,6 +1,6 @@
 # API lanes: a pool of proxies
 
-Status: phase 1 built 2026-11-08 (pool, failover, bytes counter; see CHANGELOG); phases 2-3 and the bandwidth guard not built. Plan written 2026-11-07 ( operator: "if we need to we can add another proxy and split the keepers"; then "I have 100 with a 256 gig monthly limit").
+Status: phase 1 built 2026-11-08 (pool, failover, bytes counter kept in the database; see CHANGELOG); phases 2-3 and the bandwidth guard not built. Plan written 2026-11-07 ( operator: "if we need to we can add another proxy and split the keepers"; then "I have 100 with a 256 gig monthly limit").
 
 ## Why
 

@@ -720,6 +720,29 @@ export class Store {
     });
   }
 
+  // ── Proxy plan bytes (migration 067, src/engine/laneBytes.ts) ──
+
+  /** Add increments of response bytes by day, lane and call kind. Not tenant data. */
+  async addLaneBytes(rows: { day: string; label: string; kind: string; calls: number; bytes: number }[]): Promise<void> {
+    if (rows.length === 0) return;
+    await withPool(this.pool, (c) =>
+      c.query(
+        `INSERT INTO lane_bytes (day, label, kind, calls, bytes)
+         SELECT * FROM unnest($1::date[], $2::text[], $3::text[], $4::bigint[], $5::bigint[])
+         ON CONFLICT (day, label, kind) DO UPDATE SET calls = lane_bytes.calls + EXCLUDED.calls, bytes = lane_bytes.bytes + EXCLUDED.bytes`,
+        [rows.map((r) => r.day), rows.map((r) => r.label), rows.map((r) => r.kind), rows.map((r) => Math.round(r.calls)), rows.map((r) => Math.round(r.bytes))],
+      ),
+    );
+  }
+
+  /** Stored lane bytes from `sinceDay` (YYYY-MM-DD, UTC) on. */
+  async laneBytesSince(sinceDay: string): Promise<{ day: string; label: string; kind: string; calls: number; bytes: number }[]> {
+    return withPool(this.pool, async (c) => {
+      const r = await c.query(`SELECT to_char(day, 'YYYY-MM-DD') AS day, label, kind, calls, bytes FROM lane_bytes WHERE day >= $1::date ORDER BY day, label, kind`, [sinceDay]);
+      return r.rows.map((x: any) => ({ day: x.day, label: x.label, kind: x.kind, calls: Number(x.calls), bytes: Number(x.bytes) }));
+    });
+  }
+
   // ── Instance heartbeats ─────────────────────────────────────
 
   /** Refresh this process's liveness row (see migration 034). */

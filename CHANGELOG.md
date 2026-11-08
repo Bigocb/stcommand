@@ -6,6 +6,16 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-08 — The proxy plan's bytes are kept in the database (`lane_bytes`, `planBilling` in `ops api_budget`)
+
+Why: the byte meter added with the proxy pool lived in memory and started again at every restart, so it could say what the last half hour looked like but not what the month had cost against the 256 GB plan (operator: "Do you think I want things only in memory?"). The first comparison against the provider's dashboard was muddied by exactly that: the meter had 25 minutes, the dashboard a whole day.
+- **Migration 067 `lane_bytes`**: response bytes by UTC day, lane (`host:port`, never credentials, or `box`) and call kind, written as increments. Not tenant data and not wiped at the weekly reset (it is a billing record).
+- **`src/engine/laneBytes.ts`** (pure): `ByteLedger` counts in memory as calls finish; the server drains it into the table every minute and once more at shutdown, and a failed write is put back and retried, so a crash loses at most the last minute. `billingPeriod` (the plan renews on the 8th by default, clamped in short months) and `periodReport` (used GB, projection at the period's average so far, share of the plan, by lane, by call kind, by day).
+- **`ops api_budget`** now returns `planBilling` beside `proxyLane` when proxies are configured: this period's proxy GB against the plan, the projection to the period's end, and the breakdowns, from the stored rows plus the last minute not yet written. The box's own bytes are listed but kept out of the plan figures. Needs no restart of anything else; the table is created by the migration at the next start.
+- Environment: `API_LANE_PLAN_GB` (default 256) and `API_LANE_PLAN_RESET_DAY` (default 8).
+- Counts response bodies only, as the in-memory meter does. The provider's dashboard also counts requests, headers and handshakes, and its "proxy requests" most likely counts connections; compare the two over the same hours.
+- Takes effect on the next restart; figures start from that restart (earlier use is not recoverable).
+
 ## 2026-11-08 — Proxy pool, phase 1: several proxies with failover, and a bytes counter (`API_LANE_PROXY_URLS`, `apiLaneCount`)
 
 Why: the operator has 100 proxies on a 256 GB a month plan and raised the keeper top-up ceiling to 150 calls a minute (2026-11-08), which one proxy lane (90 a minute) cannot carry, and a dead proxy used to dump its reads on the box. Plan and numbers: `docs/api-lanes-pool-plan.md`.

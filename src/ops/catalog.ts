@@ -13,6 +13,7 @@ import { summarizeUncharted } from "../engine/chartCheck.js";
 import { DEFAULT_CANDIDATE_POLICY } from "../engine/systems/candidates.js";
 import { logBuffer } from "../core/logBuffer.js";
 import { apiCallLog } from "../core/apiCallLog.js";
+import { billingPeriod, periodReport, planFromEnv } from "../engine/laneBytes.js";
 import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { classifyShips, hopsWithin, keeperReport, type StateShip, type SummaryShip } from "./classify.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
@@ -278,10 +279,21 @@ export const OPS_TOOLS: OpsTool[] = [
     name: "api_budget",
     title: "API budget: calls a minute against the 90 cap, the queue, and who spends it",
     description:
-      "The shared rate limiter's last 5 minutes: total calls a minute against the limiter's own rate (cap; 105 at API_RATE 1.75, the game allows 120), the queue waiting for a token and how long the oldest has waited, average and worst wait, 429 responses in the last 60 seconds (by who was limited, with the latest 429's rate-limit headers: the headers say which limit was hit), and the top spenders by ship role + call kind and by calling code (the box's IP only; proxyLane shows the second IP's own bucket and breaker when one is configured, and with several proxies one row each in `proxies`: limiter, breaker, bytes a minute and projected GB a month, which is what the proxy plan is billed in). keeper_review shows only the keepers' share; this is the whole process (every tenant on this box shares one limit). Read-only.",
+      "The shared rate limiter's last 5 minutes: total calls a minute against the limiter's own rate (cap; 105 at API_RATE 1.75, the game allows 120), the queue waiting for a token and how long the oldest has waited, average and worst wait, 429 responses in the last 60 seconds (by who was limited, with the latest 429's rate-limit headers: the headers say which limit was hit), and the top spenders by ship role + call kind and by calling code (the box's IP only; planBilling is this month's proxy bytes against the plan, kept in the database across restarts; proxyLane shows the second IP's own bucket and breaker when one is configured, and with several proxies one row each in `proxies`: limiter, breaker, bytes a minute and projected GB a month, which is what the proxy plan is billed in). keeper_review shows only the keepers' share; this is the whole process (every tenant on this box shares one limit). Read-only.",
     input: { top: num(12) },
-    async run(_ctx, a) {
+    async run(ctx, a) {
       const snap = rateLimitMonitor.snapshot();
+      // What the proxy plan has used this billing period, from the stored byte ledger (kept across restarts) plus the last minute not yet written.
+      let billing: unknown;
+      if (snap.lane) {
+        try {
+          const { planGB, resetDay } = planFromEnv(process.env);
+          const now = ctx.now();
+          const period = billingPeriod(now, resetDay);
+          const stored = await ctx.w.store.laneBytesSince(period.start.toISOString().slice(0, 10));
+          billing = periodReport([...stored, ...apiCallLog.pendingBytes()], period, now, planGB);
+        } catch (err) { billing = { error: `could not read the stored bytes: ${err instanceof Error ? err.message : String(err)}` }; }
+      }
       const st = snap.limiter;
       if (!st) return { note: "the limiter has not reported yet", hits429Last60s: snap.hits60s, hits429BySource: snap.bySource, last429Headers: snap.last };
       const top = (rec: Record<string, { calls: number; avgWaitMs: number }>) =>
@@ -304,6 +316,8 @@ export const OPS_TOOLS: OpsTool[] = [
         byTenant: top(st.byLabel),
         // The proxy lane (apiLanes.ts), when API_LANE_PROXY_URL is set: its own token bucket and breaker. The numbers above are the box's IP only.
         ...(snap.lane ? { proxyLane: snap.lane } : {}),
+        // This billing period's proxy bytes against the plan (API_LANE_PLAN_GB, API_LANE_PLAN_RESET_DAY), stored in lane_bytes.
+        ...(billing ? { planBilling: billing } : {}),
       };
     },
   },

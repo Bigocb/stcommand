@@ -2,6 +2,7 @@ import { API_PRIORITY, RateLimiter } from "../core/client.js";
 import "dotenv/config";
 import { logBuffer } from "../core/logBuffer.js";
 import { INSTANCE_ID } from "../core/rateLimitMonitor.js";
+import { apiCallLog } from "../core/apiCallLog.js";
 import { waitForPredecessor } from "../core/instanceGate.js";
 import express from "express";
 import { existsSync, statSync } from "node:fs";
@@ -157,6 +158,16 @@ async function main(): Promise<void> {
   void beat();
   const heartbeatInterval = setInterval(beat, 10_000);
   heartbeatInterval.unref?.();
+
+  // Proxy-plan bytes: written as increments every minute and once more at shutdown, so the month's figure survives a restart
+  // (migration 067, src/engine/laneBytes.ts). A failed write is put back and tried again.
+  const flushLaneBytes = async () => {
+    const rows = apiCallLog.drainBytes();
+    if (rows.length === 0) return;
+    try { await heartbeatStore.addLaneBytes(rows); } catch (err) { apiCallLog.restoreBytes(rows); log(`lane bytes: write failed, will retry (${err instanceof Error ? err.message : String(err)})`); }
+  };
+  const laneBytesInterval = setInterval(() => { void flushLaneBytes(); }, 60_000);
+  laneBytesInterval.unref?.();
 
   const app = express();
   app.use(express.json());
@@ -340,11 +351,12 @@ async function main(): Promise<void> {
   const shutdown = () => {
     log(`shutting down (${registry.size()} tenant${registry.size() === 1 ? "" : "s"} running)`);
     registry.stopAll();
+    void flushLaneBytes();
     // An open connection (a dashboard stream, an MCP session) can keep server.close() waiting for a
     // long time; the instance has nothing left worth waiting for, so don't linger past a few seconds.
     setTimeout(() => process.exit(0), 5_000).unref();
     server.close(() => {
-      pool.end().finally(() => process.exit(0));
+      flushLaneBytes().catch(() => {}).finally(() => pool.end().finally(() => process.exit(0)));
     });
   };
   process.on("SIGTERM", shutdown);
