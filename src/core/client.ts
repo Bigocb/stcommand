@@ -9,6 +9,7 @@ import type { components } from "./schema.js";
 // global one.
 import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from "undici";
 import { chooseLane, type LaneBreaker, type LanePolicy, type Lane } from "../engine/apiLanes.js";
+import { pickProxy, laneKeyOf, type ByteMeter } from "../engine/lanePool.js";
 
 export type { paths, components };
 
@@ -89,13 +90,25 @@ export interface ClientOptions {
   lanes?: ClientLanes;
 }
 
-export interface ClientLanes {
+export interface LaneSlot {
+  id: string;
   proxyUrl: string;
   /** The proxy IP's own token bucket. */
   limiter: RateLimiter;
+  breaker: LaneBreaker;
+  /** Response bytes through this proxy, by call kind (lanePool.ts). */
+  meter?: ByteMeter;
+}
+
+export interface ClientLanes {
+  /** The proxy pool (lanePool.ts); the single-proxy fields below are the same thing for a pool of one. */
+  slots?: LaneSlot[];
+  proxyUrl?: string;
+  /** The proxy IP's own token bucket. */
+  limiter?: RateLimiter;
+  breaker?: LaneBreaker;
   /** Read per request, so the doctrine clause switches it live. */
   policy: () => LanePolicy;
-  breaker: LaneBreaker;
 }
 
 type RequestOptions = {
@@ -536,7 +549,8 @@ export class Client {
    *  would throw that pooling away for no benefit. */
   private readonly dispatcher: Dispatcher | undefined;
   private readonly lanes: ClientLanes | undefined;
-  private readonly laneDispatcher: Dispatcher | undefined;
+  /** The proxy pool with one connection pool per proxy; empty when there is no lane. */
+  private readonly laneSlots: (LaneSlot & { dispatcher: Dispatcher })[] = [];
 
   /** Why this client's token is permanently unusable, or undefined while it works. */
   deadTokenReason(): string | undefined {
@@ -554,7 +568,12 @@ export class Client {
     this.proxyUrl = opts.proxyUrl;
     this.dispatcher = opts.proxyUrl ? new ProxyAgent(opts.proxyUrl) : undefined;
     this.lanes = opts.proxyUrl ? undefined : opts.lanes;
-    this.laneDispatcher = this.lanes ? new ProxyAgent(this.lanes.proxyUrl) : undefined;
+    if (this.lanes) {
+      const slots: LaneSlot[] = this.lanes.slots ?? (this.lanes.proxyUrl && this.lanes.limiter && this.lanes.breaker
+        ? [{ id: "p1", proxyUrl: this.lanes.proxyUrl, limiter: this.lanes.limiter, breaker: this.lanes.breaker }]
+        : []);
+      for (const s of slots) this.laneSlots.push({ ...s, dispatcher: new ProxyAgent(s.proxyUrl) });
+    }
     // SpaceTraders' real per-account limit is 2 req/sec, but that's the
     // server's own ceiling, not headroom to plan around — 2 here regularly
     // triggers live 429s (confirmed in production: near-continuous
@@ -650,9 +669,21 @@ export class Client {
       const kind = callKind(req.method, req.path);
       // Which IP this request leaves from (apiLanes.ts): the proxy lane only for a read-only call that can wait, only while the clause
       // is on and the proxy has not just been failing. Without lanes configured this is always "box".
-      const lane: Lane = this.lanes && !forceBox && this.lanes.breaker.allows(Date.now()) ? chooseLane({ priority, method: req.method }, this.lanes.policy()) : "box";
+      // With a pool of proxies (lanePool.ts) the call's system or ship picks a preferred proxy, the next one in its order when that
+      // one's breaker is open, and the box only when every active proxy is out.
+      let slot: (LaneSlot & { dispatcher: Dispatcher }) | undefined;
+      if (this.lanes && this.laneSlots.length > 0 && !forceBox) {
+        const policy = this.lanes.policy();
+        if (chooseLane({ priority, method: req.method }, policy) === "proxy") {
+          const now = Date.now();
+          const active = this.laneSlots.slice(0, Math.max(1, Math.min(this.laneSlots.length, Math.floor(policy.active ?? this.laneSlots.length))));
+          const pick = pickProxy(laneKeyOf(req.path), active.map((s) => s.id), (id) => active.find((s) => s.id === id)!.breaker.allows(now));
+          slot = pick ? active.find((s) => s.id === pick.id) : undefined;
+        }
+      }
+      const lane: Lane = slot ? "proxy" : "box";
       forceBox = false;
-      const limiter = lane === "proxy" ? this.lanes!.limiter : this.limiter;
+      const limiter = slot ? slot.limiter : this.limiter;
       const waitStart = Date.now();
       await limiter.acquire(priority, this.label, kind, caller);
       const sentAt = Date.now();
@@ -685,14 +716,14 @@ export class Client {
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       let res: Pick<Response, "status" | "ok" | "headers" | "text">;
       try {
-        const dispatcher = lane === "proxy" ? this.laneDispatcher : this.dispatcher;
+        const dispatcher = slot ? slot.dispatcher : this.dispatcher;
         res = dispatcher
           ? await undiciFetch(url, { ...init, dispatcher, signal: controller.signal })
           : await fetch(url, { ...init, signal: controller.signal });
       } catch (err) {
         note(0);
         // The proxy failed (refused, timed out, plan limit): count it against the breaker and send the retry on the normal path.
-        if (lane === "proxy") { this.lanes!.breaker.failure(Date.now()); forceBox = true; }
+        if (slot) { slot.breaker.failure(Date.now()); forceBox = true; }
         // A stalled connection (or any other fetch-level rejection) must not
         // dead-end the caller's whole scheduler task the way it did before
         // this timeout existed — see REQUEST_TIMEOUT_MS's own comment. Retry
@@ -717,13 +748,13 @@ export class Client {
       note(res.status);
       // A proxy that answers 401, 403 or 407 is refusing us, not the game answering: count it, and send the retry on the normal path
       // instead of showing the caller an auth error the box would not have produced.
-      if (lane === "proxy" && (res.status === 401 || res.status === 403 || res.status === 407) && attempt < this.maxRetries) {
-        this.lanes!.breaker.failure(Date.now());
+      if (slot && (res.status === 401 || res.status === 403 || res.status === 407) && attempt < this.maxRetries) {
+        slot.breaker.failure(Date.now());
         forceBox = true;
         attempt += 1;
         continue;
       }
-      if (lane === "proxy" && res.status < 500) this.lanes!.breaker.success();
+      if (slot && res.status < 500) slot.breaker.success();
       const retryAfter = res.headers.get("retry-after");
 
       if (res.status === 429) {
@@ -746,6 +777,12 @@ export class Client {
       }
 
       const text = await res.text();
+      // Bytes the game sent back, by lane and call kind: the proxy plan is billed in bytes (docs/api-lanes-pool-plan.md, step 0).
+      try {
+        const bytes = Buffer.byteLength(text);
+        apiCallLog.recordBytes({ at: sentAt, role: roleContext.getStore() ?? "?", kind, lane, bytes });
+        slot?.meter?.record(sentAt, kind, bytes);
+      } catch { /* telemetry must never fail the request */ }
       const json = text ? safeJson(text) : undefined;
 
       if (!res.ok) {

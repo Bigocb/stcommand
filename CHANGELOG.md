@@ -6,6 +6,16 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-08 — Proxy pool, phase 1: several proxies with failover, and a bytes counter (`API_LANE_PROXY_URLS`, `apiLaneCount`)
+
+Why: the operator has 100 proxies on a 256 GB a month plan and raised the keeper top-up ceiling to 150 calls a minute (2026-11-08), which one proxy lane (90 a minute) cannot carry, and a dead proxy used to dump its reads on the box. Plan and numbers: `docs/api-lanes-pool-plan.md`.
+- **`src/engine/lanePool.ts`** (pure): `poolFromEnv` reads `API_LANE_PROXY_URLS` (comma or whitespace separated, each `http://user:pass@host:port` with an optional `|rate`; ids p1..pN in the order written; invalid or repeated entries skipped; the single `API_LANE_PROXY_URL` still works as a pool of one). `pickProxy` chooses by rendezvous hashing on the call's system (else its ship), so one system's reads keep to one IP and removing a proxy moves only its own systems; an open breaker passes the read to the next proxy in that key's order; only when every active proxy is out does the read fall back to the box. `ByteMeter` counts response bytes by call kind and projects GB a month.
+- **`Client`** keeps one token bucket, breaker, connection pool and byte meter per proxy. What may use a proxy is unchanged (`apiLanes.ts`: GETs at priority 3-4; trades, docks and every write stay on the box). One proxy behaves exactly as the single lane did (tests).
+- **Doctrine `apiLaneCount`** (default 3, on): how many of the configured proxies, counted from the first, are active; the rest are spares. `apiLaneProxy` is still the on/off switch and still ships off.
+- **Bytes:** `ops api_calls` lanes and rows now carry `bytes` and `avgBytes`; `ops api_budget` `proxyLane` lists every proxy with its limiter, breaker, bytes a minute, projected GB a month and average size by call kind (`proxies`, plus `activeProxies`, `configuredProxies`, `projectedGBPerMonthAllProxies`). The first proxy's fields stay where they were.
+- Not in phase 1: the bandwidth guard clause (`apiLaneMonthlyGB`) and shedding, priority-4 telemetry waiting instead of using the box when every proxy is out, latency-based demotion, trader lanes. They come after the bytes counter has real numbers.
+- To use it: put the proxies in `API_LANE_PROXY_URLS` in the box's environment (credentials only there), restart, turn `apiLaneProxy` on, and watch `proxyLane` in `ops api_budget`.
+
 ## 2026-11-08 — The running build can be read from outside (`/version.json`, MCP `initialize`)
 
 Why: on 2026-11-07 the chart and scan tools were on main but missing from the live tool list, and nobody could say from outside which commit the box was running: `/version.json` answered `{"build":"local"}` because the label read only `RENDER_GIT_COMMIT`, a Render variable this box does not have (the fleet has not deployed there for a while).

@@ -3,7 +3,9 @@ import { liveSnapshotProvider } from "./notify/live.js";
 import { vapidFromEnv, WebPushTransport, type PushTransport } from "./notify/transport.js";
 import type pg from "pg";
 import { rateLimitMonitor } from "../core/rateLimitMonitor.js";
-import { laneProxyFromEnv, LaneBreaker, LANES_OFF, type LanePolicy } from "./apiLanes.js";
+import { LaneBreaker, LANES_OFF, type LanePolicy } from "./apiLanes.js";
+import { poolFromEnv, ByteMeter } from "./lanePool.js";
+import type { LaneSlot } from "../core/client.js";
 import { Client, RateLimiter, apiBurstFromEnv, apiRateFromEnv, SpaceTradersAPI, runWithApiPriority, runWithApiRole, taskToApiPriority, API_PRIORITY } from "../core/client.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
@@ -134,15 +136,27 @@ export class TenantRegistry {
    * sending to it while it keeps failing. Unset = no lane. Set, the doctrine clause apiLaneProxy still decides whether any call
    * uses it, live, and it ships off.
    */
-  private readonly laneProxy = laneProxyFromEnv(process.env, apiRateFromEnv(process.env.API_RATE));
-  private readonly laneLimiter = this.laneProxy ? new RateLimiter(this.laneProxy.ratePerSec, apiBurstFromEnv(process.env.API_BURST)) : undefined;
-  private readonly laneBreaker = new LaneBreaker();
+  private readonly laneProxies = poolFromEnv(process.env, apiRateFromEnv(process.env.API_RATE));
+  /** One token bucket, breaker and byte meter per configured proxy (lanePool.ts); empty = no lane. */
+  private readonly laneSlots: LaneSlot[] = this.laneProxies.map((p) => ({
+    id: p.id, proxyUrl: p.url, limiter: new RateLimiter(p.ratePerSec, apiBurstFromEnv(process.env.API_BURST)), breaker: new LaneBreaker(), meter: new ByteMeter(),
+  }));
 
-  /** The clause apiLaneProxy as this tenant's doctrine has it now; off until the tenant is booted and the clause is on. */
+  /** The clauses apiLaneProxy (on/off, priority) and apiLaneCount (how many proxies are active) as this tenant's doctrine has them now; off until the tenant is booted and the clause is on. */
   private lanePolicyFor(agentSymbol: string): LanePolicy {
     const d = [...this.workers.values()].find((w) => w.agentSymbol === agentSymbol)?.fleet?.doctrine;
     if (!d) return LANES_OFF;
-    try { return { enabled: d.isEnabledOr("apiLaneProxy", false), minPriority: d.value("apiLaneProxy", LANES_OFF.minPriority) }; } catch { return LANES_OFF; }
+    try { return { enabled: d.isEnabledOr("apiLaneProxy", false), minPriority: d.value("apiLaneProxy", LANES_OFF.minPriority), active: d.isEnabledOr("apiLaneCount", true) ? d.value("apiLaneCount", 3) : 1 }; } catch { return LANES_OFF; }
+  }
+
+  /** How many proxies are active now, read from any booted tenant's doctrine (the pool is shared by the process). */
+  private activeLaneCount(): number {
+    for (const w of this.workers.values()) {
+      const d = w.fleet?.doctrine;
+      if (!d) continue;
+      try { return d.isEnabledOr("apiLaneCount", true) ? d.value("apiLaneCount", 3) : 1; } catch { /* next */ }
+    }
+    return 3;
   }
 
   /** The process-wide token bucket every tenant draws from (also used by the galaxy crawler's tokenless calls, which share the IP's budget). */
@@ -196,7 +210,7 @@ export class TenantRegistry {
           proxyUrl,
           label: agentSymbol,
           ...(proxyUrl ? {} : { sharedLimiter: this.apiLimiter }),
-          ...(proxyUrl || !this.laneProxy || !this.laneLimiter ? {} : { lanes: { proxyUrl: this.laneProxy.url, limiter: this.laneLimiter, breaker: this.laneBreaker, policy: () => this.lanePolicyFor(agentSymbol) } }),
+          ...(proxyUrl || this.laneSlots.length === 0 ? {} : { lanes: { slots: this.laneSlots, policy: () => this.lanePolicyFor(agentSymbol) } }),
           onRateLimited: (sec, attempt, headers) => {
             rateLimitMonitor.record(agentSymbol, headers);
             this.log("?", `rate limited, backing off ${sec}s (attempt ${attempt})`);
@@ -207,11 +221,21 @@ export class TenantRegistry {
     },
   ) {
     rateLimitMonitor.setLimiterSource(() => this.apiLimiter.stats());
-    if (this.laneProxy && this.laneLimiter) {
-      const lp = this.laneProxy;
-      const ll = this.laneLimiter;
-      rateLimitMonitor.setLaneSource(() => ({ proxy: lp.label, ratePerMin: Math.round(lp.ratePerSec * 60), limiter: ll.stats(), breaker: this.laneBreaker.state(Date.now()) }));
-      this.log("?", `api lane: proxy ${lp.label} configured at ${lp.ratePerSec} a second; the doctrine clause apiLaneProxy decides whether any call uses it`);
+    if (this.laneSlots.length > 0) {
+      const first = this.laneSlots[0]!;
+      const firstCfg = this.laneProxies[0]!;
+      rateLimitMonitor.setLaneSource(() => {
+        const now = Date.now();
+        const active = Math.min(this.laneSlots.length, Math.max(1, this.activeLaneCount()));
+        const proxies = this.laneSlots.map((s, i) => ({
+          id: s.id, proxy: this.laneProxies[i]!.label, ratePerMin: Math.round(this.laneProxies[i]!.ratePerSec * 60), active: i < active,
+          limiter: s.limiter.stats(), breaker: s.breaker.state(now), bytes: s.meter!.stats(now),
+        }));
+        const totalGB = Math.round(proxies.reduce((sum, p) => sum + p.bytes.projectedGBPerMonth, 0) * 10) / 10;
+        // proxy / ratePerMin / limiter / breaker describe the first proxy, as when there was only one lane; proxies has every one.
+        return { proxy: firstCfg.label, ratePerMin: Math.round(firstCfg.ratePerSec * 60), limiter: first.limiter.stats(), breaker: first.breaker.state(now), activeProxies: active, configuredProxies: this.laneSlots.length, projectedGBPerMonthAllProxies: totalGB, proxies };
+      });
+      this.log("?", `api lane: ${this.laneSlots.length} prox${this.laneSlots.length === 1 ? "y" : "ies"} configured (${this.laneProxies.map((p) => `${p.id} ${p.label} at ${p.ratePerSec} a second`).join(", ")}); the doctrine clause apiLaneProxy decides whether any call uses them and apiLaneCount how many are active`);
     }
     const timer = setInterval(() => this.logLimiterStats(), 5 * 60_000);
     timer.unref();

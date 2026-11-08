@@ -619,6 +619,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "apiLaneCount",
+    name: "API: how many of the configured proxies are active",
+    description: "With several proxies in API_LANE_PROXY_URLS (the box's environment), this many of them, counted from the first one written, carry the proxy lane's reads; the rest are spares to switch in when one is slow or blocked. Each system's market reads keep to one proxy (chosen by the system, so adding or dropping a proxy moves only a few systems), the next proxy takes over when one fails, and the box's IP is used only when every active proxy is out. More than are configured = all of them. The proxy plan is billed in bytes, not by the number of proxies: watch the projected GB a month per proxy in ops api_budget (proxyLane). No effect unless the clause apiLaneProxy is on. Takes effect on the next request.",
+    value: 3, min: 1, max: 20, step: 1, unit: " proxies",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "freshIdleParkHours",
     name: "Fresh systems: park keepers where nothing sells",
     description: "On = a live system that is this many hours past its release and has had no sells and no purchases at all in the last this-many hours has its keepers parked: they stay on their markets and still cover them, but stop polling, which frees API calls (about 0.18 a minute each). A system traders only buy from counts as in use (counted from 2026-11-06; before that a supply-only system would have been parked). They are unparked as soon as the system sells or is bought from again, or when this is turned off. A parked system's prices go stale, so traders see fewer routes there and it may never sell again on its own: after this many hours parked it is opened for one more window as a re-check, and is parked again only if that window also has no sells. Off = keepers always poll. On at 3 hours from 2026-11-06 (operator: monitor the hours and adjust). Takes effect on the next check (every 5 minutes).",
