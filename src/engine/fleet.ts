@@ -31,6 +31,7 @@ import { OFF_POLICY as TRIAGE_OFF_POLICY, reviewParked, triageKeepers, type Tria
 import { Reminders } from "./reminders.js";
 import { SystemQueue } from "./systemQueue.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
+import { DEFAULT_QUEUE_TOUR_POLICY, decideQueueTours, type QueueTourPolicy, type TourShip, type TourTarget } from "./queueTours.js";
 import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, type QueueFacts, type ReleaseDecision, type ReleaseMode, type ReleasePolicy } from "./systemRelease.js";
 import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
 import { boundLoadedBySystem, decideIdleParking, runsIdleParking, systemUse, useSince, type IdleFacts } from "./idleSystems.js";
@@ -6468,6 +6469,55 @@ export class FleetManager {
     }
     for (const d of decision.release) {
       try { await this.releaseSystem(d.system, d.reason); } catch (err) { this.freshNote(`release ${d.system} failed: ${describeError(err)}`); }
+    }
+    await this.maybeSendQueueTours(queue, now);
+  }
+
+  /** Tour ships sent to price queued systems, ship -> when (ms). Only these are ever re-sent by queueTours; an operator's own trip is left alone. */
+  private queueTourSentAt = new Map<string, number>();
+
+  /** Clause freshTours: maxShips = its value when on, else 0 (nothing is sent). The move-on share follows the release rule's priced share. */
+  private queueTourPolicy(): QueueTourPolicy {
+    const on = this.doctrine.isEnabledOr("freshTours", false);
+    const pricedPct = this.doctrine.isEnabledOr("releaseMinPricedPct", false) ? this.doctrine.value("releaseMinPricedPct") / 100 : DEFAULT_QUEUE_TOUR_POLICY.moveOnShare;
+    return { ...DEFAULT_QUEUE_TOUR_POLICY, maxShips: on ? this.doctrine.value("freshTours") : 0, moveOnShare: pricedPct };
+  }
+
+  /** Send free tour/explorer ships to queued systems that still need pricing (queueTours.ts), after the release loop. Never throws. */
+  private async maybeSendQueueTours(queue: QueueFacts[], now: number): Promise<void> {
+    const policy = this.queueTourPolicy();
+    if (policy.maxShips <= 0) return;
+    try {
+      const targets: TourTarget[] = queue.map((q) => ({
+        system: q.system, state: q.state, held: q.held, addedAt: q.addedAt, stagedAt: q.stagedAt, markets: q.markets,
+        readyShare: q.readyShare, pricedShare: q.pricedShare, reachable: q.reachable,
+      }));
+      const ships: TourShip[] = [];
+      for (const [symbol, agent] of [...this.tours, ...this.explorers]) {
+        const dest = this.tourDestinations.get(symbol);
+        // A destination this module did not set belongs to the operator (or the charting flow): never override it.
+        if (dest !== undefined && !this.queueTourSentAt.has(symbol)) continue;
+        const sh = agent.getShip();
+        if (sh.nav.status === "IN_TRANSIT" && dest === undefined) continue;
+        ships.push({
+          symbol, system: sh.nav.systemSymbol, fuel: sh.fuel?.current ?? 0, fuelCap: sh.fuel?.capacity ?? 0,
+          ...(dest !== undefined ? { heading: dest } : {}), held: this.isHeld(symbol), sentAt: this.queueTourSentAt.get(symbol),
+        });
+      }
+      const d = decideQueueTours({
+        now, targets, ships,
+        hops: (a, b) => { const p = this.findSystemPath(a, b); return p ? p.length - 1 : undefined; },
+      }, policy);
+      for (const n of d.notes) this.freshNote(`tours: ${n}`);
+      for (const s of d.send) {
+        try {
+          await this.dispatchTourShip(s.ship, s.system);
+          this.queueTourSentAt.set(s.ship, now);
+          this.freshNote(`tours: sent ${s.ship} to ${s.system} (${s.reason})`);
+        } catch (err) { this.freshNote(`tours: send ${s.ship} to ${s.system} failed: ${describeError(err)}`); }
+      }
+    } catch (err) {
+      this.freshNote(`tours: skipped (${describeError(err)})`);
     }
   }
 
