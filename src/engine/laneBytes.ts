@@ -96,6 +96,10 @@ export interface PeriodReport {
   byLabel: { label: string; gb: number; calls: number }[];
   /** Call kind -> calls and average response bytes, biggest by bytes first. */
   byKind: { kind: string; calls: number; avgBytes: number; gb: number }[];
+  /** First day with any stored bytes in the period (YYYY-MM-DD), or null. The ledger only counts from when it was first switched on. */
+  dataStartsOn: string | null;
+  /** Set when the stored data starts after the period does: the projection then averages over the whole period and is understated. */
+  projectionNote?: string;
   /** Days with data in the period, oldest first, GB through proxies (not the box). */
   byDay: { day: string; proxyGB: number; boxGB: number }[];
 }
@@ -130,6 +134,10 @@ export function periodReport(rows: LaneByteRow[], period: BillingPeriod, now: nu
   // Too little of the period gone makes the average meaningless; say nothing rather than a wild number.
   const projected = daysElapsed >= 0.05 ? (proxyBytes / daysElapsed) * daysInPeriod : 0;
   const gb = (b: number): number => b / 1e9;
+  const dataStartsOn = inPeriod.length ? inPeriod.reduce((m, r) => (r.day < m ? r.day : m), inPeriod[0]!.day) : null;
+  const projectionNote = dataStartsOn && dataStartsOn > startDay
+    ? `stored bytes start on ${dataStartsOn}, after the period began on ${startDay}: the projection averages over the whole period and is understated until a day or two of data has built up; the provider's own projection is the better figure meanwhile`
+    : undefined;
   return {
     periodStart: period.start.toISOString(),
     periodEnd: period.end.toISOString(),
@@ -140,6 +148,8 @@ export function periodReport(rows: LaneByteRow[], period: BillingPeriod, now: nu
     planGB,
     usedShare: planGB ? r3(gb(proxyBytes) / planGB) : 0,
     projectedShare: planGB ? r3(gb(projected) / planGB) : 0,
+    dataStartsOn,
+    ...(projectionNote ? { projectionNote } : {}),
     byLabel: [...labels.entries()].map(([label, v]) => ({ label, gb: r3(gb(v.bytes)), calls: v.calls })).sort((a, b) => b.gb - a.gb),
     byKind: [...kinds.entries()].map(([kind, v]) => ({ kind, calls: v.calls, avgBytes: v.calls ? Math.round(v.bytes / v.calls) : 0, gb: r3(gb(v.bytes)) })).sort((a, b) => b.gb - a.gb),
     byDay: [...days.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([day, v]) => ({ day, proxyGB: r3(gb(v.proxy)), boxGB: r3(gb(v.box)) })),
