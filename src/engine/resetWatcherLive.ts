@@ -8,6 +8,7 @@ import type { TenantRegistry } from "./tenantRegistry.js";
 import type { GalaxyCrawler } from "./galaxyCrawler.js";
 import { setCurrentResetDate, setGameResetDate } from "../core/universe.js";
 import { closeEndedWeek } from "./seasonClose.js";
+import { OPENING_V3 } from "./openingTemplates.js";
 import { ResetWatcher, setActiveResetWatcher, type ResetWatcherPorts, type TokenProbe } from "./resetWatcher.js";
 
 const CRAWL_KEY = "reset_watcher";
@@ -78,7 +79,8 @@ export function createResetWatcher(
       // The template is named by OPENING_TEMPLATE (default "Opening: auto at reset"); its keys end -<MMDD> of the reset date.
       const name = process.env.OPENING_TEMPLATE?.trim() || DEFAULT_OPENING_TEMPLATE;
       const suffix = resetDate.slice(5).replace("-", "");
-      return store.applyOpeningTemplate(tenantId, name, suffix);
+      // The default name is seeded from the built-in OPENING_V3 when the tenant has not saved one; a template saved by the operator wins.
+      return store.applyOpeningTemplate(tenantId, name, suffix, name === DEFAULT_OPENING_TEMPLATE ? OPENING_V3 : undefined);
     },
   };
 

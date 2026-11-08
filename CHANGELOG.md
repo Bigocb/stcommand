@@ -14,7 +14,8 @@ Why: the opening automation existed (tasks, templates, a runner) but nothing app
 - **Triggers** `any` (one member is enough) and `minutesSinceQueued` (the task's own queue time); **steps** `gateCrew` (put a ship on the home gate's construction crew, retried while its agent is not ready) and `keepers` (`shipyards`, or `top` N by goods traded); `startGateMission` is retried while the home gate is not known yet; a `setRole` on the command ship waits while the fleet is empty (it used to fail the task for good).
 - **`OPENING_V3`** (`openingTemplates.ts`): THEO-1 tours then trades (15k a trip or 30 minutes); 200k keepers on shipyards; back at 200k a contract shuttle; 1M keepers on the top markets; back at 1M a light hauler on the gate crew and gate buying starts with ceilings FAB_MATS 2,000 and ADVANCED_CIRCUITRY 4,000. See the playbook table.
 - Tests: `tests/openingV3.test.ts` (22), including a simulated morning that checks the order the tasks unlock in as cash grows.
-- Takes effect on the next restart; the template must also be saved on the tenant (`stcommand_add_opening_template`), under "Opening: auto at reset".
+- If the tenant has no template saved under "Opening: auto at reset", the reset recovery seeds it from the built-in `OPENING_V3` first (`Store.applyOpeningTemplate(..., fallback)`), so a reset never depends on someone having saved it; one the operator saved (or edited) under that name wins. `OPENING_TEMPLATE` names a different template.
+- Takes effect on the next restart.
 
 ## 2026-11-08 — `planBilling` says when its projection is understated
 
