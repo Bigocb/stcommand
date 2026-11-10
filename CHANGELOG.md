@@ -6,6 +6,14 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-10 — Gate material snapshots every 15 minutes, and `gate_history` to read them against another week
+
+Why: the operator wants to look at the same hour last week and see where each gate material stood (2026-11-10). The ledger shows purchases, not deliveries, and `gate_progress_samples` (agent watch) keeps only the total progress on change; neither says how much of each material the site had, the ask against the ceiling, whether the mission was buying or yielding, or how many carriers it held.
+- **`src/engine/gateSnapshot.ts`** (new, pure): `gateSnapshotEvent` builds a `gate_snapshot` action event per active mission (per material: required, fulfilled, cheapest ask, ceiling; plus the yield verdict and reason, the carriers, the wallet). `gateReadings` puts stored events on a week's own clock, `compareGateWeeks` sets two weeks side by side at the same elapsed hour and as an hourly table, and says when either week has no reading that early instead of guessing.
+- **`MissionManager.snapshotFacts()`** gathers the facts from the mission list and the market directory (asks come from `listBuyers`, so no game call is made). **`FleetManager.maybeRecordGateSnapshot()`** writes them every 15 minutes while a mission is active; the last slot written is a fleet flag (`gateSnapshotSlot`), so a restart inside a slot writes nothing twice, and a failed read never breaks the tick. Stored as action events, so there is no new table and a reset wipes nothing (same as `hourly_snapshot`).
+- **Ops tool `gate_history`** (`stcommand_ops_gate_history`): this week against another (`resetDate`, default the latest earlier week with readings) at the same elapsed hour (`atHour`, default now), hours counted from each week's first ledger row, the same clock as the compare screen. Read-only.
+- **Limits**: readings exist only from this deploy on, so the first comparable pair is the week after; last week (2026-11-01) has none and the tool says so. 8 tests in `tests/gateSnapshot.test.ts`.
+
 ## 2026-11-08 — Tour ships price the staged systems: clause `freshTours` (the 2026-11-01 "fresh-system hybrid", automated)
 
 Why: a staged system has its keepers parked, so nobody reads its markets and the release rule's priced-share test (`releaseMinPricedPct`) can never pass; in the week of 2026-11-01 the operator sent tour ships by hand into staged systems, let them price the markets, and moved them on (docs/journal/2026-11-01.md). The operator asked on 2026-11-08 for that to be built.

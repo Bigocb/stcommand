@@ -18,6 +18,8 @@ import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { classifyShips, hopsWithin, keeperReport, type StateShip, type SummaryShip } from "./classify.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { universeKey } from "../engine/universe.js";
+import { getGameResetDate } from "../core/universe.js";
+import { GATE_SNAPSHOT_KIND, compareGateWeeks, gateReadings } from "../engine/gateSnapshot.js";
 import { deadheadFromTrades } from "../engine/deadhead.js";
 import { selectExplain } from "../engine/dispatchExplain.js";
 import { heapReport, heapStart, heapStop, profileCpu, runtimeStatus } from "./profiler.js";
@@ -182,6 +184,43 @@ export const OPS_TOOLS: OpsTool[] = [
       const sinceIso = a.resetDate ? `${a.resetDate}T00:00:00.000Z` : iso(ctx.now() - Math.min(Math.max(a.sinceHours, 1), 24 * 14) * 3_600_000);
       const buckets = await ctx.w.store.opsLedgerBuckets(ctx.w.tenantId, { sinceIso, bucketMin, universe });
       return { since: sinceIso, bucketMin, ...(universe ? { universeKey: universe } : {}), ...profitCurve(buckets, bucketMin) };
+    },
+  },
+
+  {
+    name: "gate_history",
+    title: "Gate material status by hour, this week against another week at the same elapsed hour",
+    description:
+      "Where each gate material stood (units fulfilled of required, the cheapest ask against the price ceiling, the yield verdict and the carriers) read from the gate_snapshot readings the engine writes every 15 minutes while a construction mission is active (kept across resets, keyed by week). Sets this week against another at the SAME elapsed hour since each week's first ledger row: `materials` gives both weeks' fulfilled, asks and ceilings and who is ahead, `hourly` gives units fulfilled per material for every hour of both weeks up to that point. atHour defaults to now (this week's elapsed hours); resetDate (e.g. 2026-11-08) picks the other week, default the most recent earlier week that has readings. Readings exist only for weeks recorded from the 2026-11-10 deploy on, so the first comparable pair is the week after; an earlier week says so in `notes`. Read-only.",
+    input: { resetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), atHour: z.coerce.number().optional(), waypoint: z.string().optional(), hourlyRows: num(200) },
+    async run(ctx, a) {
+      const { w } = ctx;
+      const weeks = await w.store.ledgerWeeks(w.tenantId);
+      const thisKey = universeKey(w.agentSymbol, getGameResetDate());
+      const events = await w.store.actionEvents(w.tenantId, { sinceIso: "1970-01-01T00:00:00Z", kinds: [GATE_SNAPSHOT_KIND], limit: 50000 });
+      const haveReadings = new Set(events.map((e) => e.universeKey).filter((k): k is string => !!k));
+      const startOf = (key: string | undefined) => weeks.find((x) => x.universeKey === key)?.firstAt;
+      const otherKey = a.resetDate ? universeKey(w.agentSymbol, a.resetDate) : weeks.map((x) => x.universeKey).find((k): k is string => !!k && k !== thisKey && haveReadings.has(k));
+      const thisStart = startOf(thisKey);
+      const otherStart = startOf(otherKey);
+      const readingsOf = (key: string | undefined, start: string | undefined) => (key && start ? gateReadings(events.filter((e) => e.universeKey === key && (!a.waypoint || e.subject === a.waypoint)), start, a.waypoint) : []);
+      const mine = readingsOf(thisKey, thisStart);
+      const theirs = readingsOf(otherKey, otherStart);
+      const atHour = a.atHour ?? (thisStart ? (ctx.now() - Date.parse(thisStart)) / 3_600_000 : 0);
+      const cmp = compareGateWeeks(mine, theirs, atHour);
+      const notes = [...cmp.notes];
+      if (!thisStart) notes.push("this week has no ledger row yet, so there is no hour 0 to count from");
+      if (a.resetDate && otherKey && !otherStart) notes.push(`no ledger rows for ${otherKey}, so its hour 0 is unknown`);
+      if (!otherKey) notes.push("no other week has gate readings yet");
+      return {
+        asOf: iso(ctx.now()),
+        atHour: Math.round(atHour * 100) / 100,
+        thisWeek: { universeKey: thisKey ?? null, startAt: thisStart ?? null, readings: mine.length, latest: mine[mine.length - 1] ?? null },
+        otherWeek: { universeKey: otherKey ?? null, startAt: otherStart ?? null, readings: theirs.length, weeksWithReadings: [...haveReadings] },
+        ...cmp,
+        hourly: cmp.hourly.slice(-Math.min(Math.max(a.hourlyRows, 1), 400)),
+        notes,
+      };
     },
   },
 
