@@ -1,5 +1,6 @@
 import { lotUnitsFor, maxPriceFor, mergeBuyLotUnitsBy, mergeMaxPriceBy } from "./missionCeiling.js";
 import { missionYieldView, mayRelease, mayTake, type YieldDecision } from "./missionYield.js";
+import type { GateMaterialFacts, GateSnapshotFacts } from "./gateSnapshot.js";
 import { PRICE_IMPACT_PER_LOT } from "./routeEconomics.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
@@ -351,6 +352,40 @@ export class MissionManager {
       waiting: t.retryAt > now ? t.waitReason : undefined,
       nextCheckAt: t.retryAt > now ? new Date(t.retryAt).toISOString() : undefined,
     }));
+  }
+
+  /**
+   * What gateSnapshot.ts records for each mission that is still running: per material the site's progress, the cheapest ask in the
+   * mission's system and the price ceiling, plus the yield verdict and the carriers. Read-only; asks come from the market directory
+   * (listBuyers), so this makes no game call. A material with no quote gets ask null.
+   */
+  async snapshotFacts(wallet: number): Promise<GateSnapshotFacts[]> {
+    const out: GateSnapshotFacts[] = [];
+    for (const m of await this.list()) {
+      if (m.status !== "active") continue;
+      const materials: GateMaterialFacts[] = [];
+      for (const mat of m.materials) {
+        let ask: number | null = null;
+        if (mat.fulfilled < mat.required) {
+          const buyers = (await this.listBuyers?.(mat.tradeSymbol, m.targetSystem)) ?? [];
+          const asks = buyers.map((b) => b.purchasePrice).filter((p) => p > 0);
+          if (asks.length) ask = Math.min(...asks);
+        }
+        materials.push({ material: mat.tradeSymbol, required: mat.required, fulfilled: mat.fulfilled, ask, ceiling: maxPriceFor(m.pacing, mat.tradeSymbol) ?? null });
+      }
+      const y = this.yieldStatus(m.targetWaypoint);
+      out.push({
+        waypoint: m.targetWaypoint,
+        status: m.status,
+        paused: this.isPaused(m.targetWaypoint),
+        decision: y?.decision ?? null,
+        reason: y?.reason ?? null,
+        carriers: this.carrierStatus(m.targetWaypoint).map((c) => ({ ship: c.ship, step: c.step, material: c.material })),
+        wallet,
+        materials,
+      });
+    }
+    return out;
   }
 
   /** Yield mode's latest verdict for a mission ("released: FAB_MATS 2,485 over 2,000", "can buy: ..."), or undefined when the mode is off. */

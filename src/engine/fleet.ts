@@ -39,6 +39,7 @@ import { BootWatch, assignmentKey } from "./bootWatch.js";
 import { bidKey, sellPriceVerdict, type BidStat } from "./priceSanity.js";
 import { ReadRate, rotationMin } from "./keeperThroughput.js";
 import { hourOf, hourlySnapshotEvent } from "./hourlySnapshot.js";
+import { gateSnapshotEvent, slotOf } from "./gateSnapshot.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
 import { systemsToDrop } from "./queuePrune.js";
 import type { FleetState } from "./state.js";
@@ -6547,6 +6548,27 @@ export class FleetManager {
     await this.store.setFleetFlag(this.tenantId, "hourlySnapshotHour", String(hour));
   }
 
+  /**
+   * Every 15 minutes while a construction mission is active, write what each gate material stood at as a gate_snapshot action event
+   * (gateSnapshot.ts), so a later week can be set against this one at the same hour (ops tool gate_history). The slot last written is a
+   * fleet flag, so a restart inside a slot does not write a second reading. A failed read or write never breaks the tick.
+   */
+  private async maybeRecordGateSnapshot(): Promise<void> {
+    if (!this.store || !this.tenantId) return;
+    const now = Date.now();
+    const slot = slotOf(now);
+    const last = Number(await this.store.getFleetFlag(this.tenantId, "gateSnapshotSlot"));
+    if (Number.isFinite(last) && last >= slot) return;
+    try {
+      const facts = await this.missions.snapshotFacts(this.credits);
+      const at = new Date(now).toISOString();
+      for (const f of facts) this.recordAction(gateSnapshotEvent(f, at));
+    } catch (err) {
+      this.log(`gate snapshot skipped: ${describeError(err)}`);
+    }
+    await this.store.setFleetFlag(this.tenantId, "gateSnapshotSlot", String(slot));
+  }
+
   /** Park the keepers of live systems that nobody trades in, unpark them when sales return (clause freshIdleParkHours; idleSystems.ts). */
   private async applyIdleParking(liveSystems: string[], now: number): Promise<void> {
     const hours = this.doctrine.isEnabledOr("freshIdleParkHours", false) ? this.doctrine.value("freshIdleParkHours") : 0;
@@ -11318,6 +11340,7 @@ export class FleetManager {
       await this.timed("maybeTriageKeepers", () => this.maybeTriageKeepers());
       await this.timed("maintainFreshGate", () => this.maintainFreshGate());
       await this.timed("maybeRecordHourlySnapshot", () => this.maybeRecordHourlySnapshot());
+      await this.timed("maybeRecordGateSnapshot", () => this.maybeRecordGateSnapshot());
       await this.timed("maybeManageFreshSystems", () => this.maybeManageFreshSystems());
       await this.timed("maybeRemoteSurvey", () => this.maybeRemoteSurvey());
       await this.timed("maybeTopUpKeepers", () => this.maybeTopUpKeepers());
