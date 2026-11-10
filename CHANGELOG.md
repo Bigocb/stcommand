@@ -6,6 +6,13 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-10 — The home system can no longer be queued behind the fresh-system gate (`systemAlreadyLive`)
+
+Why: at 12:57:14 UTC a keeper probe (THEO-31) jumped through the home hub X1-PT36 on its way to a staged system. With `remoteSurveyIntake` on, a fleet jump that enters a system runs `judgeAndIntake()`, whose only guard was "already in the queue". The home system was never in the queue (it is live from the start), passed the worth test, and was queued as "scouted, found by an explorer" with its one market not on the keeper list (D49). A queued system that is not live is gated: every home route was "held behind the fresh-system gate", the dispatcher's route count fell from 43 to 6, and the fleet made no sale for 33 minutes (12:50 to 13:24). The operator released the system by hand at about 13:30 (`release_system X1-PT36`) and routes came back (24).
+- **`src/engine/keeperBuy.ts`**: new pure `systemAlreadyLive(system, home, waypoints, coveredMarkets)`: true for the home system and for any system with a keeper already on one of its markets.
+- **`src/engine/fleet.ts`**: `judgeAndIntake()` and `intakeKeeperCandidates()` return early when it is true, so neither a jump nor an explorer's survey can queue a live system.
+- **Tests** (`tests/keeperBuy.test.ts`, 3 new): home system with an unlisted market, a system with a covered market, and a genuinely new system still judged as before. `tsc` clean. Takes effect on the next deploy; until then a keeper jump through the hub can repeat it (watch `ops system_queue` for X1-PT36 as "scouted").
+
 ## 2026-11-10 — Gate material snapshots every 15 minutes, and `gate_history` to read them against another week
 
 Why: the operator wants to look at the same hour last week and see where each gate material stood (2026-11-10). The ledger shows purchases, not deliveries, and `gate_progress_samples` (agent watch) keeps only the total progress on change; neither says how much of each material the site had, the ask against the ceiling, whether the mission was buying or yielding, or how many carriers it held.

@@ -20,7 +20,7 @@ import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { unpricedMarkets, gateProgressPct } from "./surveyCoverage.js";
 import { OpeningRunnerImpl } from "./openingRunner.js";
-import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets } from "./keeperBuy.js";
+import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets, systemAlreadyLive } from "./keeperBuy.js";
 import { blockGood as addBlockedGood, blockedSet, parseBlocked, unblockGood as removeBlockedGood, type BlockedGood } from "./blockedGoods.js";
 import { parseSpaced, spaceRoute as addSpacedRoute, unspaceRoute as removeSpacedRoute, type SpacedRoute } from "./tripSpacing.js";
 import { arrivalSurvey } from "./arrivalSurvey.js";
@@ -6103,6 +6103,8 @@ export class FleetManager {
    */
   private async judgeAndIntake(system: string, who: string): Promise<void> {
     if (this.systemQueue.get(system)) return;
+    // The home system, or one with a keeper already on it, is live: queuing it would hold every one of its routes behind the gate.
+    if (systemAlreadyLive(system, this.homeSystem, this.galaxy.getSystem(system)?.waypoints ?? [], this.coveredKeeperMarkets())) return;
     const counts = countWaypoints(this.galaxy.getSystem(system)?.waypoints ?? []);
     if (counts.markets + counts.shipyards === 0) return;
     const verdict = judgeSystem(counts, this.exploreWorthPolicy());
@@ -6115,6 +6117,7 @@ export class FleetManager {
 
   private async intakeKeeperCandidates(target: string, who: string): Promise<void> {
     if (!this.doctrine.isEnabledOr("autoKeeperGoodSystems", false)) return;
+    if (systemAlreadyLive(target, this.homeSystem, this.galaxy.getSystem(target)?.waypoints ?? [], this.coveredKeeperMarkets())) return;
     const { add, thin } = await this.keeperCandidatesForSystem(target);
     if (thin.length > 0) this.log(`${who}: ${target}: skipped ${thin.length} thin market(s) for the keeper list (${thin.map((t) => `${t.market} ${t.goods}`).join(", ")})`);
     const yards = new Set((this.galaxy.getSystem(target)?.waypoints ?? []).filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD")).map((w) => w.symbol));
