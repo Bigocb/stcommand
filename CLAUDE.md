@@ -34,6 +34,24 @@ saved template "Opening: auto at reset" itself (`docs/reset-opening-playbook.md`
 shuttle; 1M keepers on the top markets; back at 1M a light hauler on the gate crew; gate ceilings FAB_MATS 2,000 and ADVANCED_CIRCUITRY 4,000. Adjust in real time.
 Update this section when the operator states a layout for a following week.
 
+## Buying a ship: nearest yard to the destination, not the cheapest
+
+Operator rule (2026-11-10): when buying a hull, choose the shipyard by distance to where the ship will trade, not by
+the lowest sticker price. A ship bought at the cheapest yard but 2 jumps from its target donates the saving back in
+fuel, travel time and dispatch refusals ("the first trip does not cover the Nth-jump positioning cost"), and it often
+sits on a thin local route while the good route is elsewhere.
+
+Procedure:
+1. Pick the target system first — the best route, or a fresh release during its ~2h premium.
+2. List the yards stocking that hull type and their prices (`stcommand_get_shipyard_inventory`).
+3. Choose `min(price + hops * ~7k jump cost + travel time)`, preferring a yard inside the target system. Jumps averaged
+   about 6,900c in the 2026-11-10 P&L (`ops_pnl`).
+4. Then `buy_ship`, set the role, and check that the dispatcher does not have to deadhead it.
+
+Example (2026-11-10): for a hull meant to trade X1-FR76, `X1-FR76-DA6C` (316,860c, 0 hops) beats `X1-PT36-A2`
+(314,772c, 2 hops) despite costing about 2k more. Light-hauler yards seen: X1-PT36-A2 (314,772c), X1-FR76-DA6C
+(316,860c), X1-YN91-A2 (371,290c). Every live/candidate system was 1-2 hops from home X1-PT36 on 2026-11-10.
+
 ## Operating the fleet via the stcommand MCP server
 
 **Always use the Tailwinds MCP server** (tools named `mcp__Tailwinds__stcommand_*`) for every fleet read and write.
