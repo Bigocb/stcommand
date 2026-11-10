@@ -68,6 +68,22 @@ export function marketsNeedingKeepers(
     .map((w) => w.symbol);
 }
 
+/**
+ * Is a system already ours to trade in, so it must never be queued behind the fresh-system gate? The home system is live from the
+ * start, and so is any system with a keeper already on one of its markets. 2026-11-10 12:57: a keeper probe jumping through the home hub
+ * made the jump-intake judge X1-PT36 as if an explorer had found it; it was queued with its one unlisted market, every home route was
+ * held behind the gate, and trading stopped for 33 minutes.
+ */
+export function systemAlreadyLive(
+  system: string,
+  home: string,
+  waypoints: readonly { symbol: string }[],
+  coveredMarkets: ReadonlySet<string>,
+): boolean {
+  if (system === home) return true;
+  return waypoints.some((w) => coveredMarkets.has(w.symbol));
+}
+
 /** Distinct goods a market trades, from the lists a remote market read returns even with no ship there (prices need a ship; these do not). */
 export function distinctGoods(m: { imports?: readonly string[]; exports?: readonly string[]; exchange?: readonly string[]; tradeGoods?: Record<string, unknown> }): number {
   return new Set([...(m.imports ?? []), ...(m.exports ?? []), ...(m.exchange ?? []), ...Object.keys(m.tradeGoods ?? {})]).size;

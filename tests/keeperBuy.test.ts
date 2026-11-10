@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets } from "../src/engine/keeperBuy.js";
+import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets, systemAlreadyLive } from "../src/engine/keeperBuy.js";
 
 const base = { clauseOn: true, capCredits: 60_000, price: 28_959, spendable: true };
 
@@ -82,5 +82,19 @@ describe("splitThinMarkets", () => {
   });
   it("without a yard test it behaves as before (the clause default)", () => {
     assert.deepEqual(splitThinMarkets(["X1-S-B"], (m) => goods[m], 4).thin, [{ market: "X1-S-B", goods: 2 }]);
+  });
+});
+
+describe("systemAlreadyLive", () => {
+  const wps = [{ symbol: "X1-PT36-D49" }, { symbol: "X1-PT36-F53" }];
+  it("the home system is never queued, even with an unlisted market", () => {
+    assert.equal(systemAlreadyLive("X1-PT36", "X1-PT36", wps, new Set()), true);
+  });
+  it("a system with a keeper already on one of its markets is live", () => {
+    assert.equal(systemAlreadyLive("X1-PT36", "X1-HOME", wps, new Set(["X1-PT36-F53"])), true);
+  });
+  it("a new system with no keeper and not home is judged as before", () => {
+    assert.equal(systemAlreadyLive("X1-NEW", "X1-PT36", [{ symbol: "X1-NEW-A1" }], new Set(["X1-PT36-D49"])), false);
+    assert.equal(systemAlreadyLive("X1-NEW", "X1-PT36", [], new Set()), false);
   });
 });
