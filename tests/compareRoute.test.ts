@@ -83,8 +83,10 @@ describe("week-over-week routes", () => {
     assert.equal(r.status, 200);
     assert.equal(r.json.a.universeKey, `${MY.toUpperCase()}@2026-10-25`, "the base is this tenant's current week");
     assert.equal(r.json.b.totals.matchedPnl, 400);
+    assert.equal(r.json.b.totals.units, 20, "units sold across both SELL rows");
     assert.equal(r.json.b.reached, 2, "the second row is 2.5 hours in");
     assert.equal(r.json.b.points[2].cumPnl, 400);
+    assert.equal(r.json.b.points[2].units, 20);
     assert.equal(r.json.a.firstJumpHour, 1, "the first gate jump, 1.17 hours in");
     assert.equal(r.json.b.points[2].wallet, 5000);
   });

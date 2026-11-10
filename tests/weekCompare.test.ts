@@ -2,10 +2,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { checkpoints, drawnPoints, gateAligned, hoursReached, likeForLike, toPoints, weekTotals, type HourRow } from "../src/engine/weekCompare.js";
 
-const row = (hour: number, o: Partial<HourRow> = {}): HourRow => ({ hour, sells: 0, pnl: 0, revenue: 0, purchases: 0, ships: 0, jumps: 0, wallet: null, ...o });
+const row = (hour: number, o: Partial<HourRow> = {}): HourRow => ({ hour, sells: 0, units: 0, pnl: 0, revenue: 0, purchases: 0, ships: 0, jumps: 0, wallet: null, ...o });
 
 describe("weekCompare: two weeks lined up by hours since the first trade", () => {
-  const a = { hours: [row(0, { pnl: 100, sells: 2, wallet: 1000 }), row(2, { pnl: 300, sells: 3, ships: 1 }), row(3, { pnl: 50, wallet: 900 })] };
+  const a = { hours: [row(0, { pnl: 100, sells: 2, units: 20, wallet: 1000 }), row(2, { pnl: 300, sells: 3, units: 30, ships: 1 }), row(3, { pnl: 50, wallet: 900 })] };
 
   it("one point per hour, profit cumulative, wallet carried over hours with no reading, empty hours kept", () => {
     const p = toPoints(a, 4);
@@ -14,10 +14,11 @@ describe("weekCompare: two weeks lined up by hours since the first trade", () =>
     assert.deepEqual(p.map((x) => x.pnl), [100, 0, 300, 50, 0]);
     assert.equal(p[3]!.ships, 1);
     assert.equal(p[3]!.trades, 5);
+    assert.deepEqual(p.map((x) => x.units), [20, 20, 50, 50, 50], "units sold accumulate like profit");
   });
 
   it("rate: matched profit per hour averaged over this hour and the two before it, fewer at the start", () => {
-    const rows: HourRow[] = [0, 1, 2, 3, 4].map((hour) => ({ hour, sells: 1, pnl: [300, 600, 900, 0, 1200][hour]!, revenue: 0, purchases: 0, ships: 0, jumps: 0, wallet: null }));
+    const rows: HourRow[] = [0, 1, 2, 3, 4].map((hour) => ({ hour, sells: 1, units: 10, pnl: [300, 600, 900, 0, 1200][hour]!, revenue: 0, purchases: 0, ships: 0, jumps: 0, wallet: null }));
     const p = toPoints({ hours: rows }, 4);
     assert.deepEqual(p.map((x) => x.rate), [300, 450, 600, 500, 700]);
   });
@@ -26,6 +27,7 @@ describe("weekCompare: two weeks lined up by hours since the first trade", () =>
     const p = drawnPoints(toPoints(a, 5), 3);
     assert.deepEqual(p.map((x) => x.cumPnl), [100, 100, 400, 450, null, null]);
     assert.deepEqual(p.map((x) => x.rate), [100, 50, 133, 117, null, null]);
+    assert.deepEqual(p.map((x) => x.units), [20, 20, 50, 50, null, null]);
   });
 
   it("totals: profit, per-hour rate over the hours the ledger reaches, best hour, last wallet", () => {
@@ -35,6 +37,7 @@ describe("weekCompare: two weeks lined up by hours since the first trade", () =>
     assert.equal(t.pnlPerHour, 150);
     assert.equal(t.bestHourPnl, 300);
     assert.equal(t.endWallet, 900);
+    assert.equal(t.units, 50);
   });
 
   it("checkpoints: a week that had not reached an hour has nothing there, and no delta", () => {
@@ -61,7 +64,7 @@ describe("weekCompare: two weeks lined up by hours since the first trade", () =>
 });
 
 describe("gateAligned", () => {
-  const wk = (gate: number | null, pnls: number[]) => ({ firstJumpHour: gate, hours: pnls.map((pnl, hour) => ({ hour, sells: 1, pnl, revenue: 0, purchases: 0, ships: 0, jumps: 0, wallet: null })) });
+  const wk = (gate: number | null, pnls: number[]) => ({ firstJumpHour: gate, hours: pnls.map((pnl, hour) => ({ hour, sells: 1, units: pnl, pnl, revenue: 0, purchases: 0, ships: 0, jumps: 0, wallet: null })) });
   it("lines two weeks up on their own gates and cuts both at the same hours after it", () => {
     const a = wk(3, [1, 1, 1, 10, 10, 10]);            // gate at 3, three hours after it so far
     const b = wk(1, [5, 20, 20, 20, 20, 20, 20, 20]);  // gate at 1, seven hours after it

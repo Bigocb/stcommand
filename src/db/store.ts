@@ -1218,15 +1218,16 @@ export class Store {
   /**
    * One tenant's ledger for one week, summed per hour since that week's first row, for the week-over-week view
    * (src/engine/weekCompare.ts). Reads the named universe only. `startAt` is the first row; `firstJumpHour` the hour of its
-   * first gate jump (the same stand-in for "gate open" for every past week).
+   * first gate jump (the same stand-in for "gate open" for every past week). `units` is units sold, like opsLedgerBuckets()'.
    */
-  async weekHours(tenantId: string, universe: string): Promise<{ startAt: string | null; firstJumpHour: number | null; hours: { hour: number; sells: number; pnl: number; revenue: number; purchases: number; ships: number; jumps: number; wallet: number | null }[] }> {
+  async weekHours(tenantId: string, universe: string): Promise<{ startAt: string | null; firstJumpHour: number | null; hours: { hour: number; sells: number; units: number; pnl: number; revenue: number; purchases: number; ships: number; jumps: number; wallet: number | null }[] }> {
     return withTenantUniverse(this.pool, tenantId, universe, async (c) => {
       const t0 = (await c.query(`SELECT MIN(timestamp) AS t0 FROM ledger`)).rows[0]?.t0 as Date | null;
       if (!t0) return { startAt: null, firstJumpHour: null, hours: [] };
       const r = await c.query(
         `SELECT floor(extract(epoch FROM (timestamp - $1::timestamptz)) / 3600)::int AS hour,
                 COUNT(*) FILTER (WHERE type = 'SELL')::int AS sells,
+                COALESCE(SUM(units) FILTER (WHERE type = 'SELL'), 0) AS units,
                 COALESCE(SUM(realized_pnl) FILTER (WHERE type = 'SELL'), 0) AS pnl,
                 COALESCE(SUM(total) FILTER (WHERE type = 'SELL'), 0) AS revenue,
                 COALESCE(SUM(total) FILTER (WHERE type = 'PURCHASE'), 0) AS purchases,
@@ -1243,7 +1244,7 @@ export class Store {
         startAt: t0.toISOString(),
         firstJumpHour: firstJump ? Math.floor((firstJump.getTime() - t0.getTime()) / 3_600_000) : null,
         hours: r.rows.map((x: any) => ({
-          hour: x.hour, sells: x.sells, pnl: Number(x.pnl), revenue: Number(x.revenue), purchases: Number(x.purchases),
+          hour: x.hour, sells: x.sells, units: Number(x.units), pnl: Number(x.pnl), revenue: Number(x.revenue), purchases: Number(x.purchases),
           ships: x.ships, jumps: x.jumps, wallet: x.wallet === null || x.wallet === undefined ? null : Number(x.wallet),
         })),
       };
