@@ -203,3 +203,42 @@ describe("Doctrine: policy library (adopt/remove)", () => {
     assert.ok(!fresh.list().some((r) => r.key === "marginFloor"), "adopted:false must persist and survive a reload, same as any other override");
   });
 });
+
+describe("Doctrine catalog: slow-hull route shape (docs/slow-hull-local-routes-spec.md)", () => {
+  const rule = (key: string) => DOCTRINE_CATALOG.find((r) => r.key === key);
+
+  it("ships all three keys disabled, so a deploy changes no route", () => {
+    for (const key of ["slowHullSpeed", "slowHullHauledHops", "slowHullPositioningHops"]) {
+      const r = rule(key);
+      assert.ok(r, `${key} missing from the catalog`);
+      assert.equal(r!.enabled, false, `${key} must ship disabled`);
+      assert.equal(r!.enforced, true, `${key} is read by the dispatcher`);
+      assert.equal(r!.category, "trading");
+    }
+  });
+
+  it("declares the documented defaults, ranges and units", () => {
+    const speed = rule("slowHullSpeed")!;
+    const hauled = rule("slowHullHauledHops")!;
+    const positioning = rule("slowHullPositioningHops")!;
+    assert.deepEqual([speed.value, speed.min, speed.max, speed.step, speed.unit], [15, 1, 100, 5, " speed"]);
+    assert.deepEqual([hauled.value, hauled.min, hauled.max, hauled.step, hauled.unit], [1, 0, 10, 1, " jumps"]);
+    assert.deepEqual([positioning.value, positioning.min, positioning.max, positioning.step, positioning.unit], [2, 0, 10, 1, " jumps"]);
+    for (const r of [speed, hauled, positioning]) {
+      assert.ok(r.value >= r.min && r.value <= r.max, `${r.key} default must sit inside its bounds`);
+      assert.ok(r.step > 0);
+      assert.match(r.description, /docs\/slow-hull-local-routes-spec\.md|slow-hull route clause/);
+    }
+  });
+
+  it("a configured but disabled key reads as the unconstrained fallback, so all three off is today's behaviour", async () => {
+    const d = new Doctrine(store, tenantB);
+    await d.reload();
+    assert.equal(d.isEnabledOr("slowHullHauledHops", false), false);
+    assert.equal(d.isEnabledOr("slowHullPositioningHops", false), false);
+    assert.equal(d.value("slowHullSpeed", 15), 15);
+    await d.set("slowHullHauledHops", { enabled: true });
+    assert.equal(d.isEnabledOr("slowHullHauledHops", false), true);
+    await d.set("slowHullHauledHops", { enabled: false });
+  });
+});

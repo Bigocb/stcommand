@@ -125,7 +125,8 @@ import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } fr
 import { RouteBlocks, DEFAULT_BLOCK_POLICY } from "./routeBlocks.js";
 import { learnImpact, type ImpactPolicy, type Learned } from "./lotImpact.js";
 import { routeOutsideReach, systemOfWaypoint, type ShipReach } from "./shipReach.js";
-import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainPolicy, type FollowOn } from "./chain.js";
+import { isSlowHull, slowHullVerdict, type SlowHullPolicy } from "./haulLimit.js";
+import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type ChainCandidate, type ChainContext, type ChainPolicy, type FollowOn } from "./chain.js";
 import { DEFAULT_MATCH_POLICY, holdShare, matchShips, type MatchPolicy } from "./matching.js";
 import { routeFit, type FitPolicy } from "./routeFit.js";
 import { DEFAULT_SPEED_POLICY, scaleSeconds, speedGain, speedReason, type SpeedPolicy } from "./shipSpeed.js";
@@ -1060,7 +1061,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; spacingAutoPct?: number; marketRecoveryMin?: number; routeBlockMin?: number; fitMinTrip?: number; fitBigHold?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; spacingAutoPct?: number; marketRecoveryMin?: number; routeBlockMin?: number; fitMinTrip?: number; fitBigHold?: number; slowHullSpeed?: number; slowHullHauledHops?: number; slowHullPositioningHops?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -1639,12 +1640,43 @@ export class RouteDispatcher {
       }
       return undefined;
     };
+    // The per-speed route-shape clause (docs/slow-hull-local-routes-spec.md): a hull at or below slowHull.speed is a slow
+    // hull, and may not be offered a loaded leg or an empty positioning leg longer than its cap. Either cap left undefined
+    // (the doctrine key is disabled) switches that half off; both off is exactly the old behaviour.
+    const slowHull: SlowHullPolicy = {
+      speed: tuning?.slowHullSpeed ?? 15,
+      hauledHops: tuning?.slowHullHauledHops,
+      positioningHops: tuning?.slowHullPositioningHops,
+    };
+    const slowHullOff = slowHull.hauledHops === undefined && slowHull.positioningHops === undefined;
+    /** Gate jumps between two systems, 0 for the same one (crossSystemHops only answers different systems). */
+    const gateHops = (from: string, to: string): number | undefined => (from === to ? 0 : chainCtx.crossSystemHops(from, to));
+    /** Why this slow hull may not take this work at all, or undefined. `fromSystem` is where the empty leg starts: the
+     *  ship's own system, or (for a follow-on or a circuit) the sell market it would leave. */
+    const slowHullRefusal = (
+      t: (typeof traders)[number],
+      w: { buySystem?: string; sellAt?: string },
+      fromSystem: string | undefined = t.system,
+    ): string | undefined => {
+      if (slowHullOff || !isSlowHull(t.speed, slowHull.speed)) return undefined;
+      if (w.buySystem !== undefined && w.sellAt !== undefined) {
+        const loaded = slowHullVerdict(t.speed, gateHops(w.buySystem, systemOfWaypoint(w.sellAt)), slowHull, "hauled");
+        if (!loaded.ok) return loaded.reason;
+      }
+      if (w.buySystem !== undefined && fromSystem !== undefined) {
+        const empty = slowHullVerdict(t.speed, gateHops(fromSystem, w.buySystem), slowHull, "positioning");
+        if (!empty.ok) return empty.reason;
+      }
+      return undefined;
+    };
     /** Why this trader cannot take this work from where it stands, or undefined when it can. Cross-system reasons name
      *  the guard that failed, so dispatch_explain says which one blocks a route. */
     const whyUnreachable = (t: (typeof traders)[number], w: { buySystem?: string; buyAt?: string; sellAt?: string; profitPerTrip?: number }): string | undefined => {
       // A local-only ship (reach "system") never leaves its system, whatever the route's gate distance: see shipReach.ts.
       const outside = routeOutsideReach(t.reach, t.system, { buySystem: w.buySystem, sellSystem: w.sellAt !== undefined ? systemOfWaypoint(w.sellAt) : undefined });
       if (outside !== undefined) return outside;
+      const slow = slowHullRefusal(t, w);
+      if (slow !== undefined) return slow;
       if (w.buySystem === undefined || t.system === undefined) return undefined;
       if (w.buySystem !== t.system) {
         if (!canJump(t.system, w.buySystem)) {
@@ -1776,6 +1808,9 @@ export class RouteDispatcher {
         continue;
       }
       if (next.has(t.shipSymbol)) continue;
+      // The chain and circuit lookahead skip a candidate this ship's slow-hull clause would refuse, so a slow hull is not
+      // credited for a follow-on it cannot take and no circuit is planned around one.
+      const shipChainCtx: ChainContext = slowHullOff ? chainCtx : { ...chainCtx, refuse: (c, from) => slowHullRefusal(t, c, from) };
       // A busy trader with no carried-forward record here means the
       // dispatcher's own in-memory assignments map was wiped (a restart)
       // while this ship was mid-haul — cargo already bought, in the hold,
@@ -1978,12 +2013,12 @@ export class RouteDispatcher {
         // that time as `positioning` (seen live 2026-10-09: before it did, THEO-51 and THEO-27 were planned GY77 pairs
         // from JX83 and sat empty).
         if (circuitPolicy.weight > 0 && w.sellAt !== undefined && candidate) {
-          const found = bestCircuit(candidate, chainCandidates, chainCtx, circuitPolicy);
+          const found = bestCircuit(candidate, chainCandidates, shipChainCtx, circuitPolicy);
           const credited = circuitScore(score, found, scored.positioning, scored.penalty, circuitPolicy);
           if (found && credited > score) { circuit = found; score = credited; }
         }
         if (!circuit && chainPolicy.followOnWeight > 0 && w.sellAt !== undefined) {
-          followOn = bestFollowOn(w.sellAt, chainCandidates, chainCtx, chainPolicy, w.key);
+          followOn = bestFollowOn(w.sellAt, chainCandidates, shipChainCtx, chainPolicy, w.key);
           score = chainScore(score, followOn, chainPolicy);
         }
         if (score > bestScore) { bestScore = score; item = w; itemFollowOn = followOn; itemCircuit = circuit; }
@@ -2041,7 +2076,7 @@ export class RouteDispatcher {
         // Why this route got no circuit, so the horizon and return share can be tuned from what the dispatcher sees.
         const cand = candidateByKey.get(item.key);
         const own = scoreItem(item);
-        if (cand) log?.(`dispatch circuit: ${t.shipSymbol} ${item.key} — ${circuitReport(cand, chainCandidates, chainCtx, circuitPolicy, bestScore, own?.positioning, own?.penalty)}`);
+        if (cand) log?.(`dispatch circuit: ${t.shipSymbol} ${item.key} — ${circuitReport(cand, chainCandidates, shipChainCtx, circuitPolicy, bestScore, own?.positioning, own?.penalty)}`);
       }
       if (itemCircuit) {
         const l2 = itemCircuit.leg2;

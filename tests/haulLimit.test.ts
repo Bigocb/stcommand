@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { haulLegVerdict, withinHaulLimit } from "../src/engine/haulLimit.js";
+import { haulLegVerdict, isSlowHull, slowHullVerdict, withinHaulLimit, type SlowHullPolicy } from "../src/engine/haulLimit.js";
 import { TraderAgent, type Ship } from "../src/engine/trader.js";
 import { FleetManager } from "../src/engine/fleet.js";
 
@@ -21,6 +21,43 @@ describe("haulLimit (pure)", () => {
     assert.equal(withinHaulLimit(9, undefined), true);
     assert.equal(withinHaulLimit(5, 4), false);
     assert.equal(withinHaulLimit(4, 4), true);
+  });
+});
+
+describe("slowHullVerdict (per-speed route shape, docs/slow-hull-local-routes-spec.md)", () => {
+  const on: SlowHullPolicy = { speed: 15, hauledHops: 1, positioningHops: 2 };
+  it("a speed-15 hull is refused a 2-gate loaded leg and told why", () => {
+    const v = slowHullVerdict(15, 2, on);
+    assert.equal(v.ok, false);
+    assert.equal((v as { reason: string }).reason, "slow hull: loaded leg is 2 gate jumps, over the slow-hull limit of 1");
+  });
+  it("a speed-15 hull may take a 1-gate loaded leg", () => {
+    assert.deepEqual(slowHullVerdict(15, 1, on), { ok: true });
+  });
+  it("a speed-36 freighter is unaffected by the loaded-leg cap", () => {
+    assert.deepEqual(slowHullVerdict(36, 3, on), { ok: true });
+  });
+  it("clause off (no caps) allows a slow hull any length, as before", () => {
+    assert.deepEqual(slowHullVerdict(15, 9, { speed: 15 }), { ok: true });
+    assert.deepEqual(slowHullVerdict(15, 9, { speed: 15, positioningHops: 2 }), { ok: true }, "the other half being on does not gate the loaded leg");
+  });
+  it("an unknown speed counts as slow", () => {
+    assert.equal(isSlowHull(undefined, 15), true);
+    assert.equal(slowHullVerdict(undefined, 2, on).ok, false);
+    assert.equal(isSlowHull(16, 15), false);
+  });
+  it("the positioning half caps the empty leg and allows same-system (0 hops)", () => {
+    assert.deepEqual(slowHullVerdict(15, 2, on, "positioning"), { ok: true }, "cap 2 is inclusive");
+    const v = slowHullVerdict(15, 3, on, "positioning");
+    assert.equal(v.ok, false);
+    assert.match((v as { reason: string }).reason, /buy market is 3 gate jumps away, over the slow-hull positioning limit of 2/);
+    assert.deepEqual(slowHullVerdict(15, 0, on, "positioning"), { ok: true });
+    assert.deepEqual(slowHullVerdict(36, 3, on, "positioning"), { ok: true });
+  });
+  it("a 0 loaded cap means same-system routes only", () => {
+    const sameSystemOnly: SlowHullPolicy = { speed: 15, hauledHops: 0 };
+    assert.deepEqual(slowHullVerdict(15, 0, sameSystemOnly), { ok: true });
+    assert.equal(slowHullVerdict(15, 1, sameSystemOnly).ok, false);
   });
 });
 

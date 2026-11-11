@@ -68,6 +68,11 @@ export interface ChainContext {
   crossSystemHops?: (fromSystem: string, toSystem: string) => number | undefined;
   /** True when this follow-on may not be used (already assigned this cycle, reserved by another chain, refused...). */
   unavailable: (candidate: ChainCandidate) => boolean;
+  /**
+   * Why this ship may not take a candidate at all (the per-speed route-shape clause, docs/slow-hull-local-routes-spec.md);
+   * undefined when it may. `fromSystem` is where the empty leg to the candidate's buy market would start.
+   */
+  refuse?: (candidate: ChainCandidate, fromSystem: string) => string | undefined;
 }
 
 export interface FollowOn {
@@ -94,7 +99,7 @@ export function bestFollowOn(
   const here = systemOf(sellAt);
   let best: FollowOn | undefined;
   for (const c of candidates) {
-    if (c.key === excludeKey || ctx.unavailable(c)) continue;
+    if (c.key === excludeKey || ctx.unavailable(c) || ctx.refuse?.(c, here) !== undefined) continue;
     if (c.profitPerTrip <= 0 || c.tripSeconds <= 0) continue;
     let score = c.profitPerTrip;
     let positioningSeconds = 0;
