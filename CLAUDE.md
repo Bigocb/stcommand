@@ -419,6 +419,18 @@ operator rules, issues and their causes, live fleet actions, findings and open t
 current week's file at the start of a session and after any summary, before acting on the fleet, and append to it as things happen,
 not only for code changes. Code changes still get a `CHANGELOG.md` entry; the journal links to it.
 
+## Cognee memory: `stcommand-gameplay`
+
+A Cognee knowledge graph holds the game-facing knowledge so a new session can search it instead of re-reading every doc.
+Dataset **`stcommand-gameplay`** contains `CLAUDE.md`, `CONTEXT.md`, the journals (`docs/journal/`), the reset-opening
+playbook, the new-player guide, the ops-layer and analysis-engine design docs, `CHANGELOG.md`, the architecture
+overview/plan, and `docs/adr/*`.
+
+Query it with the Cognee MCP `recall` tool against `datasets: "stcommand-gameplay"` (e.g. "how do I choose a shipyard when
+buying a ship", "what did THEO do on 2026-11-10"). Refresh it with `remember` using the same dataset name (omit
+`session_id` for permanent graph memory) whenever the journal or these docs change. Keep secrets out — only env-var names
+appear in these files.
+
 ## Docs to keep current
 
 - `docs/TODO.md` — open items; move a closed one to `CHANGELOG.md`
