@@ -11959,6 +11959,30 @@ export class FleetManager {
     return this.setKeeperPriorityMarkets([...before, ...markets]);
   }
 
+  /**
+   * Approve an "upcoming" market from the Approvals screen or stcommand_approve_upcoming: make sure it is on the keeper
+   * priority list and ask for its probe now. setKeeperPriorityMarkets() only runs the immediate coverage check for
+   * genuinely new entries, and an upcoming row's market is normally already on the list (it is "priority, uncovered, no
+   * open ask") — so without this explicit check, approving it would do nothing until advanceKeeperMarketQueue() or a
+   * ship happened to get there. Cooldowns and the auto-approve budget inside maybeRequestKeeperProbeForMarket() still
+   * apply unchanged; failures are logged, not thrown, same as the list-add check.
+   */
+  async approveKeeperPriorityMarket(market: string): Promise<string[]> {
+    const target = market.trim().toUpperCase();
+    const before = await this.keeperPriorityMarkets();
+    const clean = await this.setKeeperPriorityMarkets([...before, target]);
+    // setKeeperPriorityMarkets() already ran the check for a genuinely new entry; an upcoming row's market is normally
+    // already on the list, and only this explicit call turns "approve" into a request now.
+    if (before.some((m) => m.trim().toUpperCase() === target)) {
+      try {
+        await this.maybeRequestKeeperProbeForMarket(target);
+      } catch (err) {
+        this.log(`immediate keeper-probe check for approved ${target} failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    return clean;
+  }
+
   /** Drop the override and fall back to the built-in default list. */
   async resetKeeperPriorityMarkets(): Promise<string[]> {
     if (this.tenantId) await this.store?.removeFleetFlag(this.tenantId, "keeperMarkets");

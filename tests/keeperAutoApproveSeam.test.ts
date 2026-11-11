@@ -75,7 +75,7 @@ describe("market keeper request with autoApproveKeeperProbes", () => {
   });
 });
 
-describe("addKeeperPriorityMarkets", () => {
+describe("keeper priority list additions", () => {
   it("appends to the list instead of replacing it, and checks only the newly added markets", async () => {
     const { fleet } = makeFleet({ clauseOn: true, shipsAtYard: keeperAtYard });
     const written: string[][] = [];
@@ -90,6 +90,22 @@ describe("addKeeperPriorityMarkets", () => {
     assert.deepEqual(out, ["X1-OLD-1", "X1-OLD-2", "X1-NEW-1", "X1-NEW-2"]);
     assert.deepEqual(written, [out]);
     assert.deepEqual(checked, ["X1-NEW-1", "X1-NEW-2"], "markets already on the list are not re-checked");
+  });
+
+  it("approving an upcoming market keeps the list and asks for its probe even though it is already listed", async () => {
+    const { fleet } = makeFleet({ clauseOn: true, shipsAtYard: keeperAtYard });
+    const written: string[][] = [];
+    const checked: string[] = [];
+    fleet.keeperPriorityMarkets = async () => ["X1-OLD-1", "X1-WANTED"];
+    fleet.store.setFleetFlag = async (_t: string, _k: string, v: string) => { written.push(JSON.parse(v)); };
+    fleet.recordAction = () => {};
+    fleet.maybeRequestKeeperProbeForMarket = async (m: string) => { checked.push(m); return false; };
+
+    const out = await fleet.approveKeeperPriorityMarket("x1-wanted");
+
+    assert.deepEqual(out, ["X1-OLD-1", "X1-WANTED"], "no removal, no duplicate");
+    assert.deepEqual(written, [out]);
+    assert.deepEqual(checked, ["X1-WANTED"], "the check runs for an already-listed market — that is what raises the card");
   });
 });
 

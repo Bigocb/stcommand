@@ -25,7 +25,7 @@ import {
   dispatchRoutes, dispatchAssignments, contractDutyShips, minerPreferences, keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   replayByShip, replayT0, replayT1, priceGoods, priceWaypointsByGood, pricePoints, contracts,
   missions, feeds, feedChains, leaderboard, factions, systemAgents, systemAgentsHistory, narrative, narrativeMeta, chatHistory,
-  approvals, marketDynamics, marketDynamicsBySystemType, notes,
+  approvals, upcomingApprovals, marketDynamics, marketDynamicsBySystemType, notes,
   loadDispatch, loadKeepers, loadReplay, loadGoods, loadNotes,
   loadPrices, loadProgramme, loadGalaxy, loadNarrative, loadChatHistory,
   loadApprovals, loadMarketDynamics,
@@ -1015,7 +1015,7 @@ function renderApprovalsBanner() {
 }
 
 function renderApprovals() {
-  const html = !approvals.length
+  const cards = !approvals.length
     ? '<div class="empty">Nothing waiting on a decision.</div>'
     : approvals.map((a) => `
     <div class="ops-card">
@@ -1033,6 +1033,21 @@ function renderApprovals() {
         <button class="btn" data-act="deny" data-id="${escapeAttr(a.id)}">Deny</button>
       </div>
     </div>`).join("");
+  // Keeper priority markets with no open ask yet: approving one tags it, which runs the immediate coverage check and
+  // raises the keeper card right away. Informational rows, so no badge count — the badge stays open cards only.
+  const upcoming = upcomingApprovals.length
+    ? `<div class="ops-sub" style="margin:10px 0 4px">Keeper priority markets with no open ask yet — approving one tags it and raises a keeper card immediately.</div>` +
+      upcomingApprovals.map((m) => `
+    <div class="ops-card">
+      <div class="ops-head">
+        <span class="ops-title">Keeper priority</span>
+        <span class="ops-sub">${escapeHtml(m)}</span>
+        <span class="fill"></span>
+        <button class="btn" data-tag-wp="${escapeAttr(m)}">Approve — tag as keeper</button>
+      </div>
+    </div>`).join("")
+    : "";
+  const html = cards + upcoming;
   // Same dual-render as renderContracts(): mobile has its own Ops screen
   // with its own #mobile-approvals element, not just a CSS-hidden copy of
   // the desktop pane. Previously only "approvals" was written, so on a
@@ -1055,6 +1070,9 @@ function renderApprovals() {
           await loadApprovals();
         } catch (err) { showToastGlobal(err.message, true); b.disabled = false; }
       });
+    });
+    el.querySelectorAll("button[data-tag-wp]").forEach((b) => {
+      b.addEventListener("click", () => approveUpcomingKeeper(b.dataset.tagWp, b));
     });
   }
 }
@@ -2195,6 +2213,20 @@ async function toggleKeeperPriority(wp) {
     await loadKeepers();
     showToastGlobal(next.includes(wp) ? `${shortWp(wp)} added to keeper priority list` : `${shortWp(wp)} removed from keeper priority list`);
   } catch (err) { showToastGlobal(err.message, true); }
+}
+
+/** Approving an "upcoming" row on the Approvals screen: add the market to the keeper priority list (append only — never
+ *  toggles off), ask the server to run its coverage check for that market now (`approve`), and refresh. The market is
+ *  normally already on the list, and a plain list save only checks newly added ones, hence the explicit approve flag. */
+async function approveUpcomingKeeper(wp, btn) {
+  if (!wp) return;
+  if (btn) btn.disabled = true;
+  try {
+    const next = keeperMarketsCfg.includes(wp) ? keeperMarketsCfg : [...keeperMarketsCfg, wp];
+    await api("POST", "/api/keeper/markets", { markets: next, approve: wp });
+    await Promise.all([loadKeepers(), loadApprovals()]);
+    showToastGlobal(`${shortWp(wp)} tagged as keeper priority — the keeper request follows immediately`);
+  } catch (err) { showToastGlobal(err.message, true); if (btn) btn.disabled = false; }
 }
 $("snapshots").addEventListener("click", (e) => {
   const badge = e.target.closest("[data-wp]");

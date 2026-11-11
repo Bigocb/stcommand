@@ -641,9 +641,9 @@ function renderAttention() {
 }
 
 /* ── approvals screen ──────────────────────
- * Every pending decision in one place, plus the priority markets still waiting for a ship to dock there. The engine
- * keeps one open request per kind, so the next one only appears after the current one is decided; "Coming up" shows
- * what is queued behind it, so a click-through doesn't look like a random trickle.
+ * Every pending decision in one place, plus the keeper priority markets with no open ask yet. Approving one of those
+ * tags it as keeper priority, which runs the immediate coverage check and raises the keeper card — no ship has to visit
+ * the market first. "Coming up" therefore shows exactly what is one tap away, not what is waiting on a ship.
  */
 const APPROVAL_LABELS = { buyKeeperProbe: "Keeper probe", buyKeeperProbeForMarket: "Keeper probe", buyShip: "Ship purchase" };
 function renderApprovalsScreen() {
@@ -674,11 +674,14 @@ function renderApprovalsScreen() {
       </div>`).join(""));
   const up = $("approvals-upcoming");
   setHtml(up, upcomingApprovals.length === 0
-    ? '<div class="empty">Nothing queued behind these.</div>'
+    ? '<div class="empty">No uncovered keeper priority markets.</div>'
     : upcomingApprovals.map((m) => `
       <div class="card">
-        <div class="row1"><span class="who">${escapeHtml(m)}</span><span class="amt">Queued</span></div>
-        <div class="detail">Keeper wanted here. A request appears once a ship docks at this market.</div>
+        <div class="row1"><span class="who">${escapeHtml(m)}</span><span class="amt">Priority</span></div>
+        <div class="detail">Keeper priority market with no open ask yet. Approving tags it and raises the keeper card immediately.</div>
+        <div class="acts">
+          <button class="btn pri" data-tag-wp="${escapeAttr(m)}">Approve — tag as keeper</button>
+        </div>
       </div>`).join(""));
 }
 /** Send a decision. The id stays in `deciding` until the server has answered, so a re-render in between (the live feed
@@ -703,6 +706,10 @@ async function decideApproval(b) {
 $("approvals-screen-list").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-act]");
   if (b && !b.disabled) decideApproval(b);
+});
+$("approvals-upcoming").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-tag-wp]");
+  if (b && !b.disabled) approveUpcomingKeeper(b.dataset.tagWp, b);
 });
 
 $("triage-list").addEventListener("click", (e) => {
@@ -1700,6 +1707,19 @@ async function toggleKeeperPriority(wp) {
     await api("POST", "/api/keeper/markets", { markets: next });
     await loadKeepers();
   } catch (err) { alert(err.message); }
+}
+
+/** Approving a "coming up" row: add the market to the keeper priority list (append only, never a toggle-off), ask the
+ *  server for that market's coverage check now (`approve` — the market is normally already listed, and a plain list save
+ *  only checks newly added ones), and refresh. The keeper card appears right away; no ship has to visit the market. */
+async function approveUpcomingKeeper(wp, btn) {
+  if (!wp) return;
+  if (btn) btn.disabled = true;
+  try {
+    const next = keeperMarketsCfg.includes(wp) ? keeperMarketsCfg : [...keeperMarketsCfg, wp];
+    await api("POST", "/api/keeper/markets", { markets: next, approve: wp });
+    await Promise.all([loadKeepers(), loadApprovals()]);
+  } catch (err) { alert(err.message); if (btn) btn.disabled = false; }
 }
 
 /** Every waypoint this fleet has snapshotted selling `good`, each row's

@@ -6,6 +6,7 @@ import type { TenantWorker } from "../engine/tenantRegistry.js";
 import type { ShipType } from "../engine/fleet.js";
 import { normalizeShipLotPolicy, effectiveMaxLots, SHIP_LOT_LIMITS } from "../engine/shipLotPolicy.js";
 import { runAnalysis } from "../ops/analysis.js";
+import { approvalsView } from "../engine/approvalsView.js";
 import { closeSeasonWeekNow, seasonSummary } from "../http/season.js";
 import { API_BASE } from "../core/client.js";
 
@@ -195,10 +196,16 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   server.registerTool(
     "stcommand_get_approvals",
     {
-      description: "Every operator-approval request still awaiting a decision (ship purchases, autoExploreBorrow, etc.) — the same gate the dashboard's Approvals panel reads.",
+      description: "Every operator-approval request still awaiting a decision (ship purchases, autoExploreBorrow, etc.) — the same gate the dashboard's Approvals panel reads. With includeUpcoming, also returns the keeper priority markets that have no open ask yet (the dashboard's 'upcoming' rows); approve one with stcommand_approve_upcoming.",
+      inputSchema: { includeUpcoming: z.boolean().optional().describe("Also return `upcoming`: keeper priority markets with no open ask yet") },
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async () => textResult({ approvals: await w.store.listOpenApprovals(w.tenantId) }),
+    async ({ includeUpcoming }) => {
+      const approvals = await w.store.listOpenApprovals(w.tenantId);
+      if (!includeUpcoming) return textResult({ approvals });
+      const view = await approvalsView(w.store, w.fleet, w.tenantId);
+      return textResult({ approvals: view.approvals, upcoming: view.upcoming });
+    },
   );
 
   server.registerTool(
@@ -909,6 +916,25 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
         const clean = await w.fleet.setKeeperPriorityMarkets(markets);
         await recordMcpAction(w, "keeper_markets", undefined, `keeper priority list set to ${clean.length} markets`, { markets: clean });
         return textResult({ ok: true, markets: clean, stations: w.fleet.keeperStations() });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    "stcommand_approve_upcoming",
+    {
+      title: "Approve an upcoming keeper market",
+      description: "Approve a market the dashboard shows as 'upcoming' on the Approvals screen — a keeper priority market with no open ask yet. Appends it to the keeper priority list (replacing nothing), which runs the same immediate coverage check as stcommand_set_keeper_markets and raises the keeper-probe request right away; no ship has to visit the waypoint first.",
+      inputSchema: { market: z.string().describe("Market waypoint symbol, from stcommand_get_approvals' upcoming list") },
+      annotations: { destructiveHint: false, idempotentHint: true },
+    },
+    async ({ market }) => {
+      try {
+        const markets = await w.fleet.approveKeeperPriorityMarket(market);
+        await recordMcpAction(w, "approve_upcoming", undefined, `keeper priority approved for ${market}`, { market, markets });
+        return textResult({ ok: true, markets, coverList: await w.fleet.keeperCoverList() });
       } catch (err) {
         return errorResult(err);
       }

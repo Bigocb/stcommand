@@ -1018,20 +1018,25 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   router.post("/keeper/markets", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
-    const { markets, reset, coverList } = req.body ?? {};
+    const { markets, reset, coverList, approve } = req.body ?? {};
     try {
       if (typeof coverList === "boolean") await w.fleet.setKeeperCoverList(coverList);
       if (reset === true) {
         const clean = await w.fleet.resetKeeperPriorityMarkets();
         return res.json({ ok: true, markets: clean, coverList: await w.fleet.keeperCoverList() });
       }
+      let clean: string[] | undefined;
       if (markets !== undefined) {
         if (!Array.isArray(markets) || !markets.every((m) => typeof m === "string")) {
           return res.status(400).json({ error: "markets must be an array of waypoint symbols" });
         }
-        const clean = await w.fleet.setKeeperPriorityMarkets(markets);
-        return res.json({ ok: true, markets: clean, coverList: await w.fleet.keeperCoverList() });
+        clean = await w.fleet.setKeeperPriorityMarkets(markets);
       }
+      // An Approvals-screen "upcoming" row approves a market that is normally already on the list, and
+      // setKeeperPriorityMarkets() only checks genuinely new entries — so ask for that market's probe explicitly.
+      // That immediate coverage check is what raises the keeper card (or auto-approves under the cap).
+      if (typeof approve === "string" && approve.trim()) clean = await w.fleet.approveKeeperPriorityMarket(approve);
+      if (clean) return res.json({ ok: true, markets: clean, coverList: await w.fleet.keeperCoverList() });
       res.json({ ok: true, markets: await w.fleet.keeperPriorityMarkets(), coverList: await w.fleet.keeperCoverList() });
     } catch (err) {
       res.status(400).json({ error: err instanceof Error ? err.message : String(err) });

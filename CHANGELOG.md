@@ -6,6 +6,15 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-11 — Every Approvals row is actionable: approve an "upcoming" keeper market in one click (`docs/approve-any-approval-item-prd.md`)
+
+Why: the Approvals screen listed keeper priority markets with no open ask under "upcoming" but only as information, and the copy said they were "waiting for a ship to dock there" — stale, since tagging a market already runs the immediate coverage check and raises the keeper card.
+- **`public/v6.js` / `public/m.js`**: each `upcoming` row gets an **Approve — tag as keeper** button that appends the market to the keeper priority list through `POST /api/keeper/markets` (append only, never a toggle-off, unlike the keeper badge) and refreshes keepers and approvals, so the keeper card appears straight away. Badge counts stay open cards only. `public/deck.js` has no upcoming list, so it is unchanged.
+- **`src/http/dashboard.ts` / `src/engine/fleet.ts`**: the route takes an optional `approve: <market>`, and the new `approveKeeperPriorityMarket()` keeps the list then runs the probe check for that market explicitly. Needed because an upcoming row's market is already on the list, and `setKeeperPriorityMarkets()` only checks genuinely new entries — without it, approving would do nothing until the queue advance or a ship got there. Cooldowns and the auto-approve cap still apply.
+- **`src/engine/approvalsView.ts`** (and the `upcoming` comments in `public/shared/store.js`, `public/m.js`): the description now says priority markets with no open ask yet whose approval tags them and raises a keeper card immediately — no waypoint visit.
+- **MCP**: new `stcommand_approve_upcoming { market }` calls the same `approveKeeperPriorityMarket()` and records an `mcp_approve_upcoming` operator action; `stcommand_get_approvals` gains optional `includeUpcoming` so an agent sees the same rows. Default behaviour of both is unchanged.
+- No new table, no migration, no synthetic `upcoming:` ids, no auto-dispatch; keeper purchase/delivery/cash-floor/price-cap mechanics untouched. Tests: `tests/approvalsView.test.ts` (3), `tests/approveUpcoming.test.ts` (3), one added to `tests/keeperAutoApproveSeam.test.ts`; typecheck clean, that suite's pre-existing stale-fake failures unchanged.
+
 ## 2026-11-11 — Slow hulls fly local routes: per-speed route-shape gate (`slowHullSpeed` / `slowHullHauledHops` / `slowHullPositioningHops`)
 
 Why: `ops_deadhead` measured the fleet's loaded share at 0.35 (2026-11-11): 65% of trader time was travel and positioning, and every trader was a speed-15 hull. The only route-shape limits were global, so a blunt `hauledHops=1` would also have refused the 2-gate premium runs the freighters are meant to fly. `docs/slow-hull-local-routes-spec.md`.

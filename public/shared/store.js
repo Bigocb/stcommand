@@ -103,7 +103,9 @@ export let feedChains = [];
 export let chainHealth = null;
 
 export let approvals = [];
-/** Priority markets still waiting for a ship to dock there (no open ask yet). See the /api/approvals route. */
+/** Keeper priority markets with no open ask yet. Approving one on the Approvals screen tags it through POST
+ *  /api/keeper/markets, which raises the keeper card immediately — no ship visits the waypoint first. See the
+ *  /api/approvals route. */
 export let upcomingApprovals = [];
 /** Approved or denied rows the engine has not picked up yet (see listDecidedApprovals in the store). */
 export let decidedApprovals = [];
