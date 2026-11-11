@@ -48,6 +48,16 @@ Procedure:
    about 6,900c in the 2026-11-10 P&L (`ops_pnl`).
 4. Then `buy_ship`, set the role, and check that the dispatcher does not have to deadhead it.
 
+**Cash discipline (operator, 2026-11-11):** buy no hull at all — light haulers included — until the wallet holds **at least
+3,000,000c**; keepers wait for **5,000,000c** (`keeperAutoApproveMinCash`). Manual `buy_ship` bypasses every doctrine
+threshold (`shipBudget` maxes at 500k, `autoBuyShips` is off), so this is a discipline rule, not a setting — hold it by hand.
+If a purchase would dip back under 3M, wait for the next crossing.
+
+**Escape clause (operator, 2026-11-11):** the 3M gate is a target, not a leash. If the fleet is *struggling to get there* —
+cash flat or falling for ~2h, the rate dropping below ~80k/h, or traders sitting idle — break the rule and put the spare
+capital into a hauler to restart growth. Re-check this when the weekly reset is close: the last full day of the week is
+worth spending on rather than hoarding.
+
 Example (2026-11-10): for a hull meant to trade X1-FR76, `X1-FR76-DA6C` (316,860c, 0 hops) beats `X1-PT36-A2`
 (314,772c, 2 hops) despite costing about 2k more. Light-hauler yards seen: X1-PT36-A2 (314,772c), X1-FR76-DA6C
 (316,860c), X1-YN91-A2 (371,290c). Every live/candidate system was 1-2 hops from home X1-PT36 on 2026-11-10.
