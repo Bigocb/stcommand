@@ -131,6 +131,7 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
       ${kpi(`Matched profit, first ${L.hours} h`, L.a.matchedPnl, L.b.matchedPnl)}
       ${kpi("Profit / hour", L.a.pnlPerHour, L.b.pnlPerHour)}
       ${kpi("Sells", L.a.trades, L.b.trades)}
+      ${kpi("Units sold", L.a.units, L.b.units)}
       ${small ? "" : kpi("Ships bought", L.a.ships, L.b.ships)}
       ${small ? "" : kpi("Best hour", L.a.bestHourPnl, L.b.bestHourPnl)}
       ${kpi("Gate open (h)", A.gateOpenHour ?? null, B.gateOpenHour ?? null, (v) => (v === null ? "—" : `${v}`))}
@@ -149,6 +150,7 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
     const charts = `<div class="cmp-charts">
       <div class="cmp-chart-box"><div class="cmp-chart-h">Matched profit, cumulative <span class="cmp-legend"><i class="a"></i>${h(A.label)}<i class="b"></i>${h(B.label)}</span></div>${compareChart(A.points, B.points, { key: "cumPnl", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, label: "matched profit", height: small ? 120 : 160 })}</div>
       <div class="cmp-chart-box"><div class="cmp-chart-h">Profit per hour, 3-hour average</div>${compareChart(A.points, B.points, { key: "rate", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, label: "profit per hour", height: small ? 120 : 160 })}</div>
+      <div class="cmp-chart-box"><div class="cmp-chart-h">Trade volume, cumulative</div>${compareChart(A.points, B.points, { key: "units", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, label: "units sold", height: small ? 120 : 160 })}</div>
       ${fleetChart("live", "Live systems", data, gate(A), gate(B), small)}
       ${small ? "" : fleetChart("keepers", "Keepers polling", data, gate(A), gate(B), small)}
       ${small ? "" : fleetChart("calls", "Keeper API calls a minute", data, gate(A), gate(B), small)}
@@ -157,7 +159,7 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
     </div>`;
     const rows = data.checkpoints.filter((r) => r.a || r.b).filter((r) => !small || [12, 24, 48, 72].includes(r.hour));
     const table = `<div class="cmp-scroll"><table class="cmp-table"><thead><tr><th>Hour</th><th class="num">${small ? "This week" : h(A.label)}</th><th class="num">${small ? "Other" : h(B.label)}</th><th class="num">${small ? "Diff" : "Difference"}</th>${small ? "" : "<th class=\"num\">Wallet A</th><th class=\"num\">Wallet B</th>"}</tr></thead><tbody>${rows.map((r) => `<tr><td>${r.hour} h</td><td class="num">${r.a ? compact(r.a.cumPnl) : "—"}</td><td class="num">${r.b ? compact(r.b.cumPnl) : "—"}</td><td class="num ${tone(r.pnlDelta)}">${signed(r.pnlDelta)}</td>${small ? "" : `<td class="num">${r.a ? compact(r.a.wallet) : "—"}</td><td class="num">${r.b ? compact(r.b.wallet) : "—"}</td>`}</tr>`).join("")}</tbody></table></div>`;
-    const foot = `<div class="cmp-foot">Matched profit counts completed round trips only. Hours run from each week's first trade; the dotted lines mark the first gate jump. ${A.reached} h of this week${B.reached < A.reached ? "" : ""}, ${B.reached} h of the other. The first block lines the weeks up on the gate; the tiles below it cut both weeks at the same ${L.hours} h since the first trade. Profit / hour is matched profit (completed round trips, before fuel, jump costs and ship purchases) divided by the hours in the window.</div>`;
+    const foot = `<div class="cmp-foot">Matched profit counts completed round trips only. Hours run from each week's first trade; the dotted lines mark the first gate jump. ${A.reached} h of this week${B.reached < A.reached ? "" : ""}, ${B.reached} h of the other. The first block lines the weeks up on the gate; the tiles below it cut both weeks at the same ${L.hours} h since the first trade. Profit / hour is matched profit (completed round trips, before fuel, jump costs and ship purchases) divided by the hours in the window. Trade volume and units sold count units on completed sales.</div>`;
     root.innerHTML = head + gateKpis + gateTable + kpis + charts + table + foot;
     bind();
   }

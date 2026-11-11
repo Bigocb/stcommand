@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { API_PRIORITY, runWithApiPriority, type SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import { ShipAgent, REFINE_RECIPES } from "./agent.js";
+import { isOverdueTransit } from "./overdueTransit.js";
 import { TraderAgent, type TraderOptions } from "./trader.js";
 import { ScoutAgent } from "./scout.js";
 import { SiphonerAgent } from "./siphoner.js";
@@ -10851,6 +10852,15 @@ export class FleetManager {
    *  reads per five minutes, so it cost more calls than Phase 2 would save. */
   private static readonly SWEEP_INTERVAL_MS = Number(process.env.SHIP_SWEEP_MS ?? 0);
   /**
+   * How often overdue in-transit ships are re-read (see reconcileOverdueTransits()). Arrival is normally reconciled once,
+   * when the ship's own wait task wakes at its ETA; if that one request fails, nothing retries it and the ship stays
+   * "in transit" in the model forever, which freezes the dispatcher. This loop is the retry. SHIP_TRANSIT_RECONCILE_MS=0
+   * turns it off.
+   */
+  private static readonly TRANSIT_RECONCILE_MS = Number(process.env.SHIP_TRANSIT_RECONCILE_MS ?? 60_000);
+  /** How far past its scheduled arrival a ship must be before that loop re-reads it: covers a slow wake-up, not a healthy one. */
+  private static readonly OVERDUE_TRANSIT_GRACE_MS = Number(process.env.SHIP_TRANSIT_GRACE_MS ?? 120_000);
+  /**
    * How many ships the reset wind-down sends to a yard per tick. Each one costs a live ship read
    * (sellShip() does its own), so the fleet drains over a few minutes rather than stalling a single
    * pass — and strictly one at a time, which matters: releaseKeeperStationForSale() rewrites the
@@ -11204,7 +11214,7 @@ export class FleetManager {
           homeReserve: 1,
           gateFor: (from, to) => this.galaxy.gatesTo(from, to)[0],
         },
-        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), holdAware: this.doctrine.isEnabledOr("routeHoldAware", false), soonFreeSec: this.doctrine.isEnabledOr("routeSoonFreeMin", false) ? this.doctrine.value("routeSoonFreeMin") * 60 : 0, matchTopN: this.doctrine.value("routeMatchTopN", 0), speedWeight: this.doctrine.isEnabledOr("shipSpeedWeight", false) ? this.doctrine.value("shipSpeedWeight", 0) : 0, modelSpeed: this.routeModelSpeed(), coolOffMin: this.doctrine.value("routeCoolOffMin", 0), roundsMax: this.doctrine.value("routeRoundsMax", 0), buyRoundsMax: this.doctrine.value("buyMarketRoundsMax", 0), spacingMin: this.doctrine.value("buyMarketSpacingMin", 0), spacingAutoPct: this.doctrine.value("buyMarketSpacingAutoPct", 0), marketRecoveryMin: this.doctrine.isEnabledOr("marketRecoveryMin", false) ? this.doctrine.value("marketRecoveryMin", 0) : 0, routeBlockMin: this.doctrine.isEnabledOr("deadRouteShareMin", false) ? this.doctrine.value("deadRouteShareMin", 0) : 0, fitMinTrip: this.doctrine.isEnabledOr("routeFitMinTrip", false) ? this.doctrine.value("routeFitMinTrip", 0) : 0, fitBigHold: this.doctrine.value("routeFitBigHold", 0) },
+        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), holdAware: this.doctrine.isEnabledOr("routeHoldAware", false), soonFreeSec: this.doctrine.isEnabledOr("routeSoonFreeMin", false) ? this.doctrine.value("routeSoonFreeMin") * 60 : 0, matchTopN: this.doctrine.value("routeMatchTopN", 0), speedWeight: this.doctrine.isEnabledOr("shipSpeedWeight", false) ? this.doctrine.value("shipSpeedWeight", 0) : 0, modelSpeed: this.routeModelSpeed(), coolOffMin: this.doctrine.value("routeCoolOffMin", 0), roundsMax: this.doctrine.value("routeRoundsMax", 0), buyRoundsMax: this.doctrine.value("buyMarketRoundsMax", 0), spacingMin: this.doctrine.value("buyMarketSpacingMin", 0), spacingAutoPct: this.doctrine.value("buyMarketSpacingAutoPct", 0), marketRecoveryMin: this.doctrine.isEnabledOr("marketRecoveryMin", false) ? this.doctrine.value("marketRecoveryMin", 0) : 0, routeBlockMin: this.doctrine.isEnabledOr("deadRouteShareMin", false) ? this.doctrine.value("deadRouteShareMin", 0) : 0, fitMinTrip: this.doctrine.isEnabledOr("routeFitMinTrip", false) ? this.doctrine.value("routeFitMinTrip", 0) : 0, fitBigHold: this.doctrine.value("routeFitBigHold", 0), slowHullSpeed: this.doctrine.value("slowHullSpeed", 15), slowHullHauledHops: this.doctrine.isEnabledOr("slowHullHauledHops", false) ? this.doctrine.value("slowHullHauledHops", 1) : undefined, slowHullPositioningHops: this.doctrine.isEnabledOr("slowHullPositioningHops", false) ? this.doctrine.value("slowHullPositioningHops", 2) : undefined },
         [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l }))),
       ));
       this.watchBoot(traders);
@@ -12599,6 +12609,9 @@ export class FleetManager {
     const rest = [
       this.runLoop("feeds", FleetManager.FEEDS_INTERVAL_MS, () => this.tickFeeds()),
       this.runLoop("maintenance", FleetManager.MAINTENANCE_INTERVAL_MS, () => this.tickMaintenance()),
+      ...(FleetManager.TRANSIT_RECONCILE_MS > 0
+        ? [this.runLoop("transits", Math.max(10_000, FleetManager.TRANSIT_RECONCILE_MS), () => this.reconcileOverdueTransits())]
+        : []),
       ...(FleetManager.SWEEP_INTERVAL_MS > 0 ? [this.runLoop("sweep", FleetManager.SWEEP_INTERVAL_MS, () => this.sweepShips())] : []),
     ];
     await Promise.allSettled([core, ...rest]);
@@ -12619,6 +12632,32 @@ export class FleetManager {
       this.lastSweepSummaryAt = Date.now();
       this.log(describeSnapshotSummary(this.shipSnapshots.takeSummary()));
     }
+  }
+
+  /**
+   * The retry half of arrival reconciliation. A ship's flight is normally reconciled once, when its own wait task wakes at
+   * the arrival the navigate call returned; that single request failing (a transient `fetch failed`) used to leave the ship
+   * IN_TRANSIT in the model forever — the dispatcher then counts it as en route, and with every trader in that state the
+   * fleet goes silent while the process still looks healthy (live 2026-11-10: 5 calls/min, every trader "in transit", the
+   * game showing them docked). Only overdue ships are re-read, so a healthy fleet costs nothing; the loop is the retry that
+   * was missing. SHIP_TRANSIT_RECONCILE_MS=0 disables it.
+   */
+  private async reconcileOverdueTransits(): Promise<void> {
+    if (this.paused || this.haltedByDeadToken() || typeof this.api.getShip !== "function") return;
+    const now = Date.now();
+    const overdue = this.currentShips().filter((s) => isOverdueTransit(s.nav, now, FleetManager.OVERDUE_TRANSIT_GRACE_MS));
+    if (overdue.length === 0) return;
+    let fixed = 0;
+    for (const ship of overdue) {
+      try {
+        const fresh = await runWithApiPriority(API_PRIORITY.ROUTINE, () => this.api.getShip(ship.symbol));
+        this.noteShipState(ship.symbol, fresh);
+        fixed += 1;
+      } catch (err) {
+        this.log(`${ship.symbol}: overdue transit re-read failed, will retry: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    if (fixed > 0) this.log(`transit reconcile: re-read ${fixed} overdue ship(s)`);
   }
 
   /** Apply the `shipBook` clause (on = serve, value = age limit in seconds) and log the book's summary every five minutes. */

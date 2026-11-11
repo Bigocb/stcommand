@@ -34,6 +34,34 @@ saved template "Opening: auto at reset" itself (`docs/reset-opening-playbook.md`
 shuttle; 1M keepers on the top markets; back at 1M a light hauler on the gate crew; gate ceilings FAB_MATS 2,000 and ADVANCED_CIRCUITRY 4,000. Adjust in real time.
 Update this section when the operator states a layout for a following week.
 
+## Buying a ship: nearest yard to the destination, not the cheapest
+
+Operator rule (2026-11-10): when buying a hull, choose the shipyard by distance to where the ship will trade, not by
+the lowest sticker price. A ship bought at the cheapest yard but 2 jumps from its target donates the saving back in
+fuel, travel time and dispatch refusals ("the first trip does not cover the Nth-jump positioning cost"), and it often
+sits on a thin local route while the good route is elsewhere.
+
+Procedure:
+1. Pick the target system first — the best route, or a fresh release during its ~2h premium.
+2. List the yards stocking that hull type and their prices (`stcommand_get_shipyard_inventory`).
+3. Choose `min(price + hops * ~7k jump cost + travel time)`, preferring a yard inside the target system. Jumps averaged
+   about 6,900c in the 2026-11-10 P&L (`ops_pnl`).
+4. Then `buy_ship`, set the role, and check that the dispatcher does not have to deadhead it.
+
+**Cash discipline (operator, 2026-11-11):** buy no hull at all — light haulers included — until the wallet holds **at least
+3,000,000c**; keepers wait for **5,000,000c** (`keeperAutoApproveMinCash`). Manual `buy_ship` bypasses every doctrine
+threshold (`shipBudget` maxes at 500k, `autoBuyShips` is off), so this is a discipline rule, not a setting — hold it by hand.
+If a purchase would dip back under 3M, wait for the next crossing.
+
+**Escape clause (operator, 2026-11-11):** the 3M gate is a target, not a leash. If the fleet is *struggling to get there* —
+cash flat or falling for ~2h, the rate dropping below ~80k/h, or traders sitting idle — break the rule and put the spare
+capital into a hauler to restart growth. Re-check this when the weekly reset is close: the last full day of the week is
+worth spending on rather than hoarding.
+
+Example (2026-11-10): for a hull meant to trade X1-FR76, `X1-FR76-DA6C` (316,860c, 0 hops) beats `X1-PT36-A2`
+(314,772c, 2 hops) despite costing about 2k more. Light-hauler yards seen: X1-PT36-A2 (314,772c), X1-FR76-DA6C
+(316,860c), X1-YN91-A2 (371,290c). Every live/candidate system was 1-2 hops from home X1-PT36 on 2026-11-10.
+
 ## Operating the fleet via the stcommand MCP server
 
 **Always use the Tailwinds MCP server** (tools named `mcp__Tailwinds__stcommand_*`) for every fleet read and write.
@@ -400,6 +428,18 @@ compare the failing subtests before and after (`git worktree add /tmp/base <comm
 operator rules, issues and their causes, live fleet actions, findings and open threads. Operator request (2026-11-05). Read the
 current week's file at the start of a session and after any summary, before acting on the fleet, and append to it as things happen,
 not only for code changes. Code changes still get a `CHANGELOG.md` entry; the journal links to it.
+
+## Cognee memory: `stcommand-gameplay`
+
+A Cognee knowledge graph holds the game-facing knowledge so a new session can search it instead of re-reading every doc.
+Dataset **`stcommand-gameplay`** contains `CLAUDE.md`, `CONTEXT.md`, the journals (`docs/journal/`), the reset-opening
+playbook, the new-player guide, the ops-layer and analysis-engine design docs, `CHANGELOG.md`, the architecture
+overview/plan, and `docs/adr/*`.
+
+Query it with the Cognee MCP `recall` tool against `datasets: "stcommand-gameplay"` (e.g. "how do I choose a shipyard when
+buying a ship", "what did THEO do on 2026-11-10"). Refresh it with `remember` using the same dataset name (omit
+`session_id` for permanent graph memory) whenever the journal or these docs change. Keep secrets out — only env-var names
+appear in these files.
 
 ## Docs to keep current
 

@@ -9,6 +9,8 @@ export interface HourRow {
   /** Whole hours since the week's first ledger row. */
   hour: number;
   sells: number;
+  /** Units sold this hour (SELL rows only, like opsLedgerBuckets()'s `units`). */
+  units: number;
   /** Matched profit of this hour's sells (realized_pnl only). */
   pnl: number;
   revenue: number;
@@ -51,6 +53,8 @@ export interface Point {
   ships: number;
   /** Sells so far. */
   trades: number;
+  /** Units sold so far. */
+  units: number;
   /** Matched profit per hour averaged over this hour and the two before it (fewer at the start), to read a trend through the hour-to-hour noise. */
   rate: number;
 }
@@ -59,12 +63,12 @@ export interface Point {
 export function toPoints(series: Pick<WeekSeries, "hours">, upToHour: number): Point[] {
   const byHour = new Map(series.hours.map((r) => [r.hour, r]));
   const out: Point[] = [];
-  let cum = 0, ships = 0, trades = 0;
+  let cum = 0, ships = 0, trades = 0, units = 0;
   let wallet: number | null = null;
   for (let h = 0; h <= upToHour; h++) {
     const r = byHour.get(h);
-    if (r) { cum += r.pnl; ships += r.ships; trades += r.sells; if (r.wallet !== null) wallet = r.wallet; }
-    out.push({ hour: h, cumPnl: Math.round(cum), pnl: Math.round(r?.pnl ?? 0), wallet, ships, trades, rate: 0 });
+    if (r) { cum += r.pnl; ships += r.ships; trades += r.sells; units += r.units; if (r.wallet !== null) wallet = r.wallet; }
+    out.push({ hour: h, cumPnl: Math.round(cum), pnl: Math.round(r?.pnl ?? 0), wallet, ships, trades, units, rate: 0 });
   }
   for (let i = 0; i < out.length; i++) {
     const from = Math.max(0, i - 2);
@@ -79,8 +83,8 @@ export function toPoints(series: Pick<WeekSeries, "hours">, upToHour: number): P
  * The points a chart should draw: the hours after a week's last ledger row are blanked (null), so a week still in progress ends
  * where it is instead of falling to zero or running flat to the end of the axis. The checkpoint table reads the unblanked points.
  */
-export function drawnPoints(points: readonly Point[], reached: number): (Point | { hour: number; cumPnl: null; pnl: null; wallet: null; ships: null; trades: null; rate: null })[] {
-  return points.map((p) => (p.hour <= reached ? p : { hour: p.hour, cumPnl: null, pnl: null, wallet: null, ships: null, trades: null, rate: null }));
+export function drawnPoints(points: readonly Point[], reached: number): (Point | { hour: number; cumPnl: null; pnl: null; wallet: null; ships: null; trades: null; units: null; rate: null })[] {
+  return points.map((p) => (p.hour <= reached ? p : { hour: p.hour, cumPnl: null, pnl: null, wallet: null, ships: null, trades: null, units: null, rate: null }));
 }
 
 export const CHECKPOINT_HOURS = [6, 12, 24, 36, 48, 60, 72, 96, 120, 144, 167] as const;
@@ -112,6 +116,7 @@ export interface WeekTotals {
   matchedPnl: number;
   pnlPerHour: number;
   trades: number;
+  units: number;
   ships: number;
   jumps: number;
   bestHourPnl: number;
@@ -127,6 +132,7 @@ export function weekTotals(series: Pick<WeekSeries, "hours">): WeekTotals {
     matchedPnl: Math.round(pnl),
     pnlPerHour: reached > 0 ? Math.round(pnl / reached) : 0,
     trades: series.hours.reduce((s, r) => s + r.sells, 0),
+    units: series.hours.reduce((s, r) => s + r.units, 0),
     ships: series.hours.reduce((s, r) => s + r.ships, 0),
     jumps: series.hours.reduce((s, r) => s + r.jumps, 0),
     bestHourPnl: Math.round(series.hours.reduce((m, r) => Math.max(m, r.pnl), 0)),

@@ -60,6 +60,9 @@ export interface CircuitContext {
   distanceBetween: (a: string, b: string) => number;
   /** True when this leg may not be used as a second leg (already assigned, reserved by another circuit, refused...). */
   unavailable: (candidate: ChainCandidate) => boolean;
+  /** Why the ship may not take this leg at all (per-speed route shape); undefined when it may. `fromSystem` is where the
+   *  empty leg to the leg's buy market starts (leg 1's sell market). */
+  refuse?: (candidate: ChainCandidate, fromSystem: string) => string | undefined;
 }
 
 export interface Circuit {
@@ -141,13 +144,14 @@ export function bestCircuit(
   if (policy.weight <= 0) return undefined;
   if (leg1.profitPerTrip <= 0 || leg1.tripSeconds <= 0) return undefined;
   const horizon = policy.horizonMinutes * 60;
+  const mid = systemOf(leg1.sellAt);
   let best: Circuit | undefined;
   for (const c of candidates) {
     if (c.key === leg1.key || c.good === leg1.good) continue;
     if (c.profitPerTrip <= 0 || c.tripSeconds <= 0) continue;
     if (outranks(c, leg1)) continue;
     if (!closesLoop(leg1, c, policy)) continue;
-    if (ctx.unavailable(c)) continue;
+    if (ctx.unavailable(c) || ctx.refuse?.(c, mid) !== undefined) continue;
     if (!leg2Survives(c, policy)) continue;
     const betweenSeconds = ctx.distanceBetween(leg1.sellAt, c.buyAt) * c.secPerDist;
     const returnSeconds = ctx.distanceBetween(c.sellAt, leg1.buyAt) * leg1.secPerDist;

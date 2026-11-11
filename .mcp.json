@@ -2,7 +2,7 @@
   "mcpServers": {
     "stcommand": {
       "type": "http",
-      "url": "https://stcommand.onrender.com/mcp",
+      "url": "https://traders.cloutier.work/mcp",
       "headers": {
         "Authorization": "${STCOMMAND_MCP_TOKEN}"
       }

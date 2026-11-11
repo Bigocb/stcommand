@@ -234,6 +234,27 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "slowHullSpeed",
+    name: "Slow hulls: speed threshold",
+    description: "Hulls with engine speed at or below this are limited by the slow-hull route clause below: a speed-15 hull flies a gate jump far slower than a freighter, so a long cross-system leg leaves it empty most of the time while a 36-60 hull gets there and back. Most light hulls are 15; freighters are 36-60. The two limits below each gate their own half, so this value on its own changes nothing. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",
+    value: 15, min: 1, max: 100, step: 5, unit: " speed",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "slowHullHauledHops",
+    name: "Slow hulls: most loaded jumps",
+    description: "A hull at or below the slow-hull speed may only take a route whose buy-to-sell leg is at most this many gate jumps. 0 = same system only. Fast hulls are unaffected; the global Hauled jumps clause still applies to everyone. docs/slow-hull-local-routes-spec.md (2026-11-11) measured a loaded share of 0.35 across the fleet, 65% of trader time in travel rather than load. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",
+    value: 1, min: 0, max: 10, step: 1, unit: " jumps",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "slowHullPositioningHops",
+    name: "Slow hulls: most positioning jumps",
+    description: "A hull at or below the slow-hull speed may only take a route whose buy market is at most this many gate jumps from where it is. 0 = must buy in its current system. Fast hulls are unaffected, and Positioning jumps still applies to everyone. docs/slow-hull-local-routes-spec.md: a slow hull that spends hours getting somewhere empty earns nothing. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",
+    value: 2, min: 0, max: 10, step: 1, unit: " jumps",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "autoApproveFloorSale",
     name: "Auto-approve below-floor sales: least share of cost",
     description: "A lot held under its loss floor is sold without an approval card when the market pays at least this percent of its cost basis per unit and the loss stays under the cap below. Added 2026-10-31: nobody was awake to answer the cards overnight and the ships sat on their cargo. A market paying next to nothing (1c on a 17,851c basis) is not sold into: that one still asks, and the ship holds. Off (the default) = every below-floor sale asks the operator, as before. Takes effect on the next held lot.",
