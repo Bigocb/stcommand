@@ -52,6 +52,12 @@ export interface ReleasePolicy {
   keeperCost: number;
   /** A staged system needs at least this share (0..1) of its listed markets priced once before release. 0 = no such test. */
   minPricedShare: number;
+  /**
+   * The tour path (operator rule, 2026-11-12, as run by hand in the 2026-11-01 week): a staged system with a tour or explorer ship in it
+   * is ready once at least this share (0..1) of its listed markets is priced, whatever share of its keepers is in place. The tour has
+   * read its markets and keepers are bought on while it trades. 0 = off (only keepers make a system ready, as before).
+   */
+  tourReleaseShare: number;
 }
 
 /** Share of a staged system's keepers in place under which it counts as stuck once it is older than `stuckStagedMs`. */
@@ -76,6 +82,7 @@ export const DEFAULT_RELEASE_POLICY: ReleasePolicy = {
   minCashAfter: 0,
   keeperCost: 35_000,
   minPricedShare: 0,
+  tourReleaseShare: 0,
 };
 
 export interface QueueFacts {
@@ -90,6 +97,8 @@ export interface QueueFacts {
   readyShare?: number;
   /** Staged only: share of its listed markets with a price snapshot of any age; undefined = not known (the test is skipped). */
   pricedShare?: number;
+  /** Staged only: a free tour or explorer ship of ours is in this system now. undefined = not known, treated as no. */
+  tourHere?: boolean;
   /**
    * Can our ships gate to it over finished gates? false = no: a keeper probe cannot be delivered, so it is never staged and a
    * staged one does not hold a "staged ahead" place (2026-10-30: AV28, BR8 and KN88, gates unfinished, sat staged with no keeper for
@@ -196,8 +205,13 @@ export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDeci
     return out;
   }
   const priced = (q: QueueFacts): boolean => p.minPricedShare <= 0 || q.pricedShare === undefined || q.pricedShare >= p.minPricedShare;
-  const unpriced = staged.filter((q) => eligible(q) && reachable(q) && (q.readyShare ?? 0) >= READY_SHARE && !priced(q));
-  const ready = staged.filter((q) => eligible(q) && reachable(q) && (q.readyShare ?? 0) >= READY_SHARE && priced(q)).sort((a, b) => (b.readyShare ?? 0) - (a.readyShare ?? 0) || (a.stagedAt ?? 0) - (b.stagedAt ?? 0) || a.addedAt - b.addedAt);
+  const keepersReady = (q: QueueFacts): boolean => (q.readyShare ?? 0) >= READY_SHARE;
+  // The tour path: a tour ship in the system and enough of its markets priced stand in for the keepers. The share must be known.
+  const tourReady = (q: QueueFacts): boolean => p.tourReleaseShare > 0 && q.tourHere === true && q.pricedShare !== undefined && q.pricedShare >= p.tourReleaseShare;
+  const unpriced = staged.filter((q) => eligible(q) && reachable(q) && keepersReady(q) && !priced(q) && !tourReady(q));
+  const ready = staged
+    .filter((q) => eligible(q) && reachable(q) && ((keepersReady(q) && priced(q)) || tourReady(q)))
+    .sort((a, b) => Number(keepersReady(b) && priced(b)) - Number(keepersReady(a) && priced(a)) || (b.readyShare ?? 0) - (a.readyShare ?? 0) || (b.pricedShare ?? 0) - (a.pricedShare ?? 0) || (a.stagedAt ?? 0) - (b.stagedAt ?? 0) || a.addedAt - b.addedAt);
   const pick = ready[0];
   if (!pick) {
     out.notes.push(
@@ -207,6 +221,7 @@ export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDeci
     return out;
   }
   const why = idle ? `${s.idleTraders} trader(s) idle, at or over ${p.idleTradersMax}` : `${covered} live premium system(s) not fading, target ${p.target}${soon ? `, ${soon} fading within ${Math.round(p.leadMs / 60_000)} min` : ""}${untraded ? `, ${untraded} not counted for lack of sales` : ""}`;
-  out.release.push({ system: pick.system, reason: `${why}; ${pick.system} is ${Math.round((pick.readyShare ?? 0) * 100)}% ready` });
+  const viaTour = !(keepersReady(pick) && priced(pick));
+  out.release.push({ system: pick.system, reason: viaTour ? `${why}; ${pick.system} has a tour ship in it and ${Math.round((pick.pricedShare ?? 0) * 100)}% of its markets priced (tour path, ${Math.round(p.tourReleaseShare * 100)}% needed), ${Math.round((pick.readyShare ?? 0) * 100)}% of keepers in place` : `${why}; ${pick.system} is ${Math.round((pick.readyShare ?? 0) * 100)}% ready` });
   return out;
 }
