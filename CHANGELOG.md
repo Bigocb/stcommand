@@ -6,6 +6,27 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+
+## 2026-11-12 — Fresh systems: release a staged system a tour ship has priced (`releaseOnTourPct`, off)
+
+Operator rule, from the hybrid run by hand in the 2026-11-01 week (`docs/journal/2026-11-01.md`): a staged system with a tour ship touring it
+is released once about half its markets are priced, without waiting for all its keepers. The engine could not do this: `decideReleases`
+needed 80% of a staged system's keepers in place (`READY_SHARE`) before anything else, and `releaseMinPricedPct` was only an extra test on
+top, so on 2026-11-11/12 five staged systems sat at 0-13% keepers while THEO-4B had already priced YK92 (released by hand at 03:44 on 11-12).
+`freshTours` already sends free tour/explorer ships to the staged systems (`queueTours.ts`); this adds the release half.
+
+- `src/engine/systemRelease.ts`: policy `tourReleaseShare` (0 = off) and queue fact `tourHere`. A staged system is ready when its keepers are
+  in place and priced as before, OR when a tour ship is in it and its priced share is at least `tourReleaseShare` (the share must be known).
+  Keeper-ready systems still go first. The target of live premium systems, the gap between releases, holds and reachability are unchanged,
+  and the reason line says "tour path".
+- `src/engine/doctrine.ts`: clause `releaseOnTourPct` (10-100%, default 50, **ships off**). `src/engine/fleet.ts` fills `tourHere` from the
+  tour and explorer ships that are in a system and not in transit.
+- Tests in `tests/systemRelease.test.ts` ("release by tour"): releases at the share with 1 keeper in place, needs both the ship and the share,
+  keeper-ready first, target/gap/hold/reachability still apply, clause off reproduces today. No test at the fleet seam: the FleetManager fixtures
+  do not build here (see CLAUDE.md, "Running the database tests locally"); the wiring is eight lines in `maybeManageFreshSystems`.
+- To use it: `set_doctrine releaseOnTourPct` 50 and enable it, with `freshGate` auto and `freshTours` on. The tour ship moves on at
+  `releaseMinPricedPct` (80%) as before, so a system released at 50% is still being priced for a while.
+
 ## 2026-11-11 — Every Approvals row is actionable: approve an "upcoming" keeper market in one click (`docs/approve-any-approval-item-prd.md`)
 
 Why: the Approvals screen listed keeper priority markets with no open ask under "upcoming" but only as information, and the copy said they were "waiting for a ship to dock there" — stale, since tagging a market already runs the immediate coverage check and raises the keeper card.

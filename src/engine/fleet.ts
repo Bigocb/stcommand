@@ -5830,6 +5830,7 @@ export class FleetManager {
       leadMs: this.doctrine.value("freshLeadMin") * 60_000,
       fadeMs: this.doctrine.value("freshFadeHours") * 3_600_000,
       minPricedShare: this.doctrine.isEnabledOr("releaseMinPricedPct", false) ? this.doctrine.value("releaseMinPricedPct") / 100 : 0,
+      tourReleaseShare: this.doctrine.isEnabledOr("releaseOnTourPct", false) ? this.doctrine.value("releaseOnTourPct") / 100 : 0,
       // Staging waits for the cash to cover the system's keepers. Its own clause (systemReleaseMinCash), not the keeper auto-buy reserve.
       minCashAfter: this.doctrine.isEnabledOr("systemReleaseMinCash", false) ? this.doctrine.value("systemReleaseMinCash") : 0,
     };
@@ -6426,11 +6427,18 @@ export class FleetManager {
     // Markets any keeper has read at least once (a snapshot of any age); unknown when the store cannot say, so the release test is skipped.
     let pricedSeen: Set<string> | undefined;
     try { pricedSeen = new Set(((await this.store.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol)); } catch { pricedSeen = undefined; }
+    // Systems with one of our tour or explorer ships in them now (the tour path of the release rule, clause releaseOnTourPct).
+    const toured = new Set<string>();
+    for (const agent of [...this.tours.values(), ...this.explorers.values()]) {
+      const sh = agent.getShip();
+      if (sh.nav.status !== "IN_TRANSIT" && sh.nav.systemSymbol) toured.add(sh.nav.systemSymbol);
+    }
     const queue: QueueFacts[] = all.filter((q) => q.state !== "live").map((q) => ({
       system: q.system, state: q.state as "scouted" | "staged", held: q.held, addedAt: q.addedAt, stagedAt: q.stagedAt, markets: q.markets.length,
       ...(reachKnown ? { reachable: reach.has(q.system) } : {}),
       ...(q.state === "staged" ? { readyShare: q.markets.length ? q.markets.filter((m) => ready.has(m)).length / q.markets.length : 0 } : {}),
       ...(q.state === "staged" && pricedSeen && q.markets.length ? { pricedShare: q.markets.filter((m) => pricedSeen.has(m)).length / q.markets.length } : {}),
+      ...(q.state === "staged" ? { tourHere: toured.has(q.system) } : {}),
     }));
 
     let live: LiveFacts[] = [];

@@ -251,3 +251,40 @@ describe("release waits for markets to be priced", () => {
     assert.equal(decideReleases({ ...base, queue: [staged("X1-A", 1)] }, policy).release.length, 1);
   });
 });
+
+describe("release by tour (clause releaseOnTourPct)", () => {
+  const base = { now: 100 * 3_600_000, live: [], idleTraders: 5, budgetRoom: null } as const;
+  const stagedQ = (system: string, readyShare: number, pricedShare: number | undefined, tourHere?: boolean) => ({
+    system, state: "staged" as const, held: false, addedAt: 0, stagedAt: 0, markets: 8, readyShare,
+    ...(pricedShare === undefined ? {} : { pricedShare }), ...(tourHere === undefined ? {} : { tourHere }),
+  });
+  const tourPolicy = { ...DEFAULT_RELEASE_POLICY, mode: "auto" as const, target: 3, minPricedShare: 0.8, tourReleaseShare: 0.5 };
+
+  it("releases a staged system with a tour ship in it and half its markets priced, with one keeper in place", () => {
+    const d = decideReleases({ ...base, queue: [stagedQ("X1-T", 0.125, 0.6, true)] }, tourPolicy);
+    assert.deepEqual(d.release.map((r) => r.system), ["X1-T"]);
+    assert.match(d.release[0]!.reason, /tour ship in it and 60% of its markets priced \(tour path, 50% needed\), 13% of keepers/);
+  });
+  it("needs the tour ship and the priced share: neither alone releases it", () => {
+    assert.equal(decideReleases({ ...base, queue: [stagedQ("X1-T", 0.125, 0.6, false)] }, tourPolicy).release.length, 0, "no tour ship in it");
+    assert.equal(decideReleases({ ...base, queue: [stagedQ("X1-T", 0.125, 0.4, true)] }, tourPolicy).release.length, 0, "under the share");
+    assert.equal(decideReleases({ ...base, queue: [stagedQ("X1-T", 0.125, undefined, true)] }, tourPolicy).release.length, 0, "share unknown");
+  });
+  it("prefers a system whose keepers are all in place over one released by tour, and still obeys the target and the gap", () => {
+    const d = decideReleases({ ...base, queue: [stagedQ("X1-T", 0.125, 0.9, true), stagedQ("X1-K", 1, 1, false)] }, tourPolicy);
+    assert.deepEqual(d.release.map((r) => r.system), ["X1-K"]);
+    const met = decideReleases({ ...base, idleTraders: 0, live: [live("X1-L1", 1), live("X1-L2", 2), live("X1-L3", 3)], queue: [stagedQ("X1-T", 0.125, 0.9, true)] }, tourPolicy);
+    assert.deepEqual(met.release, [], "target met: no release even with a tour-priced system");
+    const gap = decideReleases({ ...base, lastReleaseAt: base.now - 60_000, queue: [stagedQ("X1-T", 0.125, 0.9, true)] }, { ...tourPolicy, minGapMs: 15 * 60_000 });
+    assert.deepEqual(gap.release, [], "inside the minimum gap");
+  });
+  it("a held or unreachable system is never released by tour", () => {
+    assert.equal(decideReleases({ ...base, queue: [{ ...stagedQ("X1-T", 0.125, 0.9, true), held: true }] }, tourPolicy).release.length, 0);
+    assert.equal(decideReleases({ ...base, queue: [{ ...stagedQ("X1-T", 0.125, 0.9, true), reachable: false }] }, tourPolicy).release.length, 0);
+  });
+  it("clause off (0) reproduces today's behaviour: a tour-priced system with few keepers waits", () => {
+    const off = { ...tourPolicy, tourReleaseShare: 0 };
+    assert.equal(decideReleases({ ...base, queue: [stagedQ("X1-T", 0.125, 0.9, true)] }, off).release.length, 0);
+    assert.equal(decideReleases({ ...base, queue: [stagedQ("X1-K", 1, 1)] }, off).release.length, 1, "keeper-ready systems release as before");
+  });
+});

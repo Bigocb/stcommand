@@ -612,6 +612,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "releaseOnTourPct",
+    name: "Fresh systems: release a staged system a tour ship has priced",
+    description: "On = a staged system with a tour or explorer ship in it is released once at least this percent of its listed markets have been priced, without waiting for 80% of its keepers (the keepers are bought on while it trades, and the tour keeps pricing). This is the hybrid run by hand in the 2026-11-01 week (release once the tour is touring it and routes show) and the operator's rule of 2026-11-12. It still obeys the other release rules: the target of live premium systems, the gap between releases, held systems and reachability. Needs Fresh systems on auto and, to get ships there, Fresh systems: tour ships price the staged systems. Off (the default) = only keepers in place make a system ready, as before.",
+    value: 50, min: 10, max: 100, step: 5, unit: "%",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "freshTours",
     name: "Fresh systems: tour ships price the staged systems",
     description: "On (with Fresh systems on auto) = the engine sends free tour or explorer ships to the staged systems, nearest first, to read their markets: a staged system has its keepers parked, so nobody prices it until it is released, and the release rule waits for the share of markets priced (Fresh systems: share of markets priced before release). A ship stays in a system until that share is reached, then moves to the next. The value is the most ships working at once. A tour ship with a destination the operator set is never touched; held ships are never touched. This automates the hand-run 'fresh-system hybrid' of the week of 2026-11-01 (docs/journal/2026-11-01.md). Off (the default) = no ship is sent. Takes effect within 5 minutes. See src/engine/queueTours.ts.",
