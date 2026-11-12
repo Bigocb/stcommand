@@ -6430,8 +6430,9 @@ export class FleetManager {
     // Systems with one of our tour or explorer ships in them now (the tour path of the release rule, clause releaseOnTourPct).
     const toured = new Set<string>();
     for (const agent of [...this.tours.values(), ...this.explorers.values()]) {
+      // A tour ship hops between waypoints inside the system, so it is IN_TRANSIT much of the time with nav.systemSymbol still the system it is touring.
       const sh = agent.getShip();
-      if (sh.nav.status !== "IN_TRANSIT" && sh.nav.systemSymbol) toured.add(sh.nav.systemSymbol);
+      if (sh.nav.systemSymbol) toured.add(sh.nav.systemSymbol);
     }
     const queue: QueueFacts[] = all.filter((q) => q.state !== "live").map((q) => ({
       system: q.system, state: q.state as "scouted" | "staged", held: q.held, addedAt: q.addedAt, stagedAt: q.stagedAt, markets: q.markets.length,

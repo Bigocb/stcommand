@@ -20,7 +20,7 @@ top, so on 2026-11-11/12 five staged systems sat at 0-13% keepers while THEO-4B 
   Keeper-ready systems still go first. The target of live premium systems, the gap between releases, holds and reachability are unchanged,
   and the reason line says "tour path".
 - `src/engine/doctrine.ts`: clause `releaseOnTourPct` (10-100%, default 50, **ships off**). `src/engine/fleet.ts` fills `tourHere` from the
-  tour and explorer ships that are in a system and not in transit.
+  tour and explorer ships that are in a system (a ship hopping between waypoints counts: it is in transit much of the time, but still in that system).
 - Tests in `tests/systemRelease.test.ts` ("release by tour"): releases at the share with 1 keeper in place, needs both the ship and the share,
   keeper-ready first, target/gap/hold/reachability still apply, clause off reproduces today. No test at the fleet seam: the FleetManager fixtures
   do not build here (see CLAUDE.md, "Running the database tests locally"); the wiring is eight lines in `maybeManageFreshSystems`.
