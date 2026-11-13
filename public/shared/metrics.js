@@ -18,7 +18,7 @@ const RANGES = [
   { hours: 6, label: "6h" },
   { hours: 24, label: "24h" },
 ];
-const DEFAULT_TARGET = 25_738_654; // last week's final credits
+const DEFAULT_TARGET = 461_175_799; // last week's final cumulative matched profit (the 2026-11-01 week, ops profit_curve)
 // Every window refreshes once a minute; the 30-minute window refreshes every 15 seconds, so it reads as live.
 const REFRESH_MS = 60_000;
 const LIVE_REFRESH_MS = 15_000;
@@ -282,27 +282,30 @@ export function mountMetrics(root, { api, netWorth, collapsible = false } = {}) 
     $("mx-price").innerHTML = lineChart("Average price paid per unit", data.buckets, prices, data.hours, "var(--amber)");
 
     // Pace to reset
-    const target = Number(lsGet("metricsTarget", String(DEFAULT_TARGET))) || DEFAULT_TARGET;
-    const worth = netWorth?.() ?? (data.walletEnd ?? data.credits);
+    // Counted in cumulative matched profit this universe (realized profit on sells), not credits plus holds: hull purchases
+    // and cargo in the holds no longer move it. The rate is the window's matched profit per hour, the same measure.
+    const target = Number(lsGet("metricsTargetMatched", String(DEFAULT_TARGET))) || DEFAULT_TARGET;
+    const worth = data.matchedSinceReset ?? 0;
+    const rate = data.hours > 0 ? t.profit / data.hours : t.netPerHour;
     const resetMs = data.resetAt ? Date.parse(data.resetAt) : NaN;
     const left = Number.isFinite(resetMs) ? Math.max(0, (resetMs - Date.now()) / 3_600_000) : null;
-    if (left === null) {
+    if (left === null || data.matchedSinceReset == null) {
       $("mx-proj").innerHTML = `<div class="empty">The next reset time is not known yet.</div>`;
     } else {
-      const projected = Math.round(worth + t.netPerHour * left);
+      const projected = Math.round(worth + rate * left);
       const needed = target > worth && left > 0 ? Math.round((target - worth) / left) : 0;
       const gap = projected - target;
       $("mx-proj").innerHTML = `<div class="mx-projgrid">
-        <div><div class="k">Credits + holds now</div><div class="mv">${fmt(worth)}</div></div>
+        <div><div class="k">Matched profit since reset</div><div class="mv">${fmt(worth)}</div></div>
         <div><div class="k">Reset in</div><div class="mv">${left.toFixed(1)}h</div></div>
-        <div><div class="k">Projected at reset</div><div class="mv ${gap >= 0 ? "good" : "bad"}">${fmt(projected)}</div><div class="sub">at ${signed(t.netPerHour)}/h</div></div>
-        <div><div class="k">Target</div><div class="mv"><input id="mx-target" value="${fmt(target)}" inputmode="numeric" aria-label="Target credits"></div><div class="sub">${gap >= 0 ? `${fmt(gap)} ahead` : `${fmt(-gap)} short`}</div></div>
+        <div><div class="k">Projected at reset</div><div class="mv ${gap >= 0 ? "good" : "bad"}">${fmt(projected)}</div><div class="sub">at ${signed(Math.round(rate))}/h matched</div></div>
+        <div><div class="k">Target</div><div class="mv"><input id="mx-target" value="${fmt(target)}" inputmode="numeric" aria-label="Target matched profit"></div><div class="sub">${gap >= 0 ? `${fmt(gap)} ahead` : `${fmt(-gap)} short`}</div></div>
         <div><div class="k">Rate needed</div><div class="mv ${needed > t.netPerHour ? "bad" : "good"}">${needed ? signed(needed) : "reached"}/h</div><div class="sub">from now to the target</div></div>
       </div>`;
       const input = root.querySelector("#mx-target");
       input?.addEventListener("change", () => {
         const v = Number(String(input.value).replace(/[^0-9]/g, ""));
-        if (v > 0) { lsSet("metricsTarget", String(v)); render(); }
+        if (v > 0) { lsSet("metricsTargetMatched", String(v)); render(); }
       });
     }
 

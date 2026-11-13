@@ -545,8 +545,15 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       // the window: the capital is a running total.
       const hullEvents = hullEventsFrom(await w.store.shipLedgerRows(w.tenantId, new Date(0).toISOString()));
       const growth = growthPerWeek(samples, hullEvents, metrics.from, now);
+      // Cumulative matched profit this universe (realized profit on sells), whatever window the page shows: the Pace to
+      // reset panel counts from here, the same figure as ops profit_curve's cumulativeProfit.
+      const resetAtMs = Date.parse(resetWatcherStatus()?.nextReset ?? "");
+      const matchedSinceReset = Number.isFinite(resetAtMs)
+        ? (await w.store.opsLedgerBuckets(w.tenantId, { sinceIso: new Date(resetAtMs - 7 * 24 * 3600_000).toISOString(), bucketMin: 1440 })).reduce((s, b) => s + b.pnl, 0)
+        : null;
       res.json({
         ...metrics,
+        matchedSinceReset,
         buckets: metrics.buckets.map((b, i) => ({
           ...b,
           worth: worth[i] ?? null,

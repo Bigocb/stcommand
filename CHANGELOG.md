@@ -7,6 +7,20 @@ own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
 
+## 2026-11-13 — Metrics: Pace to reset counts cumulative matched profit, not credits plus holds
+
+Operator request. The panel started from credits plus holds, which moves with every hull bought and every hold loaded, so a week of
+buying ships read as a falling pace. It now starts from the cumulative matched profit this universe (realized profit on sells, the
+`cumulativeProfit` of ops `profit_curve`), and projects forward at the window's matched profit per hour (`totals.profit / hours`), the
+same measure.
+
+- `src/http/dashboard.ts`: `/api/metrics` adds `matchedSinceReset`, summed from `store.opsLedgerBuckets` from the universe start (next reset less
+  a week), whatever window the page is showing.
+- `public/shared/metrics.js`: the panel reads it, labels "Matched profit since reset", and the target now defaults to last week's final
+  cumulative matched profit (461,175,799) under a new browser key (`metricsTargetMatched`), so an old credits target is not read as a profit target.
+  The `netWorth` option of `mountMetrics` is no longer used by this panel; Deck and Tower still pass it.
+
+
 ## 2026-11-12 — Fresh systems: release a staged system a tour ship has priced (`releaseOnTourPct`, off)
 
 Operator rule, from the hybrid run by hand in the 2026-11-01 week (`docs/journal/2026-11-01.md`): a staged system with a tour ship touring it
