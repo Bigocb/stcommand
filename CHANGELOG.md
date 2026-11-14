@@ -17,6 +17,8 @@ live. Approving them as "upcoming" changed nothing: they were already on the pri
 - **Why the four were not bought is still unproven.** `maybeRequestKeeperProbeForMarket` and `advanceKeeperMarketQueue` left silently on a
   cooldown, a busy request slot, the other request kind targeting the market, a keeper already in durable state, and the 40-market try
   limit. Each now writes a `keeper:` note (`mcool`, `mslot`, `mother`, `mcov`, `queue-limit`), so ops logs names the cause.
+- **More notes (same day):** the remaining quiet exits also log now: `mcovered` (the engine counts the market covered), `mprio` (not on the
+  priority list), `wind-down` (buys held), and `queue-idle` (a pass ended with uncovered listed markets and nothing requested, naming the first five).
 - **UI:** Tower's Status screen and Deck's Overview show "Matched profit", cumulative since reset (`/api/metrics` `matchedSinceReset`,
   the `cumulativeProfit` of ops `profit_curve`), refreshed at most once a minute. Deck's KPI row is 7 columns wide.
 

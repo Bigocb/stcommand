@@ -7937,10 +7937,10 @@ export class FleetManager {
    */
   private async maybeRequestKeeperProbeForMarket(marketWaypoint: string): Promise<boolean> {
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return false;
-    if (this.coveredKeeperMarkets().has(marketWaypoint)) return false; // already covered (a parked keeper still covers it)
+    if (this.coveredKeeperMarkets().has(marketWaypoint)) { this.keeperNote(`mcovered:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: the engine counts it covered (a keeper, or a parked one, is pinned to it) though the keepers report shows nobody there`); return false; } // already covered (a parked keeper still covers it)
     if (inCooldown(this.keeperQueueCooldown.get(marketWaypoint), Date.now())) { this.keeperNote(`mcool:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: it is in a cooldown after a failed buy or a release for want of a ship`); return false; } // left alone for a while
     const priority = await this.keeperPriorityMarkets();
-    if (!priority.includes(marketWaypoint)) return false; // operator hasn't flagged this market as worth a keeper
+    if (!priority.includes(marketWaypoint)) { this.keeperNote(`mprio:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: it is not on the keeper priority list`); return false; } // operator hasn't flagged this market as worth a keeper
 
     // Deterministic "worth covering?" signal, 2026-09-21: the operator asked
     // for the approval to carry something concrete to judge by, rather than
@@ -8115,7 +8115,7 @@ export class FleetManager {
   private async advanceKeeperMarketQueue(): Promise<void> {
     if (!this.store || !this.tenantId) return;
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return;
-    if (this.windDownBlocksBuys()) return;
+    if (this.windDownBlocksBuys()) { this.keeperNote("wind-down", "keeper queue: no keeper is bought while the end-of-week wind-down holds buys"); return; }
     await this.timers()?.load();
     const existing = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
     const autoOn = this.doctrine.isEnabledOr("autoApproveKeeperProbes", false);
@@ -8148,6 +8148,8 @@ export class FleetManager {
       if (await this.maybeRequestKeeperProbeForMarket(m)) return;
       if (++tried >= (autoOn ? 40 : 8)) { this.keeperNote("queue-limit", `keeper queue: ${tried} markets tried this pass with none bought, ${priority.length - tried} left for the next`); return; }
     }
+    // The pass ended with uncovered listed markets and nothing requested: name the first few so the log says which ones sit.
+    if (priority.length > 0) this.keeperNote("queue-idle", `keeper queue: ${priority.length} uncovered listed market(s), none requested this pass (${tried} tried); first: ${priority.slice(0, 5).join(", ")}`);
   }
 
   /**
