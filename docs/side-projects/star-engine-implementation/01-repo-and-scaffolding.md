@@ -44,7 +44,7 @@ star-engine/
   .env.example                   (variable NAMES only, empty values)
   config/
     runtime.example.yaml         (non-secret runtime config: mode, budget, paths)
-    policy.default.yaml          (the policy; full contents in 04 section 9)
+    policy.default.yaml          (the policy; full contents in 04-decision-engine.md section 12)
     policy.schema.ts             (re-export of src/core/policy.ts zod schema, used by `npm run policy:check`)
   migrations/
     001_core.sql                 (events, api_calls, weeks, kv)
@@ -212,7 +212,7 @@ alerts:
 ```
 
 ### 4.2 `config/policy.default.yaml`
-The policy (every tunable number, rule on/off). Full content in `04-decision-engine.md` section 9. Hot-reload rules
+The policy (every tunable number, rule on/off). Full content in `04-decision-engine.md` section 12. Hot-reload rules
 (X-12): validate against the zod schema and bounds; on any error keep the old policy and emit an alert event; every
 accepted change writes a `config_change` event with before and after and bumps `policyVersion` (monotonic integer).
 
