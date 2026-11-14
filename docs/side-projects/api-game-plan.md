@@ -107,11 +107,11 @@ Pitch: we do not build a world. We build a service next to SpaceTraders that add
 | Human playability by hand (2) | 4 | 4 | 4 | 2 | 3 |
 | Replay/spectator appeal (1) | 4 | 3 | 2 | 5 | 3 |
 | Independence from third parties (3) | 5 | 5 | 5 | 5 | 1 |
-| **Weighted total (max 85)** | **76** | **65** | **71** | **49** | **46** |
+| **Weighted total (max 85)** | **71** | **62** | **71** | **49** | **38** |
 
-(Independence was added as a criterion once concept E made dependency risk a real axis; without it the totals are A 56, B 47, C 56, D 34, E 43 out of 70 and the ranking is the same.)
+(Independence was added as a criterion once concept E made dependency risk a real axis; without it the totals are A 56, B 47, C 56, D 34, E 35 out of 70 and the ranking is the same.)
 
-Recommendation: **Saltmarch**, built as a **Guildhall core first** (the market/production engine is shared; geography is a layer added in phase 2). A and C are within a few points because they share the engine; the extra differentiation (piracy, scouting, blockade) breaks the tie for A. If the geography layer proves too costly, Guildhall ships as a game on its own.
+Recommendation: **Saltmarch**, built as a **Guildhall core first** (the market/production engine is shared; geography is a layer added in phase 2). A and C tie on the numbers because they share the engine; the tie is broken by the qualitative gaps only A closes (piracy, scouting, blockade, geography), and by building C first as A's core. If the geography layer proves too costly, Guildhall ships as a game on its own.
 
 **Does concept E change the recommendation? No, but it changes the plan in one way.** E cannot fix the problems that motivated the project (API budget as the dominant constraint, no adversaries, price-taker markets), because those live inside a game we do not control, and it carries an uncontrollable dependency. As a *route*, "layer first, then graduate" is therefore **not better** than building the world directly: the layer proves demand for leagues and careers, but it does not test the risky mechanics (tick/AP budgets, raiding, P2P order books), and half the audience's patience is spent on a product that is not the final one. What is worth taking from it:
 - **Build the identity, ledger, guild, contract-escrow and league services game-agnostic** (adapter per game). Saltmarch is the first-party adapter; SpaceTraders could be a second, optional one. This costs little and is the real "graduation path".
