@@ -150,3 +150,15 @@ and links answers to the ADR that resolves them.
 | Per-sale | ~54 units, ~450c/unit, ~26k/sale at the plateau | metrics |
 | Cash discipline | 3M hull gate, 5M keeper gate, escape clause (flat 2 h / under 80k/h / idle traders) | `04` |
 | Reset | detection by polling unauthenticated `GET /v2/` (A) every ~5 min; a 401 matching `reset_date does not match` latches the agent dead | `03` |
+
+## Operator answers (2026-11-14) — these override the defaults in 05, 07 and 08
+
+| Question | Answer | What changes in the plan |
+|---|---|---|
+| Q-PROXY / Q-SAMEIP | Separate source IP via proxy | Drop the shared-IP 20% fallback. Full live budget (105/min) on its own proxy IP. The engine must refuse to start if its IP-echo check returns the box's own IP. |
+| Q-HOST | Same box as stcommand | Run as a separate OS user and process with its own SQLite file, log directory and disk quota. Add a free-disk watchdog (stop and alert below a set free-space floor; the box hit a full disk on 11-13). Never share the stcommand Postgres. CPU/memory limits (systemd or cgroup). |
+| Q-SHADOW-INTEL | Go straight to trading | M0 (read-only shadow) becomes a short smoke test on the first reset day, not a week. It still runs first so the unverified API shapes (marked A) are checked before the first purchase. Skip the import-feed work (Q-EXPORT) for the MVP. |
+| Q-INTERFERE / Q-AUTONOMY | Trade live from next week (reset 2026-11-15 13:00 UTC); it affects THEO no more than any other player | Remove the "shadow only until 11-22" default. Keep the kill switch, spend caps and drawdown guard from 08 (they protect the new agent's own money, not THEO). Level and drawdown threshold: still use the plan default (level 1, 10%) unless the operator changes it. |
+
+Still open (defaults in 08 section 6): Q-ACCT, Q-IPECHO, Q-HARD, Q-GATE, Q-ALERT, Q-STACK, Q-START, Q-FEE, Q-CURVE, Q-SEED, Q-RESETTIME, Q-SCRAP, Q-MINING, Q-LANES.
+Timing note: the next reset is about 14 hours away; the plan is a build spec for another agent, so live trading next week needs the repo, a second agent token and a proxy ready before 13:00 UTC 11-15, or it slips a week.
