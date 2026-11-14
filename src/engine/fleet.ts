@@ -3539,6 +3539,18 @@ export class FleetManager {
    */
   private async restorePersistedManualRoles(ships: Ship[]): Promise<void> {
     const rows = (this.tenantId ? await this.store?.getFleetState(this.tenantId) : undefined) ?? [];
+    // A keeper pin for a hull that no longer exists (scrapped or lost while we were down) was reserved up front in init() and nothing
+    // ever released it, so the market read as covered forever and the buy queue skipped it without a word (2026-11-14: AH67-DD6B,
+    // TQ76-CF7C, QS20-A11F, FT31-A16A). Drop pins and parked-keeper entries whose ship is not in the fleet.
+    const alive = new Set(ships.map((s) => s.symbol));
+    const ghosts = new Set<string>();
+    if (ships.length > 0) for (const sym of [...this.keeperMarkets.keys(), ...this.parkedKeeperMarkets.keys()]) if (!alive.has(sym)) ghosts.add(sym); // an empty fleet read prunes nothing
+    for (const sym of ghosts) {
+      const market = this.keeperMarkets.get(sym) ?? this.parkedKeeperMarkets.get(sym);
+      this.keeperMarkets.delete(sym);
+      this.parkedKeeperMarkets.delete(sym);
+      this.log(`keeper pin released: ${sym} is not in the fleet any more, so ${market} reads uncovered again`);
+    }
     for (const r of rows) {
       if (!MANUAL_ROLES.has(r.role as ManualRole)) continue; // unknown/stale role value; ignore rather than crash
       const role = r.role as ManualRole;

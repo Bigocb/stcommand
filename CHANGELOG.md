@@ -7,6 +7,11 @@ own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
 
+
+## 2026-11-14 — Stale keeper pins released at boot (unbought markets)
+
+Four markets (AH67-DD6B, TQ76-CF7C, QS20-A11F, FT31-A16A) stayed uncovered for hours with no buy and no note. Cause: `init()` reserves every persisted keeper market, but `restorePersistedManualRoles()` skipped rows whose ship was gone ("scrapped while we were down") without releasing the pin, so `coveredKeeperMarkets()` counted the market covered and `advanceKeeperMarketQueue` dropped it silently. `restorePersistedManualRoles()` now releases pins and parked-keeper entries for ships not in the fleet (never on an empty fleet read) and logs each. Takes effect at the next restart. Doctrine changes the same evening: `freshStagedAhead` 4 -> 5 (clause max), `freshMinGapMin` 15 -> 10, `releaseMinPricedPct` 80 -> 60.
+
 ## 2026-11-14 — Keeper top-up: waiting limit is a clause, silent skips now log; cumulative matched profit on both home screens
 
 Operator request. Top-up added nothing for 2.5 h (last add 11:46Z) because 4 listed markets (AH67-DD6B, TQ76-CF7C, QS20-A11F,
