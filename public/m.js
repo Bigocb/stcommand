@@ -408,6 +408,7 @@ function unassignedTraders() {
 let statusFleet = { hulls: 0, stranded: 0, unassigned: 0 };
 let statusExtras = { queue: null, keepers: null, stuck: null, hourly: null };
 let statusExtrasAt = 0;
+let matchedCum = null; // cumulative matched profit this universe, from /api/metrics (refreshed with the status extras)
 function renderTiles() {
   const ships = state?.ships ?? [];
   const stranded = fleetStatus.stranded?.length ?? 0;
@@ -421,6 +422,7 @@ function renderTiles() {
   // Now › Status (redesign B): two headline figures, then the hourly table and the checks (renderStatusExtras).
   setHtml($("home-tiles"), `
     <div class="tile"><div class="k">Profit per hour</div><div class="v hero ${rate >= 0 ? "ice" : "red"}">${signed(rate)}<span class="sub"> /hr${trend}</span></div>${pace ? `<div class="sub">3h average ${signed(pace.perHour3h)} · traders' sales less their own fuel and jumps</div>${bridge.paceExpansion ? `<div class="sub" title="Fuel and jumps paid by keepers, explorers and tour ships: probe deliveries to new systems, explorers pricing them. Not trading, so it is kept out of the figure above. Trading plus this is the all-in rate.">Expansion ${signed(bridge.paceExpansion.perHour1h)}/hr · all-in ${signed(rate + bridge.paceExpansion.perHour1h)}/hr</div>` : ""}${paceSparkline(pace.series)}` : ""}</div>
+    <div class="tile"><div class="k">Matched profit</div><div class="v hero ${matchedCum === null || matchedCum >= 0 ? "ice" : "red"}" title="${escapeAttr(matchedCum === null ? "" : fmt(matchedCum))}">${matchedCum === null ? "—" : signed(matchedCum)}</div><div class="sub">cumulative since reset · realized profit on sells</div></div>
     <div class="tile"><div class="k">Credits + holds</div><div class="v hero">${fmt(wph.total)}${wph.partial ? "+" : ""}</div>
       ${wp && wp.perHour1h !== null ? `<div class="sub" title="Change in credits plus the estimated value of every hold, per hour, with ship purchases added back. Counts cargo at what it should fetch, so it includes profit not yet sold.">Worth ${signed(wp.perHour1h)}/hr${wp.perHour3h !== null ? ` · 3h ${signed(wp.perHour3h)}` : ""}</div>` : ""}
       <div class="pair"><div><div class="pk">Credits</div><div class="pv" title="${escapeAttr(fmt(state?.agent?.credits ?? bridge.credits ?? 0))}">${short(state?.agent?.credits ?? bridge.credits ?? 0).replace("+", "")}</div></div><div><div class="pk">Holds</div><div class="pv" title="${escapeAttr(fmt(wph.holds))}">~${short(wph.holds).replace("+", "")}</div></div></div>
@@ -443,6 +445,8 @@ async function loadStatusExtras(force = false) {
   const get = (path) => api("GET", path).catch(() => null);
   const [queue, keepers, stuck, metrics] = await Promise.all([get("/api/ops/system_queue"), get("/api/ops/keepers"), get("/api/ops/stuck"), get("/api/metrics?hours=6")]);
   statusExtras = { queue, keepers, stuck, hourly: metrics?.buckets ? hourlyRows(metrics.buckets, metrics.bucketMinutes, Date.now()) : null };
+  matchedCum = typeof metrics?.matchedSinceReset === "number" ? metrics.matchedSinceReset : matchedCum;
+  renderTiles();
   renderChecks();
   renderHomeHourly();
 }

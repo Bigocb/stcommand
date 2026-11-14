@@ -85,7 +85,7 @@ a{color:var(--amber)}
 .empty{color:var(--dim);font-size:11px;padding:8px 0}
 
 /* KPI row */
-.kpirow{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;flex:0 0 auto}
+.kpirow{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;flex:0 0 auto}
 .kpi{background:var(--panel);border:1px solid var(--hair);border-radius:5px;padding:11px 13px;display:flex;flex-direction:column;gap:5px}
 .kpi .k{font-family:var(--chrome);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim2)}
 .kpi .v{font-family:var(--mono);font-size:20px;font-weight:600;font-variant-numeric:tabular-nums}

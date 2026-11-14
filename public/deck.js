@@ -371,7 +371,20 @@ function unassignedTraders() {
   );
 }
 
+/* Cumulative matched profit this universe (realized profit on sells), the figure the metrics page and ops profit_curve use.
+ * Read from /api/metrics at most once a minute (hours=1 keeps the reply small) and drawn on the Overview tiles. */
+let matchedCum = { value: null, at: 0, busy: false };
+function loadMatchedCum() {
+  if (matchedCum.busy || Date.now() - matchedCum.at < 60_000) return;
+  matchedCum.busy = true;
+  api("GET", "/api/metrics?hours=1")
+    .then((m) => { matchedCum.value = typeof m?.matchedSinceReset === "number" ? m.matchedSinceReset : null; })
+    .catch(() => {})
+    .finally(() => { matchedCum.busy = false; matchedCum.at = Date.now(); renderKPIs(); });
+}
+
 function renderKPIs() {
+  loadMatchedCum();
   const stranded = fleetStatus.stranded ?? [];
   const unassigned = unassignedTraders();
   const manual = (fleetStatus.ships ?? []).filter((s) => s.paused);
@@ -409,6 +422,12 @@ function renderKPIs() {
       v: bestRoute ? signed(bestRoute.profitPerTrip) : "—",
       sub: bestRoute ? bestRoute.good : "none",
       cls: "amber",
+    },
+    {
+      k: "Matched profit",
+      v: matchedCum.value === null ? "—" : signed(matchedCum.value),
+      sub: "cumulative since reset",
+      cls: matchedCum.value === null ? null : matchedCum.value >= 0 ? "good" : "bad",
     },
     // Realized P&L from completed buy/sell round trips only, over the same
     // window the topbar's smoothed Rate averages — excludes cargo still in

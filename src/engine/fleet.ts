@@ -6254,7 +6254,7 @@ export class FleetManager {
       callsPerKeeper: f.perKeeper,
       pending: f.pending,
       rotationMin: this.keeperRotationMin(now),
-    }, { ...DEFAULT_TOPUP_POLICY, perHour: this.doctrine.value("keeperTopUpPerHour"), maxKeeperCalls: this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90, maxUnpriced: this.doctrine.isEnabledOr("keeperTopUpMaxUnpriced", true) ? this.doctrine.value("keeperTopUpMaxUnpriced") : 0, maxRotationMin: this.doctrine.isEnabledOr("keeperMaxRotationMin", false) ? this.doctrine.value("keeperMaxRotationMin") : 0 });
+    }, { ...DEFAULT_TOPUP_POLICY, perHour: this.doctrine.value("keeperTopUpPerHour"), maxKeeperCalls: this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90, maxPending: this.doctrine.isEnabledOr("keeperTopUpMaxPending", true) ? this.doctrine.value("keeperTopUpMaxPending") : DEFAULT_TOPUP_POLICY.maxPending, maxUnpriced: this.doctrine.isEnabledOr("keeperTopUpMaxUnpriced", true) ? this.doctrine.value("keeperTopUpMaxUnpriced") : 0, maxRotationMin: this.doctrine.isEnabledOr("keeperMaxRotationMin", false) ? this.doctrine.value("keeperMaxRotationMin") : 0 });
     this.topUpLast = { at: now, reason: decision.reason, market: decision.market };
     if (!decision.market) {
       if (decision.reason !== this.topUpNoteAt) { this.topUpNoteAt = decision.reason; this.keeperNote("topup", `keeper top-up: nothing added (${decision.reason})`); }
@@ -7938,7 +7938,7 @@ export class FleetManager {
   private async maybeRequestKeeperProbeForMarket(marketWaypoint: string): Promise<boolean> {
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return false;
     if (this.coveredKeeperMarkets().has(marketWaypoint)) return false; // already covered (a parked keeper still covers it)
-    if (inCooldown(this.keeperQueueCooldown.get(marketWaypoint), Date.now())) return false; // a failed buy or a release for want of a ship: left alone for a while
+    if (inCooldown(this.keeperQueueCooldown.get(marketWaypoint), Date.now())) { this.keeperNote(`mcool:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: it is in a cooldown after a failed buy or a release for want of a ship`); return false; } // left alone for a while
     const priority = await this.keeperPriorityMarkets();
     if (!priority.includes(marketWaypoint)) return false; // operator hasn't flagged this market as worth a keeper
 
@@ -8023,11 +8023,11 @@ export class FleetManager {
     if (this.store && this.tenantId) {
       const existing = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
       // With auto-approve on, the single approval slot is not this market's to wait for, so a busy slot must not end the pass.
-      if (existing && existing.shipSymbol !== shipSymbol) return !auto.approve; // the slot is busy with another market: nothing further can ask this tick
+      if (existing && existing.shipSymbol !== shipSymbol) { this.keeperNote(`mslot:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: the single request slot is held by ${existing.shipSymbol}`); return !auto.approve; } // the slot is busy with another market: nothing further can ask this tick
     }
 
-    if (await this.otherKeeperKindTargets("buyKeeperProbe", marketWaypoint)) return false; // the shipyard path already asked for this one
-    if (await this.keeperTargetCovered(marketWaypoint)) return false; // already covered per the durable state (another instance may have just bought it)
+    if (await this.otherKeeperKindTargets("buyKeeperProbe", marketWaypoint)) { this.keeperNote(`mother:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: the shipyard path already has an open request for it`); return false; } // the shipyard path already asked for this one
+    if (await this.keeperTargetCovered(marketWaypoint)) { this.keeperNote(`mcov:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: the durable fleet state already shows a keeper for it`); return false; } // already covered per the durable state (another instance may have just bought it)
     if (auto.approve) {
       // No card, and no ship has to happen to dock: any ship of ours at the yard (normally the keeper stationed there) buys it.
       const r = await this.buyKeeperThroughPresentShip(best.waypointSymbol, marketWaypoint, best.price, best.hull);
@@ -8144,9 +8144,9 @@ export class FleetManager {
     let tried = 0;
     for (const m of priority) {
       if (covered.has(m)) continue;
-      if (inCooldown(this.keeperQueueCooldown.get(m), Date.now())) continue; // released a while ago for want of a ship at its yard
+      if (inCooldown(this.keeperQueueCooldown.get(m), Date.now())) { this.keeperNote(`mcool:${m}`, `no keeper request for ${m}: it is in a cooldown after a failed buy or a release for want of a ship`); continue; } // released a while ago for want of a ship at its yard
       if (await this.maybeRequestKeeperProbeForMarket(m)) return;
-      if (++tried >= (autoOn ? 40 : 8)) return;
+      if (++tried >= (autoOn ? 40 : 8)) { this.keeperNote("queue-limit", `keeper queue: ${tried} markets tried this pass with none bought, ${priority.length - tried} left for the next`); return; }
     }
   }
 

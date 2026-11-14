@@ -724,6 +724,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperTopUpMaxPending",
+    name: "Keepers: top-up waits while this many listed markets lack a keeper",
+    description: "Top-up adds nothing while this many listed markets still wait for a keeper (the normal buy queue is meant to catch up first). Raise it when a few markets sit unbought and hold top-up back (2026-11-14: 4 waited against the old fixed limit of 3, and top-up added nothing for 2.5 hours). Only applies while Keepers: top up live systems is on. Off = the old fixed 3.",
+    value: 3, min: 1, max: 30, step: 1, unit: " markets",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "keeperTopUpMaxCalls",
     name: "Keepers: top-up polling ceiling",
     description: "Top-up stops while the keepers' own polling would pass this many API calls a minute (trading, ship moves and surveys need the rest). Up to 90 fits one IP; with the API lane on (apiLaneProxy) the keepers' reads leave from a second IP, so a higher ceiling can be used - watch the lane's calls a minute in ops api_budget and keep it under about 80% of its rate. Check ops keeper_review for the current load. Only applies while Keepers: top up live systems is on.",

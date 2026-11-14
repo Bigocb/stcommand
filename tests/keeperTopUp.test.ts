@@ -28,6 +28,11 @@ test("holds while listed markets still wait for keepers", () => {
   assert.match(pickTopUp(systems, { ...ctx, pending: 3 }, policy).reason, /still wait/);
 });
 
+test("a raised waiting limit (keeperTopUpMaxPending) lets top-up go with 4 markets waiting", () => {
+  assert.match(pickTopUp(systems, { ...ctx, pending: 4 }, policy).reason, /limit 3/);
+  assert.equal(pickTopUp(systems, { ...ctx, pending: 4 }, { ...policy, maxPending: 6 }).market, "X1-BB-1");
+});
+
 test("holds at the keeper limit, and 0 means no limit", () => {
   assert.equal(pickTopUp(systems, { ...ctx, keepers: 300 }, policy).market, undefined);
   assert.equal(pickTopUp(systems, { ...ctx, keepers: 5000, max: 0 }, policy).market, "X1-BB-1");

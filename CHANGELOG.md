@@ -7,6 +7,19 @@ own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
 
+## 2026-11-14 — Keeper top-up: waiting limit is a clause, silent skips now log; cumulative matched profit on both home screens
+
+Operator request. Top-up added nothing for 2.5 h (last add 11:46Z) because 4 listed markets (AH67-DD6B, TQ76-CF7C, QS20-A11F,
+FT31-A16A) sat uncovered against a waiting limit of 3 that was hardcoded in `keeperTopUp.ts` (`maxPending`), so it could not be raised
+live. Approving them as "upcoming" changed nothing: they were already on the priority list.
+- **`keeperTopUpMaxPending`** (default 3, on, 1-30): the limit is now a doctrine clause wired into the top-up policy; off or unset
+  reproduces the old 3. Test: `tests/keeperTopUp.test.ts`.
+- **Why the four were not bought is still unproven.** `maybeRequestKeeperProbeForMarket` and `advanceKeeperMarketQueue` left silently on a
+  cooldown, a busy request slot, the other request kind targeting the market, a keeper already in durable state, and the 40-market try
+  limit. Each now writes a `keeper:` note (`mcool`, `mslot`, `mother`, `mcov`, `queue-limit`), so ops logs names the cause.
+- **UI:** Tower's Status screen and Deck's Overview show "Matched profit", cumulative since reset (`/api/metrics` `matchedSinceReset`,
+  the `cumulativeProfit` of ops `profit_curve`), refreshed at most once a minute. Deck's KPI row is 7 columns wide.
+
 ## 2026-11-13 — Metrics: Pace to reset counts cumulative matched profit, not credits plus holds
 
 Operator request. The panel started from credits plus holds, which moves with every hull bought and every hold loaded, so a week of
