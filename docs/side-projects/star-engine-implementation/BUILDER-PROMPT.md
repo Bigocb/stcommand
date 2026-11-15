@@ -10,7 +10,8 @@ Work on a branch (for example `feat/m0-scaffolding`), never on `main`, and open 
    interfaces (file 02), the API client and the hard per-minute request budget (file 03), the decision engine
    modules (file 04), and the tests and fake API server (file 06). Use a fake API server and recorded or
    hand-written market data. Every module returns a one-line reason for each decision.
-2. Stop at the M0 smoke test that needs the real API. Do not call api.spacetraders.io until the operator gives you
+2. Aim to reach the M0 smoke test and M1 (one ship, small caps, kill switch) as fast as the quality bar allows, because the
+   operator wants live trading as soon as it is ready. Do not skip tests or safety to hit a date. Stop at the M0 smoke test that needs the real API. Do not call api.spacetraders.io until the operator gives you
    a token and a proxy (see "Stop points").
 
 ## Rules
@@ -34,8 +35,8 @@ Work on a branch (for example `feat/m0-scaffolding`), never on `main`, and open 
 
 ## Operator answers (2026-11-14, already decided)
 Separate source IP via a Webshare proxy; same box as the live fleet; go straight to trading (M0 is a short smoke test);
-trade live in a universe where the other fleet also plays; live from a later reset (target the 2026-11-22 13:00 UTC reset
-unless told otherwise). Open questions and their defaults are in `docs/plan/08-go-live-and-safety.md`, section 6.
+trade live in a universe where the other fleet also plays; live as soon as it is ready, likely 2026-11-16 (a new agent
+can be registered mid-week; it does not need a reset). Speed is wanted, but the stop points below still apply. Open questions and their defaults are in `docs/plan/08-go-live-and-safety.md`, section 6.
 
 ## What to report after each milestone
 The files changed, test results (counts and any failures), what you could not verify, and the questions you need answered.
