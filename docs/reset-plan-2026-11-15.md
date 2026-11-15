@@ -59,7 +59,7 @@ the box's free disk; the trip duration for sizing the wind-down; who owns the ho
 | One server instance | `stcommand_ops_instances` | `aliveCount` 1, `overlap` false, uptime since last deploy | one instance, uptime 68 min (restarted about 15:30), 0 429s in the last 60 s, box lane 79.6 calls a minute of 105 |
 | API budget | `stcommand_ops_api_budget` | box under 90 calls/min, 429s under 1% | within range; 10 of 20 proxy lanes active; p8 carries the fleet-state refresh (31.5 GB a month projected; the whole pool projects 37.6 GB of a 250 GB plan) |
 | Approvals | `stcommand_get_approvals` | none open | not re-read after 16:12 (journal: none open) |
-| Opening template exists | `stcommand_get_opening_templates` | "Opening: auto at reset" (id 6) | exists, **unchanged since 11-08** (v3 with 1M triggers, guards, ceilings 2000/4000; see 1.3) |
+| Opening template exists | `stcommand_get_opening_templates` | "Opening: auto at reset" (id 6) | exists, **unchanged since 11-08** (v3 with 1M triggers, guards, ceilings 2000/4000; see 1.3) | **(superseded: v4 applied 2026-11-15 00:45Z, see journal)**
 | Old opening tasks | `stcommand_get_opening_tasks` | Tasks 7-27 (10-25 week) and 35-46 (11-08 week) are done or cancelled | all done or cancelled (the 11-08 `o3-*-1108` keys end `-1108`, so next week's `-1115` keys cannot be blocked by them) |
 | Doctrine | `stcommand_get_doctrine` | see 1.2 | read; 121 rules; the output is 160 KB, read it into a file and query with `jq` |
 | Gate state | `stcommand_get_gate_status` | the home gate of this week reads complete | complete (this week); the new home gate shows only after the reset |
