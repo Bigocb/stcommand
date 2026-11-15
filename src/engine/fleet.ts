@@ -33,6 +33,7 @@ import { Reminders } from "./reminders.js";
 import { SystemQueue } from "./systemQueue.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
 import { DEFAULT_QUEUE_TOUR_POLICY, decideQueueTours, type QueueTourPolicy, type TourShip, type TourTarget } from "./queueTours.js";
+import { DEFAULT_ROUTE_REUSE_POLICY, decideRouteReuse } from "./routeReuse.js";
 import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, type QueueFacts, type ReleaseDecision, type ReleaseMode, type ReleasePolicy } from "./systemRelease.js";
 import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
 import { boundLoadedBySystem, decideIdleParking, runsIdleParking, systemUse, useSince, type IdleFacts } from "./idleSystems.js";
@@ -2342,6 +2343,20 @@ export class FleetManager {
     return pass;
   }
   private readonly routeBuilds = new Map<boolean, Promise<DispatchRoute[]>>();
+  private coreRouteHold?: { at: number; buildMs: number; routes: DispatchRoute[] };
+
+  /** The core tick's route list: rebuilt, or the last one when routeReuseMaxSec allows (src/engine/routeReuse.ts). */
+  private async coreRoutes(): Promise<DispatchRoute[]> {
+    const policy = { ...DEFAULT_ROUTE_REUSE_POLICY, maxAgeSec: this.doctrine.isEnabledOr("routeReuseMaxSec", false) ? this.doctrine.value("routeReuseMaxSec", 60) : 0 };
+    const hold = this.coreRouteHold;
+    const d = decideRouteReuse({ nowMs: Date.now(), builtAtMs: hold?.at, buildMs: hold?.buildMs }, policy);
+    if (d.reuse && hold) return hold.routes.slice();
+    const start = Date.now();
+    const routes = await this.computeDispatchRoutes(true);
+    this.coreRouteHold = { at: Date.now(), buildMs: Date.now() - start, routes };
+    return routes.slice();
+  }
+
   private routesCache?: { at: number; routes: DispatchRoute[] };
 
   /**
@@ -11178,7 +11193,7 @@ export class FleetManager {
         this.log(`reset wind-down ${winding.active ? "started" : "ended"}: ${winding.reason}`);
         this.lastWindDownActive = winding.active;
       }
-      const routes = winding.active ? [] as DispatchRoute[] : await this.timed("computeDispatchRoutes", () => this.computeDispatchRoutes(true));
+      const routes = winding.active ? [] as DispatchRoute[] : await this.timed("computeDispatchRoutes", () => this.coreRoutes());
       // Kept for the opening runner's `routeProfitAtLeast` trigger: the
       // dispatcher already computed them this tick, so reading them back costs
       // nothing (recomputing would double the pass).

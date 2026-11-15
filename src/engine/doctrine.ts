@@ -724,6 +724,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "routeReuseMaxSec",
+    name: "Dispatcher: reuse the route list this long",
+    description: "The dispatcher's core tick rebuilds the whole route list each time, which with many live systems takes ~15 s of a ~35 s tick and starves the keepers' market reads (2026-11-15: 12 reads a minute against ~100 wanted). With this on, a list built less than twice its own build time ago (and never older than this many seconds) is reused. Prices move on a ~30 minute tick so a minute-old list is nearly as good. Off (the default) = rebuild every tick, as before. See src/engine/routeReuse.ts.",
+    value: 60, min: 15, max: 180, step: 15, unit: " s",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "keeperTopUpMaxPending",
     name: "Keepers: top-up waits while this many listed markets lack a keeper",
     description: "Top-up adds nothing while this many listed markets still wait for a keeper (the normal buy queue is meant to catch up first). Raise it when a few markets sit unbought and hold top-up back (2026-11-14: 4 waited against the old fixed limit of 3, and top-up added nothing for 2.5 hours). Only applies while Keepers: top up live systems is on. Off = the old fixed 3.",

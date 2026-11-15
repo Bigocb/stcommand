@@ -8,6 +8,14 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-15 — Route list reuse for the core tick (slow keeper reads)
+
+With ~20 live systems the dispatcher's core tick took ~35 s (route build ~15 s, recompute ~20 s), the one Node process ran flat
+out, and keeper market reads fell to ~12/min against ~100/min wanted; hourly profit fell with them. New clause
+`routeReuseMaxSec` (off by default, `src/engine/routeReuse.ts`, tests/routeReuse.test.ts): when on, the core tick reuses its last
+route list if it is under twice its own build time old and under the ceiling (60 s). Off reproduces the old behaviour. Turn on
+with `set_doctrine routeReuseMaxSec enabled`, watch `ops_profile` and `ops_keeper_coverage` (measuredKeeperReadsPerMin).
+
 ## 2026-11-14 — Stale keeper pins released at boot (unbought markets)
 
 Four markets (AH67-DD6B, TQ76-CF7C, QS20-A11F, FT31-A16A) stayed uncovered for hours with no buy and no note. Cause: `init()` reserves every persisted keeper market, but `restorePersistedManualRoles()` skipped rows whose ship was gone ("scrapped while we were down") without releasing the pin, so `coveredKeeperMarkets()` counted the market covered and `advanceKeeperMarketQueue` dropped it silently. `restorePersistedManualRoles()` now releases pins and parked-keeper entries for ships not in the fleet (never on an empty fleet read) and logs each. Takes effect at the next restart. Doctrine changes the same evening: `freshStagedAhead` 4 -> 5 (clause max), `freshMinGapMin` 15 -> 10, `releaseMinPricedPct` 80 -> 60.
