@@ -8,7 +8,7 @@ is the control surface that makes those classes of failure impossible or loud.
 
 ---------------------------------------------------------------------------------------------------
 
-## 1. Autonomy levels (live-changeable; escalation is always manual)
+## 1. Autonomy levels (the engine promotes itself on evidence, inside an operator ceiling; the operator can lower or kill at any time)
 
 | Level | Name | Allowed | Default |
 |---|---|---|---|
@@ -17,9 +17,21 @@ is the control surface that makes those classes of failure impossible or loud.
 | 2 | growth | level 1 + hull and keeper purchases within caps, contracts | M3-A/B after operator consent |
 | 3 | expansion | level 2 + staging/releasing systems, gate feeds | post-M3 |
 
-Rules: the process starts at level 0 unless `runtime.autonomyLevel` is set AND the start command carries `--i-understand-live`; raising the level while running is done only by
-editing `runtime.yaml` and sending SIGHUP (it is a config change event); lowering is immediate by the kill switch. The engine NEVER raises its own level (no code path writes `autonomy` upward except
-the operator reload path). Shadow mode ignores the level for execution (forced 0).
+Operator decision (2026-11-15): the point of the engine is to be autonomous, so it climbs the levels by itself. The operator keeps three things
+that the engine can never change: the ceiling (`autonomy.maxLevel`, default 3), the spend caps and the kill/drawdown limit (section 3).
+
+Rules:
+- The process starts at level 0 after any start, reset, kill, drawdown breach or unclean restart. It may start straight at `runtime.autonomyLevel` only when that is set AND the start command carries `--i-understand-live`.
+- **Promotion (new):** the engine raises its own level by one step when ALL of the promotion conditions for the next step hold, never above `autonomy.maxLevel`, and logs a `level.promoted` event with the evidence. Conditions:
+
+| Promote | Conditions (all, measured by the engine from its own ledger) |
+|---|---|
+| 0 -> 1 | M0 checks passed this run: IP echo differs from the host's, API shapes verified, 10 minutes of sane `would-do` decisions, zero 429s in the last 10 minutes, free disk above the floor, kill switch file absent |
+| 1 -> 2 | at least 2 hours at level 1, at least 30 completed trips, matched profit positive and above the hourly floor `promote.minProfitPerHour`, no `X` rule veto in the last hour, no drawdown above half of `maxDrawdownPct`, wallet above `promote.minWallet` |
+| 2 -> 3 | at least 6 hours at level 2, hull and keeper purchases paid back on plan (realised vs planned within 25%), 429 ratio under 1%, no kill in the last 24 hours, wallet above `promote.minWalletL3` |
+
+- **Demotion is immediate and automatic** (to 0 on a kill, drawdown breach or budget breach; one level down when a promotion condition stops holding for 30 minutes). After a demotion the engine waits `promote.cooldownMin` (default 60) before promoting again, and at most 2 promotions per rolling 6 hours.
+- The operator can lower the level or kill at any time (edit `runtime.yaml` and SIGHUP, or the kill switch). Raising `autonomy.maxLevel` is operator-only. Shadow mode ignores the level for execution (forced 0).
 
 ## 2. Kill switch
 
@@ -46,13 +58,14 @@ level deliberately. There is no auto-resume, except X-02's circuit breaker auto-
 
 | Cap | Default | Applies to |
 |---|---|---|
-| `maxSpendPerPurchase` | 500,000 (hull or keeper) | one purchase; a bulk freighter (3-4M) needs the operator to raise it, per purchase, deliberately |
-| `maxSpendPerDay` | 1,000,000 | sum of ship + contract/gate purchases in a rolling 24 h (M3); raised only by the operator |
+| `maxSpendPerPurchase` | the lesser of 500,000 and 5% of the wallet (hull or keeper); for a bulk freighter, the lesser of 5,000,000 and 5% of the wallet | one purchase; the engine never raises this itself |
+| `maxSpendPerDay` | 10,000,000 or 25% of the wallet, whichever is lower | sum of ship + contract/gate purchases in a rolling 24 h (M3); raised only by the operator |
 | `maxTradeNotional` | 25% of wallet, hard 400,000 for level 1 | cargo cost of one trade (units x buy avg) |
 | `maxCargoExposure` | 60% of wallet | total cost basis of cargo aboard all ships (guards against ending with cargo that cannot sell) |
 | `maxOpenTrades` | ships count | |
 | `minWallet` (X-07) | 25,000 | below it only fuel and trades that pay within one trip |
-| `purchase.enabledUntil` | unset = purchases disabled | purchases are enabled only inside an operator-opened window: an ISO timestamp at most 24 h ahead; at expiry the planner returns `wait: purchase window closed`. Overnight autonomous hull buying therefore never happens without a fresh operator action |
+| `purchase.policy` | `autonomous` (operator decision 2026-11-15; replaces the 24 h window) | at level 2 and above the engine may buy hulls and keepers by itself, but only inside the caps in this table; `windowed` (with `purchase.enabledUntil`, an ISO timestamp at most 24 h ahead) remains available to the operator as the stricter mode |
+| `maxHullSpendPctPerHour` | 10% of the wallet, and never more than `maxSpendPerDay` | rolling hour; the binding cap on growth. A share of the wallet scales with the engine's own success and shrinks after a loss; the fixed `maxSpendPerDay` is the backstop. Operator may change both |
 | `maxTradeLoss` (X-01) | 150,000 | single trade realised loss triggers pause + alert |
 | `lossLimit` (X-02) | 500,000 per rolling hour | global trade pause |
 | `maxDrawdownPct` | 10% | kill |
@@ -103,8 +116,8 @@ policy version is reverted by restoring the previous `policy_versions` row (the 
 
 | # | Never automated | Why |
 |---|---|---|
-| NA1 | Raising the autonomy level, raising spend caps, raising `maxDrawdownPct`, extending `purchase.enabledUntil` beyond 24 h | operator authority; the engine must not widen its own permissions |
-| NA2 | Overnight or unattended hull buying without an open operator window | the operator's harness refused a scheduled buying task twice; hull buys stay deliberate |
+| NA1 | Raising `autonomy.maxLevel`, raising spend caps (`maxSpendPer*`, `maxHullSpendPctPerHour`, `maxTradeNotional`), raising `maxDrawdownPct`, editing the kill switch or the promotion conditions | operator authority; the engine may promote itself only within `autonomy.maxLevel` on the conditions in section 1, and must never widen its own limits |
+| NA2 | Hull buying beyond the caps in section 3 | the operator chose autonomous buying (2026-11-15), so a purchase needs no window; it still needs level 2, the caps, the 3,000,000 wallet gate and a read-before-buy. Superseded: the earlier rule "no unattended hull buying without an open window" |
 | NA3 | Approving a below-floor sale on a single price reading; auto-selling at a loss over `maxTradeLoss` | 4 sales lost 0.86M on 1c artifacts; X-13 corroboration is a veto, not a suggestion |
 | NA4 | Scrapping or selling ships (`scrap=false`) | refund unmeasured for big hulls; irreversible |
 | NA5 | Registering agents on any account other than the configured one, changing account credentials, creating accounts | credentials and account standing |

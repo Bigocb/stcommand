@@ -162,3 +162,11 @@ and links answers to the ADR that resolves them.
 
 Still open (defaults in 08 section 6): Q-ACCT, Q-IPECHO, Q-HARD, Q-GATE, Q-ALERT, Q-STACK, Q-START, Q-FEE, Q-CURVE, Q-SEED, Q-RESETTIME, Q-SCRAP, Q-MINING, Q-LANES.
 Timing note: the next reset is about 14 hours away; the plan is a build spec for another agent, so live trading next week needs the repo, a second agent token and a proxy ready before 13:00 UTC 11-15, or it slips a week.
+
+## Operator decision (2026-11-15): autonomy
+
+The engine's purpose is to be autonomous. Changed in `08-go-live-and-safety.md`: the engine promotes itself from level 0 to 3 on evidence
+(section 1), up to an operator-set `autonomy.maxLevel`; hull and keeper buying is autonomous inside caps (a share of the wallet an hour plus a
+fixed daily backstop, section 3) instead of needing a 24-hour window; NA1 and NA2 were rewritten. Still operator-only: the ceiling, the caps,
+the drawdown limit, the kill switch, and everything in NA3-NA10. Assumption to confirm: the binding hull-spend cap is a share of the wallet
+(10% an hour) with the fixed daily backstop; say if you prefer a fixed amount an hour.
