@@ -24,7 +24,9 @@ Work on a branch (for example `feat/m0-scaffolding`), never on `main`, and open 
 - It will use its own proxy IP. Refuse to start if the IP-echo check shows the machine's own address.
 - Secrets (the SpaceTraders token, proxy credentials) are environment variables only. Never commit them, never log
   them, never put them in a test fixture. `.gitignore` already excludes env files.
-- Hull purchases are off by default, and enabled only inside an operator-opened window (`purchase.enabledUntil`, at most 24 h).
+- Autonomy is the goal (operator decision 2026-11-15): the engine promotes itself from level 0 to 3 on evidence, inside an
+  operator ceiling, and buys hulls and keepers by itself inside the spend caps (see `08-go-live-and-safety.md` sections 1 and 3).
+  It must never raise its own ceiling, caps, drawdown limit or kill switch. The first real trade still waits for the operator.
 - Mark anything about the game API you cannot verify as an open question; verify shapes in M0 task M0-3 against the real API
   when you have access. Do not invent game facts.
 

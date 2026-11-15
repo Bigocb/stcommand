@@ -102,7 +102,7 @@ All caps are read from policy at every tick; a cap raise is a `config.change` ev
 ### 4.4 Reset day (the week's last 24 h and the reset)
 - [ ] No deploys, restarts or policy changes in the last 24 h (lesson: restarts re-ran bursts and left state half-restored).
 - [ ] W rules active; `noNewBuysMin` is 35 (not 120) and the P95 reducer has at least 30 trips, else the default.
-- [ ] `purchase.enabledUntil` not extended past the hull stop times.
+- [ ] Hull-buying stop times set (`purchase.policy` `autonomous` stops at the hull cutoffs; if `windowed`, `purchase.enabledUntil` not extended past them).
 - [ ] At T-35 min: confirm no buys; at T-15: cargo sweep reviewed; at T-5: record wallet.
 - [ ] After T: poll status only; confirm RESET_DETECTED -> ARCHIVE; either auto-register (M4) or register by hand; start at level 0; raise level only after bootstrap reads look sane.
 
