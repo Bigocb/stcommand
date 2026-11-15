@@ -482,6 +482,18 @@ was ahead and the second hour was the loss.
    grows by 11 every week with no cleanup (the list was 57 long). The hourly update is read-only by rule, but the real fixes this week were writes, so give it a
    standing line for "reset-day fixes allowed".
 
+9. **The gate price ceiling did not hold: FAB_MATS bought up to 4,151 against a 2,250 ceiling (confirmed in the ledger, cause partly unproved).** THEO-7 bought 20-unit lots of
+   FAB_MATS at F48 at 1,301, 1,380, 1,417, 1,522, 1,631, 1,786, 1,966, 2,199 (all under), then 2,470 (17:47), 2,780 (18:11), 3,132 (18:36), 3,634 (19:01) and 4,151
+   (19:25): five lots over the cap, 323,340 paid for 100 units against 225,000 at the cap. The operator found the mission's "yield to trading" box unticked at 19:3x and ticked it
+   (the mission then shows `yieldToTrading` true, `yielding: run, can buy ADVANCED_CIRCUITRY 4,120 within 4,250`). In the code the buy step checks `price > maxPrice`
+   (`src/engine/mission.ts` ~1163), but `price` comes from `listBuyers()`, the stored market snapshot, and F48 had no keeper (its snapshot was 61 minutes old at 18:12), so a stale low
+   quote can pass the check while the real ask is already above the cap. That is a likely cause, not proved. Changes: (a) `startGateMission` in the template has no
+   `yieldToTrading` field, so the template cannot set the box: add the field (code) or set it by hand at T+5 with `set_mission_pacing`; (b) the buy step should re-read the
+   market at the dock before comparing with the ceiling (code); (c) the reset plan says "keepers only on the chain markets until the gate opens": this week only the yard
+   keepers (A2, H53, C41) exist, none on F48, H54, H52 or D44, so ceiling decisions run on old prices. Put keepers on the chain markets early (cheap, about 22-24k a probe) or
+   have a feed or tour visit them. (d) After an overshoot, the price falls back slowly (CLAUDE.md measured 4-9c an hour on a weak producer), so keeping the producer's inputs
+   supplied (the quartz-sand feed) matters more than waiting.
+
 **Template edits applied 2026-11-15 16:25 UTC (operator approved: "go ahead and make the updates to next week's template").** Saved template "Opening: auto at reset"
 (id 6, still 11 tasks) now has: `o4-start` also sets `autoApproveKeeperProbes` enabled at 60,000 (item 2); `o4-trader` falls back after 90 minutes instead of 30 (item 5a);
 `o4-keeperline` also needs `minutesSinceQueued` 60, so the 5M line cannot land before the yard keepers have had an hour (item 3, a proxy: there is no keeper-count
