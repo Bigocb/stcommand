@@ -442,3 +442,45 @@ making 100-300k an hour has no system that clears 50k an hour, so the bar would 
 reset either turn the profit bar off (`freshIdleMinHourlyProfit` enabled=false falls back to "any sell or purchase", itself gentle) or set it to
 about 1-2% of the fleet's hourly profit, and raise it as the hourly figure grows. Idea, not built: make the bar a share of the fleet's
 profit an hour (so it scales by itself) with the fixed figure as a floor.
+
+## First hours of 2026-11-15: changes for the 2026-11-22 opening (operator asked 2026-11-15, written at T+2h50)
+
+What the opening of the 11-15 week (home X1-KJ19, 27 home markets, no other system yet) showed in its first 2h50. Each item says whether it is **confirmed** (seen
+in a read) or **likely** (fits the evidence, not proved). Apply the template items to the saved template "Opening: auto at reset" before the 11-22 reset, and read
+this section again at T-24h.
+
+Hour by hour: hour 1 (13:00) made 324,792 on 22 sales, all THEO-1; hour 2 (14:00-15:00) made 0 and cost 7,920 in 55 refuels; wallet stayed about 490-500k until
+15:15, when the stall broke. Three hours cost 22,444 in 151 refuels and bought four hulls (253k). Last week's first two hours made 281k and 163k, so the first hour
+was ahead and the second hour was the loss.
+
+1. **The reset recovery did not queue the saved template (confirmed).** At T+12 min `get_opening_tasks` showed only last week's tasks; the 11 `o4-*-1115` tasks
+   were added by hand at 13:13 with `add_opening_task`, exactly the fallback in the reset plan (13:08 step C). The saved template was intact (id 6). Cause not found.
+   Change: poll `get_opening_tasks` at T+3 and apply by hand at T+5, not T+8; open a code item to find why `applyOpening` did not run (TODO).
+2. **Doctrine survives the reset, so a pre-reset cutoff leaks into the new week (confirmed).** The 08:00 cutoff turned `autoApproveKeeperProbes` off; it was still
+   off at T+1h, and the first yard-keeper probe (22,049c, KJ19-A2) sat as an approval card from 13:05. Change: end every pre-reset cutoff with a recorded restore
+   step (put "re-enable `autoApproveKeeperProbes`" in the reset-day checklist at T+0), and make `o4-start` set `autoApproveKeeperProbes` enabled at 60,000 itself.
+3. **The 5M keeper line is set before the yard keepers are bought (likely).** `o4-keeperline` (`keeperAutoApproveMinCash` 5,000,000) fires on "yardkeep done +
+   300k", but yardkeep is done when the orders are queued, not when the probes exist. After I re-enabled `autoApproveKeeperProbes` a new probe card still needed a
+   hand approval at 15:13, so the 5M wallet line was blocking auto-buy. Change: keep the 100k line until the yard keepers are actually in place (add a trigger on
+   keeper count, or put the 5M line into the gate-hauler task), or approve the yard probes by hand at T+10.
+4. **The tour ship holds while a keeper probe approval is pending (confirmed).** "THEO-4: tour scout: holding at X1-KJ19-A2 — keeper probe approval pending".
+   So an unapproved card does not just delay a keeper, it freezes the price-reading tours. This is why items 2 and 3 cost the pricing, not only the keepers.
+5. **The 30-minute fallback put the command ship on weak routes and into a contract loop (confirmed).** `o4-trader` fires at a 15k route or 30 minutes. At 30
+   minutes the only work was COPPER (2,827 a trip) and an AMMONIA_ICE contract (4,864). THEO-1 took the contract, then looped about once a minute from at least 14:12
+   to 15:13: "delivering cargo -> X1-KJ19-J59", refuel at 216/400, "contract delivery to X1-KJ19-J59 is out of range even via known fuel stops; skipping for now",
+   repeat. Zero sales for the hour. Changes: (a) drop the 30-minute fallback or move it to 90 minutes so the command ship tours until a 15k route exists, as the
+   playbook always said; (b) code: a contract delivery that fails the range check must be dropped (cargo released, assignment cleared) after a few skips, not
+   retried every minute; (c) code: do not buy contract cargo for a delivery the ship cannot reach (check the range before the purchase).
+6. **The tour shuttle should tour until every home market is priced (confirmed gap).** Four of 27 home markets were never priced at T+2h40 (B6, B7, C41, J59); J59
+   got read only because the contract loop sent a ship there. B6 and B7 cannot be bought a keeper until a ship has scanned them (they are not in the buy list).
+   The operator switched THEO-4 (the tour shuttle) to trader at 15:48. Change: `o4-tourshuttle` should be buy, tour, `waitFor marketsSurveyed` (as `survey-ship` did on
+   10-25), then trader, so the shuttle leaves tour duty only when `ops_market_freshness` shows `neverPriced` 0. Until then do not switch it by hand.
+7. **Traders run on empty fuel (confirmed, cause not found).** At 15:55 THEO-1 was at 0/400 in transit, THEO-4 28/300, THEO-3 28-80/300, and 151 refuels cost 22,444
+   in 3 h. A zero-fuel ship drifts, which is slow. Check next week: the refuel threshold for small hulls early in a week, and whether a refuel that does not fill
+   (the loop logged "refueling (216/400)" every minute with fuel unchanged) is a bug.
+8. **Smaller points.** The scheduled daily price check still says "THEOREM universe" and THEOREM is gone (it ran against THEO; fix the prompt). Opening tasks list
+   grows by 11 every week with no cleanup (the list was 57 long). The hourly update is read-only by rule, but the real fixes this week were writes, so give it a
+   standing line for "reset-day fixes allowed".
+
+Not a problem: the first hour was ahead of last week (324,792 against 281,285), and `o4-yardkeep`, `o4-contract` and `o4-tourshuttle` did fire once the stall
+broke, so the order of the tasks works.
