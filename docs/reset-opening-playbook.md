@@ -482,5 +482,22 @@ was ahead and the second hour was the loss.
    grows by 11 every week with no cleanup (the list was 57 long). The hourly update is read-only by rule, but the real fixes this week were writes, so give it a
    standing line for "reset-day fixes allowed".
 
+**Template edits applied 2026-11-15 16:25 UTC (operator approved: "go ahead and make the updates to next week's template").** Saved template "Opening: auto at reset"
+(id 6, still 11 tasks) now has: `o4-start` also sets `autoApproveKeeperProbes` enabled at 60,000 (item 2); `o4-trader` falls back after 90 minutes instead of 30 (item 5a);
+`o4-keeperline` also needs `minutesSinceQueued` 60, so the 5M line cannot land before the yard keepers have had an hour (item 3, a proxy: there is no keeper-count
+trigger); `o4-tourshuttle` is buy, tour, `waitFor marketsSurveyed`, then trader (item 6). Verified by reading the template back. Limits: `marketsSurveyed` only waits on
+markets already known to have enough goods, so unscanned markets (B6, B7, C41 this week) are NOT waited for; they need a ship visit. Still open and NOT in the template: the
+recovery not queueing it (item 1), the contract-loop breaker and buy-only-if-reachable (item 5b/c), the zero-fuel traders (item 7). This week's live tasks were not touched.
+
 Not a problem: the first hour was ahead of last week (324,792 against 281,285), and `o4-yardkeep`, `o4-contract` and `o4-tourshuttle` did fire once the stall
 broke, so the order of the tasks works.
+
+## Phase reviews through the 2026-11-15 week (operator asked 2026-11-15)
+
+The operator wants the same capture done for each phase of the week, so a lesson is written down while it is fresh and goes into the template or a TODO item. After each
+phase, read the logs and ledger for it, then add a section here with: what happened (numbers), what to change next week, confirmed or likely, and whether the saved template
+already has it. Reminders are scheduled (11-16 13:00, 11-18 13:00, 11-20 13:00 UTC) and the 11-21 12:00 one applies everything before the freeze.
+Phases and what to look at: (1) opening, hours 0-3: done above; (2) gate building, hours 3 to gate open: FAB_MATS and ADVANCED_CIRCUITRY price against the 2,250 / 4,250
+caps, hauler count, cash floors blocking buys, feed timing, when the first feed started; (3) gate open and first systems: release cadence, keeper buys against the 500k
+lines, tour supply; (4) expansion: keeper reads per minute, the CPU-bound core tick, hull cadence and caps; (5) late week and wind-down: cutoffs worked, scrap pilot
+result (42.5% refund on a light hauler), cargo left at the reset.
