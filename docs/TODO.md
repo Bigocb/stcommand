@@ -32,6 +32,11 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   (40 units cost about 2,392 against 2,250): re-read the market at dock before the ceiling check. (b) Add `yieldToTrading` and per-material ceilings to the
   `startGateMission` template step. (c) Feed `maxLossPerUnit` should follow the source price (iron source 212 vs 153 paid blocked the feed for 6 h), or warn when a feed
   has sat empty for an hour. (d) `start_feed` should take the carrier ship so it does not auto-claim an 80-unit hull. (e) Deadhead report should show feed carriers apart.
+- [ ] **Silent stall of gate-walking ships right after a gate opens (2026-11-16 23:15).** `dispatch_tour` (two shuttles) and the keeper-probe delivery holds (four
+  probes) sat docked 11-18 min with no hop, no error and no "no path" line; `jump_ship` worked, but only one leg per call. Find why `hopToward` /
+  `advanceTourDispatch` / `runHoldGoal` do not run for them (scheduler task added, never executed? an operator-set destination skipped by the fresh-systems
+  tour send? the fleet roll-up cache showing fuel 96 against live 300?). Until fixed, nudge each leg by hand at an opening, and start tours from a ship already
+  near the gate (A4 to I56 is two long legs, about 13 minutes).
 - [ ] **Simulation test rig: run what-if simulations faster than real time and in parallel (raised 2026-11-03, operator).** Today every idea is tried on the live
   fleet and a week (168 h) gives one sample, so opening orders, buy cadence, keeper rotation, gate timing and chart scouting are compared by memory. Wanted: a rig
   that can play many runs of a week in minutes, side by side, and compare strategies. Prompted by a player on the SpaceTraders Discord (2026-11-02) whose test rig
