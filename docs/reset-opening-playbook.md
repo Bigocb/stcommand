@@ -475,9 +475,13 @@ was ahead and the second hour was the loss.
    got read only because the contract loop sent a ship there. B6 and B7 cannot be bought a keeper until a ship has scanned them (they are not in the buy list).
    The operator switched THEO-4 (the tour shuttle) to trader at 15:48. Change: `o4-tourshuttle` should be buy, tour, `waitFor marketsSurveyed` (as `survey-ship` did on
    10-25), then trader, so the shuttle leaves tour duty only when `ops_market_freshness` shows `neverPriced` 0. Until then do not switch it by hand.
-7. **Traders run on empty fuel (confirmed, cause not found).** At 15:55 THEO-1 was at 0/400 in transit, THEO-4 28/300, THEO-3 28-80/300, and 151 refuels cost 22,444
-   in 3 h. A zero-fuel ship drifts, which is slow. Check next week: the refuel threshold for small hulls early in a week, and whether a refuel that does not fill
-   (the loop logged "refueling (216/400)" every minute with fuel unchanged) is a bug.
+7. **Low fuel on traders: NOT a fault (corrected 2026-11-16 01:15 UTC; the first reading of this item was wrong).** `ops_stuck` and the hourly checks kept showing traders at 0-30
+   of 300-400 fuel, and I read that as running on empty. The ledger says otherwise: THEO-1's REFUEL rows (12 in 25 minutes) each fill the tank to 400 units for about 216
+   credits at every stop. The game takes a trip's fuel at departure (CLAUDE.md, "fuel pinned at a constant value is not a stuck symptom"), and the dispatcher flies BURN,
+   so a ship shows 0-30 fuel mid-flight and is full again on arrival. `ops_stuck` therefore raises a false "out of fuel / critical" for a ship that is in transit with
+   fuel 0. Cost: refuels were 12-14k an hour (about 7% of an hour's matched profit this week), which is the real price of BURN; a doctrine to cruise on short hops would
+   save part of it (untested). Changes: (a) do not treat a low reading on an IN_TRANSIT ship as a fault; (b) code: make `ops_stuck` skip out_of_fuel for ships in transit, or
+   say "mid-flight"; (c) the earlier "refueling (216/400)" log line repeating without a fuel change was the same artefact, so no refuel bug is open.
 8. **Smaller points.** The scheduled daily price check still says "THEOREM universe" and THEOREM is gone (it ran against THEO; fix the prompt). Opening tasks list
    grows by 11 every week with no cleanup (the list was 57 long). The hourly update is read-only by rule, but the real fixes this week were writes, so give it a
    standing line for "reset-day fixes allowed".
