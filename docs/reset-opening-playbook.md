@@ -517,3 +517,29 @@ Phases and what to look at: (1) opening, hours 0-3: done above; (2) gate buildin
 caps, hauler count, cash floors blocking buys, feed timing, when the first feed started; (3) gate open and first systems: release cadence, keeper buys against the 500k
 lines, tour supply; (4) expansion: keeper reads per minute, the CPU-bound core tick, hull cadence and caps; (5) late week and wind-down: cutoffs worked, scrap pilot
 result (42.5% refund on a light hauler), cargo left at the reset.
+
+### Phase 2: gate building (review at 2026-11-16 13:00 UTC, hour 24 of the 2026-11-15 week)
+
+**What happened (numbers).**
+- At hour 24 FAB_MATS stood at 1,084 of 1,600 and ADVANCED_CIRCUITRY at 60 of 400. The first FAB_MATS arrived at hour 3 (80), the first circuitry at hour 7 (40, then 60 at hour 8).
+  Circuitry has not moved since hour 8: its ask sat at 4,309-4,414 against the 4,250 cap all day (the 24 h low was 4,120).
+- FAB_MATS moved in lumps (hours 3-6 +260, a stall at hours 6-9, +120 at hours 9-12, +200 hours 12-14, stalls at hours 14-15 and 18-19, then 40-80 an hour).
+  About 45 units an hour on average. The ask went from 2,262 (hour 14) to 2,972 (hour 24) and 3,401 at 13:05: the producer F48 is SCARCE, so each of our buys pushes the price
+  up and it does not recover as fast as we buy. Several buys went in above the 2,250 cap (40 units cost 2,392 each at hour 18).
+- The fleet made 5.73M matched profit in 24 h (777 sales) and wallet + holds grew to about 3.3M. Gate buying cost trading time (the carrier is the best trader) and
+  contributed little: THEO-1 earned 3.86M of the 5.73M.
+- Deadhead (last 6 h): the fleet was loaded 49% of the time. THEO-1 41% but 279k per loaded hour, THEO-4 32%, THEO-7 (feed carrier) 21%, THEO-8 (iron feed) 2%, THEO-3 99%
+  loaded with zero profit (contract duty, one trip in 6 h).
+- Feeds: the iron feed carrier THEO-8 sat empty for about 6 h; the loss cap (15 a unit) blocked it once the source H52 went SCARCE and its ask (212) rose above what F48 pays (153).
+  The quartz feed stopped at the HIGH stop point and waited. The quartz feed started at 04:50 (hour 16), 16 h in; no feed had existed for quartz before.
+
+**What to change next week.**
+1. Start the quartz and iron feeds in the first hours, before FAB_MATS buying, and leave the stop point at ABUNDANT for iron and quartz at the F48-type producer (operator, 2026-11-16 12:23). Confirmed: the producer stayed SCARCE all day without them.
+2. Size the loss cap to the source price, not a flat 15: the iron source rose to 212 while the market paid 153. A cap of about 65 keeps the feed moving. Likely.
+3. Put the circuitry cap and the FAB_MATS cap on a schedule, not flat: circuitry never bought below 4,250 all day (ask never under 4,309 after hour 8). Either set 4,500 for circuitry from the start or buy it first, while the producer is at HIGH supply. Likely.
+4. Do not use an 80-unit hull on feeds (THEO-7 was the auto-claimed carrier and lost trading time); 40-unit shuttles are the right size. Confirmed again.
+5. Gate buying yields to trading when the ask is over the cap, which is right, but buys overshot the cap because the ceiling check reads the stored price. See the TODO item below.
+
+**Is it in the saved template?** No: the feeds start by hand (template has no startFeed step for iron or quartz at the F48 producer with ABUNDANT stops, nor a loss cap). Ask the operator before editing the template.
+
+**Code items** (added to docs/TODO.md): ceiling check must re-read the market at dock; `yieldToTrading` in the `startGateMission` template step; feed loss cap relative to the source price; `start_feed` carrier argument; deadhead report treat feed carriers separately.
