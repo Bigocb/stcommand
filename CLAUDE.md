@@ -62,6 +62,20 @@ Example (2026-11-10): for a hull meant to trade X1-FR76, `X1-FR76-DA6C` (316,860
 (314,772c, 2 hops) despite costing about 2k more. Light-hauler yards seen: X1-PT36-A2 (314,772c), X1-FR76-DA6C
 (316,860c), X1-YN91-A2 (371,290c). Every live/candidate system was 1-2 hops from home X1-PT36 on 2026-11-10.
 
+## Keeper cards: how they get raised (read before explaining a keeper delay)
+
+Corrected 2026-11-17 after the operator had to repeat it three times: **a keeper card does NOT wait for a ship to visit the yard.**
+Tagging a market raises the card at once: the "Approve — tag as keeper" button on an Approvals "upcoming" row, `stcommand_approve_upcoming`,
+or `set_keeper_markets` (CHANGELOG 2026-11-11, `docs/approve-any-approval-item-prd.md`). The remote surveyor reads systems with no ship
+(`remoteSurveyPerPass`), probes are bought at the nearest yard and delivered across gates (`keeperDeliveryHops`), and fresh-system tours
+are not limited to two ships (`freshTours`, now 8). What can still hold a keeper back:
+- **One open request at a time.** `advanceKeeperMarketQueue` (`src/engine/fleet.ts`) raises one `buyKeeperProbeForMarket` card at a time
+  unless `autoApproveKeeperProbes` is on; an unanswered card stalls every other market ("the single request slot is held by ...").
+  2026-11-17 the YH41-A2 card (3 goods) sat open 00:22-01:45 and the rest of BB74/YH41 got no cards. Answer or deny an open card at once.
+- A denied market is not asked again for 15 minutes.
+- The maintenance tick can run 15-25 s when `maybeRemoteSurvey` is busy, so a card is resolved up to ~25 s after the tap.
+- Staged systems' keepers are parked until the system is released (that is the design, not a stall).
+
 ## Operating the fleet via the stcommand MCP server
 
 **Always use the Tailwinds MCP server** (tools named `mcp__Tailwinds__stcommand_*`) for every fleet read and write.
