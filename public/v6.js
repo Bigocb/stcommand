@@ -15,6 +15,7 @@ import {
   fmtAge,
 } from "/shared/domain.js";
 import { api, onUnauthorized } from "/shared/api.js";
+import { approvalSystem, waypointSystem, filterBySystem, systemCounts, systemChipsHtml } from "/shared/systemFilter.js";
 import {
   state, systems, jumpConnections, bridge, fleetStatus, activity,
   marketSnapshots, marketRoutes, marketSystems, tradeRoutes, intel,
@@ -1014,10 +1015,17 @@ function renderApprovalsBanner() {
   main.parentElement.insertBefore(b, main);
 }
 
+/* System filter (operator, 2026-11-17): chips narrow the open cards and the "no open ask yet" keeper markets to one system. */
+let approvalsSystem = "all";
 function renderApprovals() {
-  const cards = !approvals.length
+  const counts = systemCounts([...approvals.map(approvalSystem), ...upcomingApprovals.map(waypointSystem)]);
+  if (approvalsSystem !== "all" && !counts.some((c) => c.system === approvalsSystem)) approvalsSystem = "all";
+  const chips = counts.length > 1 ? `<div class="sys-chips">${systemChipsHtml(counts, approvalsSystem, escapeHtml)}</div>` : "";
+  const shown = filterBySystem(approvals, approvalsSystem, approvalSystem);
+  const shownUpcoming = filterBySystem(upcomingApprovals, approvalsSystem, waypointSystem);
+  const cards = !shown.length
     ? '<div class="empty">Nothing waiting on a decision.</div>'
-    : approvals.map((a) => `
+    : shown.map((a) => `
     <div class="ops-card">
       <div class="ops-head">
         <span class="ops-title">${escapeHtml(a.kind)}</span>
@@ -1035,9 +1043,9 @@ function renderApprovals() {
     </div>`).join("");
   // Keeper priority markets with no open ask yet: approving one tags it, which runs the immediate coverage check and
   // raises the keeper card right away. Informational rows, so no badge count — the badge stays open cards only.
-  const upcoming = upcomingApprovals.length
+  const upcoming = shownUpcoming.length
     ? `<div class="ops-sub" style="margin:10px 0 4px">Keeper priority markets with no open ask yet — approving one tags it and raises a keeper card immediately.</div>` +
-      upcomingApprovals.map((m) => `
+      shownUpcoming.map((m) => `
     <div class="ops-card">
       <div class="ops-head">
         <span class="ops-title">Keeper priority</span>
@@ -1047,7 +1055,7 @@ function renderApprovals() {
       </div>
     </div>`).join("")
     : "";
-  const html = cards + upcoming;
+  const html = chips + cards + upcoming;
   // Same dual-render as renderContracts(): mobile has its own Ops screen
   // with its own #mobile-approvals element, not just a CSS-hidden copy of
   // the desktop pane. Previously only "approvals" was written, so on a
@@ -1061,6 +1069,7 @@ function renderApprovals() {
     const el = $(id);
     if (!el) continue;
     el.innerHTML = html;
+    el.querySelectorAll("button.sys-chip").forEach((b) => b.addEventListener("click", () => { approvalsSystem = b.dataset.sys; renderApprovals(); }));
     el.querySelectorAll("button[data-act]").forEach((b) => {
       b.addEventListener("click", async () => {
         const decision = b.dataset.act === "approve" ? "approved" : "denied";

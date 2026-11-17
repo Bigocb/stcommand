@@ -9,6 +9,7 @@
  */
 import { api, onUnauthorized } from "/shared/api.js";
 import { enableChartBlowout } from "/shared/blowout.js";
+import { approvalSystem, waypointSystem, filterBySystem, systemCounts, systemChipsHtml } from "/shared/systemFilter.js";
 import { crewHtml, crewAction, loadFields, cachedFields } from "/shared/contractCrew.js";
 import { login, logout, probeSession, register as registerAgent, fetchOnboardingCatalog, completeOnboarding } from "/shared/session.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
@@ -670,15 +671,25 @@ function renderAttention() {
  * the market first. "Coming up" therefore shows exactly what is one tap away, not what is waiting on a ship.
  */
 const APPROVAL_LABELS = { buyKeeperProbe: "Keeper probe", buyKeeperProbeForMarket: "Keeper probe", buyShip: "Ship purchase" };
+/* System filter (operator, 2026-11-17): chips above the lists narrow all three to one system's keeper cards and markets. */
+let approvalsSystem = "all";
+try { approvalsSystem = localStorage.getItem("tower.approvalsSystem") || "all"; } catch { /* storage blocked: start on All */ }
 function renderApprovalsScreen() {
-  const n = approvals.length;
   renderNav();
+  const sysOfApproval = (a) => approvalSystem(a);
+  const counts = systemCounts([...approvals.map(sysOfApproval), ...decidedApprovals.map(sysOfApproval), ...upcomingApprovals.map(waypointSystem)]);
+  if (approvalsSystem !== "all" && !counts.some((c) => c.system === approvalsSystem)) approvalsSystem = "all";
+  setHtml($("approvals-filter"), counts.length > 1 ? systemChipsHtml(counts, approvalsSystem, escapeHtml) : "");
+  const pending = filterBySystem(approvals, approvalsSystem, sysOfApproval);
+  const decided = filterBySystem(decidedApprovals, approvalsSystem, sysOfApproval);
+  const coming = filterBySystem(upcomingApprovals, approvalsSystem, waypointSystem);
+  const n = pending.length;
   $("approvals-screen-count").textContent = n;
-  $("approvals-upcoming-count").textContent = upcomingApprovals.length;
-  $("approvals-decided-count").textContent = decidedApprovals.length;
-  setHtml($("approvals-decided"), decidedApprovals.length === 0
+  $("approvals-upcoming-count").textContent = coming.length;
+  $("approvals-decided-count").textContent = decided.length;
+  setHtml($("approvals-decided"), decided.length === 0
     ? '<div class="empty">Nothing decided and waiting.</div>'
-    : decidedApprovals.map((a) => `
+    : decided.map((a) => `
       <div class="card ${a.status === "denied" ? "" : "warn"}">
         <div class="row1"><span class="who">${escapeHtml(APPROVAL_LABELS[a.kind] ?? a.kind)}</span><span class="amt">${a.status === "denied" ? "Denied" : "Approved"}</span></div>
         <div class="detail">${escapeHtml(a.detail ?? "")}</div>
@@ -687,7 +698,7 @@ function renderApprovalsScreen() {
   const list = $("approvals-screen-list");
   setHtml(list, n === 0
     ? '<div class="empty">No approvals waiting.</div>'
-    : approvals.map((a) => `
+    : pending.map((a) => `
       <div class="card warn">
         <div class="row1"><span class="who">${escapeHtml(APPROVAL_LABELS[a.kind] ?? a.kind)}</span><span class="amt amber">${a.cost != null ? `${escapeHtml(fmt(a.cost))}c` : ""}</span></div>
         <div class="detail">${escapeHtml(a.detail ?? "")}</div>
@@ -697,9 +708,9 @@ function renderApprovalsScreen() {
         </div>
       </div>`).join(""));
   const up = $("approvals-upcoming");
-  setHtml(up, upcomingApprovals.length === 0
+  setHtml(up, coming.length === 0
     ? '<div class="empty">No uncovered keeper priority markets.</div>'
-    : upcomingApprovals.map((m) => `
+    : coming.map((m) => `
       <div class="card">
         <div class="row1"><span class="who">${escapeHtml(m)}</span><span class="amt">Priority</span></div>
         <div class="detail">Keeper priority market with no open ask yet. Approving tags it and raises the keeper card immediately.</div>
@@ -727,6 +738,13 @@ async function decideApproval(b) {
     renderApprovalsScreen();
   }
 }
+$("approvals-filter").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-sys]");
+  if (!b) return;
+  approvalsSystem = b.dataset.sys;
+  try { localStorage.setItem("tower.approvalsSystem", approvalsSystem); } catch { /* not saved: still applies now */ }
+  renderApprovalsScreen();
+});
 $("approvals-screen-list").addEventListener("click", (e) => {
   const b = e.target.closest("button[data-act]");
   if (b && !b.disabled) decideApproval(b);

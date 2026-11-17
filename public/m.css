@@ -1113,3 +1113,10 @@ input, select, textarea { font-size: 16px; }
 .ts-row button { flex: 1 1 auto; font-family: var(--chrome); font-weight: 700; min-height: calc(48px / var(--tower-scale)); padding: 0 12px; border-radius: 8px; border: 1px solid var(--hair-hi); background: var(--raised); color: var(--bone); }
 .ts-row button.on { background: var(--amber); border-color: var(--amber); color: #1d2021; }
 .ts-note { color: var(--dim); font-size: 16px; margin-top: 8px; }
+
+/* System filter chips on the Approvals screen (operator, 2026-11-17) */
+.sys-chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 0 10px; }
+.sys-chip { font: inherit; font-size: 15px; min-height: 36px; padding: 4px 12px; border-radius: 18px; border: 1px solid var(--hair-hi); background: var(--panel); color: var(--bone); cursor: pointer; }
+.sys-chip b { color: var(--amber); margin-left: 4px; }
+.sys-chip.on { background: var(--amber); color: var(--on-accent); border-color: var(--amber); }
+.sys-chip.on b { color: var(--on-accent); }

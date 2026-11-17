@@ -8,6 +8,14 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-17 — Keeper queue takes turns by system; Approvals can be filtered by system
+
+- **Why:** the keeper market queue raises ONE card at a time, best score first. SN86 had 12 uncovered markets, so each answered card was followed by another SN86 card, and B64 (the only heavy-freighter yard, no keeper polling it, price 8 h stale) never got one. The log said it: `no keeper request for X1-B64-FD8E: the single request slot is held by X1-SN86-A2|X1-SN86-D40|SHIP_PROBE`.
+- **Rotation:** new pure module `src/engine/keeperRotation.ts` (`rotateBySystem`). The system served least recently goes first, so it is one card per system and then the next system's turn; a system that has never had a card keeps its score order, and a system's own markets keep their order. `advanceKeeperMarketQueue` records the system when a card or purchase is made (memory only: a restart starts everyone level). Doctrine clause `keeperRotateSystems` (on by default; off gives today's order). The log line `keeper queue: next system is ...` says who goes next.
+- **Filter:** `public/shared/systemFilter.js` adds a chip row (All plus one chip per system, with counts) above the Approvals lists in Tower (waiting, decided, coming up; the choice is remembered) and in the Ops approvals pane (`v6.js`). Approvals with no system (a ship purchase) are never hidden. A keeper card's system is the market in its `yard|market|hull` symbol.
+- **Not changed:** the Approve button on an "upcoming" row still does nothing while another card holds the slot (see `docs/TODO.md`); with rotation the slot now moves on once that card is answered.
+- **Tests:** `tests/keeperRotation.test.ts`, `tests/systemFilter.test.ts`. Not yet deployed: a deploy restarts the box.
+
 ## 2026-11-17 — Tower readability pass: default size 85%, Text size setting, lighter dim and red text, sentence-case labels
 
 Why: the operator has low vision and wants Tower easy to read at a glance, keeping the layout and the Gruvbox palette. The audit (`docs/tower-readability-audit.md`) found the 0.7 scale (set 2026-10-29) made the 15-16px text about 11px on screen, `user-scalable=no` blocked pinch-zoom, and secondary and red text failed contrast. Operator answers: default 85% plus a Large text setting, allow pinch-zoom, lighter Gruvbox red for text, sentence case for most labels, profit in green, sub-tab row stays one row with an edge fade.

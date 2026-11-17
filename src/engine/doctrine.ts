@@ -801,6 +801,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperRotateSystems",
+    name: "Keeper cards rotate by system",
+    description: "The keeper queue raises one card at a time. On: the system that was served least recently goes first, so one card per system and then the next system's turn, and a system with many gaps cannot hold the slot all day (2026-11-17: SN86 kept the slot while B64 got no card). Off: best score first across all systems, as before. A system that has never had a card keeps its score order. Takes effect on the next queue pass.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "sensorScanIntervalMin",
     name: "Sensor scan",
     description: "How often the chart scout runs a sensor scan (systems/waypoints) once nothing is left to chart, and buys a scout to do it even with no charting work left. Off by default — this changes the auto-buyer's spending, so turn it on deliberately.",

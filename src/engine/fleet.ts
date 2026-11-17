@@ -71,6 +71,7 @@ import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, legTravel, fuelCredits, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { cannotProfit, netCeiling } from "./routePrefilter.js";
 import { yardsFirst } from "./keeperOrder.js";
+import { rotateBySystem, rotationReason, systemOf as keeperSystemOf } from "./keeperRotation.js";
 import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
 import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
@@ -8125,6 +8126,8 @@ export class FleetManager {
    * stalling indefinitely on markets nothing happens to visit.
    */
   /** When each open keeper request first found no ship at its yard (request row id -> ms), and the markets let go of since (market -> ms until which the queue skips them). Memory only: a restart starts the wait again. */
+  /** When each system last got a keeper card or purchase from the queue (system -> ms); the rotation serves the least recent first. Memory only: a restart starts everyone level, in score order. */
+  private readonly keeperSystemServedAt = new Map<string, number>();
   private get keeperYardWait(): Map<string, number> { return this.timersDoc?.book.yardWait ?? this.noTimers.yardWait; }
   private get keeperQueueCooldown(): Map<string, number> { return this.timersDoc?.book.queueCooldown ?? this.noTimers.queueCooldown; }
   private keeperStallPolicy(): StallPolicy {
@@ -8163,7 +8166,11 @@ export class FleetManager {
     // Every uncovered shipyard market goes first, not only in systems whose yard stock is unread (operator, 2026-11-01): a keeper docked at a
     // yard lets the rest of its system be bought there, and the cheapest yard (THEO's C44) cannot buy anything until one of ours is docked at it.
     const yardFirst = new Set(wanted.filter((m) => this.registry.isShipyard(m)));
-    const priority = serviceableFirst(yardsFirst(wanted, yardFirst), serviceable);
+    // One card per system, then the next system's turn (keeperRotation.ts): the system served least recently goes first, so a system with
+    // many gaps cannot hold the single slot all day (operator, 2026-11-17).
+    const rotate = this.doctrine.isEnabledOr("keeperRotateSystems", true);
+    const priority = rotateBySystem(serviceableFirst(yardsFirst(wanted, yardFirst), serviceable), this.keeperSystemServedAt, { enabled: rotate });
+    if (rotate && priority.length > 0) this.keeperNote("rotate", `keeper queue: next system is ${rotationReason(priority[0], this.keeperSystemServedAt, Date.now())}`);
     // Walk the uncovered markets in priority order until one actually asks (or buys). A market that cannot be
     // requested right now (no keeper hull in stock in its system, the shipyard path already asked for it, ...)
     // must not block the ones behind it: 2026-10-10 the head, MB58-E47, sat unrequestable for hours while
@@ -8172,7 +8179,7 @@ export class FleetManager {
     for (const m of priority) {
       if (covered.has(m)) continue;
       if (inCooldown(this.keeperQueueCooldown.get(m), Date.now())) { this.keeperNote(`mcool:${m}`, `no keeper request for ${m}: it is in a cooldown after a failed buy or a release for want of a ship`); continue; } // released a while ago for want of a ship at its yard
-      if (await this.maybeRequestKeeperProbeForMarket(m)) return;
+      if (await this.maybeRequestKeeperProbeForMarket(m)) { this.keeperSystemServedAt.set(keeperSystemOf(m), Date.now()); return; }
       if (++tried >= (autoOn ? 40 : 8)) { this.keeperNote("queue-limit", `keeper queue: ${tried} markets tried this pass with none bought, ${priority.length - tried} left for the next`); return; }
     }
     // The pass ended with uncovered listed markets and nothing requested: name the first few so the log says which ones sit.

@@ -1265,3 +1265,9 @@
 #fleet-table tr.grp .grp-badge { margin-left:10px; font-size:9px; letter-spacing:0; text-transform:none; padding:1px 6px; border-radius:8px; border:1px solid currentColor; }
 #fleet-table tr.grp .grp-badge.crit { color:var(--red, #ff6152); }
 #fleet-table tr.grp .grp-badge.warn { color:var(--accent, #ffb020); }
+
+/* System filter chips on the Ops approvals pane (operator, 2026-11-17) */
+.sys-chips { display:flex; flex-wrap:wrap; gap:6px; padding:2px 0 8px; }
+.sys-chip { font:inherit; font-size:10.5px; padding:3px 9px; border-radius:12px; border:1px solid var(--hairline); background:var(--glass); color:var(--bone); cursor:pointer; }
+.sys-chip b { margin-left:3px; }
+.sys-chip.on { background:var(--bone); color:#111; }
