@@ -101,6 +101,21 @@ export function needsTour(t: TourTarget, p: QueueTourPolicy): boolean {
   return t.pricedShare === undefined || t.pricedShare < p.moveOnShare;
 }
 
+/**
+ * Does this destination still need a tour ship? Used to decide whether a tour ship with a destination THIS module did not set (a manual
+ * dispatch, or one set before a restart, since the module's own "sent" marks live in memory only) is still working or is free to be sent on.
+ *
+ * Operator request, 2026-11-17: after the 13:44 deploy every tour ship counted as "the operator's own trip, never override" for ever, so
+ * the queue saw no tour ship at all ("no tour or explorer ship") while THEO-4, THEO-8, THEO-32 and THEO-33 kept touring systems that were
+ * already live and eight staged systems waited for a tour. A destination that no longer needs a tour (live, or enough of it priced, or not
+ * in the queue) is a finished job, so its ship is free; a destination that does still need one stays protected, as before.
+ */
+export function destinationNeedsTour(dest: string | undefined, targets: readonly TourTarget[], p: QueueTourPolicy): boolean {
+  if (dest === undefined) return false;
+  const t = targets.find((x) => x.system === dest);
+  return t !== undefined && needsTour(t, p);
+}
+
 export function decideQueueTours(s: TourSignals, p: QueueTourPolicy): TourDecision {
   const out: TourDecision = { send: [], notes: [] };
   if (p.maxShips <= 0) return out;

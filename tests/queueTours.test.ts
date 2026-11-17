@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_QUEUE_TOUR_POLICY, decideQueueTours, needsTour, type QueueTourPolicy, type TourShip, type TourSignals, type TourTarget } from "../src/engine/queueTours.js";
+import { DEFAULT_QUEUE_TOUR_POLICY, decideQueueTours, destinationNeedsTour, needsTour, type QueueTourPolicy, type TourShip, type TourSignals, type TourTarget } from "../src/engine/queueTours.js";
 
 const on: QueueTourPolicy = { ...DEFAULT_QUEUE_TOUR_POLICY, maxShips: 2 };
 const NOW = 10_000_000;
@@ -79,4 +79,13 @@ test("no system needs a tour: a note, no sends", () => {
   const d = decideQueueTours(sig([target("X5", { pricedShare: 1 })], [ship("S", "X1")]), on);
   assert.equal(d.send.length, 0);
   assert.match(d.notes.join(" "), /no staged system needs a tour/);
+});
+
+test("a destination that still needs a tour keeps its ship; a finished one frees it", () => {
+  const staged = target("X1-GV7", { pricedShare: 0.1 });
+  assert.equal(destinationNeedsTour("X1-GV7", [staged], on), true);
+  assert.equal(destinationNeedsTour("X1-GV7", [{ ...staged, pricedShare: 0.9 }], on), false);
+  assert.equal(destinationNeedsTour("X1-GV7", [{ ...staged, held: true }], on), false);
+  assert.equal(destinationNeedsTour("X1-FT2", [staged], on), false);
+  assert.equal(destinationNeedsTour(undefined, [staged], on), false);
 });

@@ -8,6 +8,13 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-17 — Tour ships were locked out of the queue after a restart; they are freed once their system is done
+
+- **Symptom:** from the 13:44 deploy on, the fresh-system log said "X1-RS9, X1-PD3, X1-TA36, ... need a tour: no tour or explorer ship" every 5 minutes while THEO-4, THEO-8, THEO-32 and THEO-33 kept touring systems that were already live (PN45, FD13, FT2) and eight staged systems sat at 0-13% keepers. No system opened between 22:30 and the end of the day.
+- **Cause:** `maybeSendQueueTours` (`src/engine/fleet.ts`) skipped any tour ship whose destination it had not set itself ("belongs to the operator: never override"). The set of ships it had sent (`queueTourSentAt`) lives in memory, so a restart forgot all of them, and the destinations (kept in the saved ship state) then all looked like the operator's. The queue was handed an empty ship list.
+- **Fix:** new `destinationNeedsTour()` in `src/engine/queueTours.ts`. A tour ship with a destination this module did not set is still left alone while that system needs a tour (staged and under the priced share); once the system is live, enough priced, held or not in the queue, the job is done and the ship is free to be sent to the next queued system. Held ships stay untouched. Test in `tests/queueTours.test.ts`.
+- **Not deployed yet:** takes effect on the next restart.
+
 ## 2026-11-17 — Keeper queue takes turns by system; Approvals can be filtered by system
 
 - **Why:** the keeper market queue raises ONE card at a time, best score first. SN86 had 12 uncovered markets, so each answered card was followed by another SN86 card, and B64 (the only heavy-freighter yard, no keeper polling it, price 8 h stale) never got one. The log said it: `no keeper request for X1-B64-FD8E: the single request slot is held by X1-SN86-A2|X1-SN86-D40|SHIP_PROBE`.
