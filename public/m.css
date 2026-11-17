@@ -308,6 +308,19 @@ body {
 .detail-row .d { color: var(--dim); font-size: 15px; }
 .detail-row .btn { padding: 5px 10px; font-size: 15px; flex: 0 0 auto; }
 
+/* ── Expand > By system: big goods count and a loud YARD chip (operator request, low vision) ── */
+.sys-row { padding: 12px 0; font-size: 19px; }
+.sys-row .sys-wp { font-weight: 600; }
+.sys-meta { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; text-align: right; }
+.sys-goods { color: var(--bone); font-size: 19px; }
+.sys-goods b { font-size: 30px; font-weight: 800; line-height: 1; margin-right: 2px; font-variant-numeric: tabular-nums; }
+.sys-age { color: var(--dim); font-size: 17px; }
+.sys-unpriced { color: var(--amber); font-weight: 700; }
+.sys-yard {
+  font-family: var(--chrome); font-size: 18px; font-weight: 800; letter-spacing: 0.08em;
+  color: #121212; background: var(--amber); border-radius: 8px; padding: 4px 10px;
+}
+
 /* ── keeper-priority badge — ported from v6.js's own keeperBadge(), same
  * three states and same tap-to-toggle /api/keeper/markets call. */
 .keeper-badge {

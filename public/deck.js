@@ -30,6 +30,8 @@ import { mountCompare } from "/shared/compare.js";
 import { mountSystems } from "/shared/systems.js";
 import { mountExplorers } from "/shared/explorers.js";
 import { mountQueue } from "/shared/queue.js";
+import { enableChartBlowout } from "/shared/blowout.js";
+enableChartBlowout(); // tap any chart to see it large (operator request, low vision)
 import { mountBlockedGoods } from "/shared/blockedGoods.js";
 import { mountSpacedRoutes } from "/shared/spacedRoutes.js";
 import { mountMiningFields } from "/shared/miningFields.js";

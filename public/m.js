@@ -8,6 +8,7 @@
  * loadDispatch, the subscribe() reactive slices) — no new fetching layer.
  */
 import { api, onUnauthorized } from "/shared/api.js";
+import { enableChartBlowout } from "/shared/blowout.js";
 import { crewHtml, crewAction, loadFields, cachedFields } from "/shared/contractCrew.js";
 import { login, logout, probeSession, register as registerAgent, fetchOnboardingCatalog, completeOnboarding } from "/shared/session.js";
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
@@ -1797,10 +1798,13 @@ function renderSystemMarkets() {
     const { goods, stamp, yard } = byWp.get(wp);
     const mins = stamp ? Math.round((Date.now() - new Date(stamp).getTime()) / 60000) : null;
     const age = mins === null ? "" : mins < 90 ? `${mins}m` : mins < 2880 ? `${Math.round(mins / 60)}h` : `${Math.round(mins / 1440)}d`;
-    return `<div class="detail-row"><span>${escapeHtml(shortWp(wp))} ${keeperBadge(wp)}</span><span class="d">${goods} goods${age ? ` · ${age} old` : " · not priced yet"}${yard ? " · yard" : ""}</span></div>`;
+    // Large number of goods and a loud YARD chip (operator request, low vision): the count and the yard flag are what this list is for.
+    return `<div class="detail-row sys-row"><span class="sys-wp">${escapeHtml(shortWp(wp))} ${keeperBadge(wp)}</span><span class="sys-meta"><span class="sys-goods"><b>${goods}</b> goods</span>${age ? `<span class="sys-age">${age} old</span>` : '<span class="sys-age sys-unpriced">not priced yet</span>'}${yard ? '<span class="sys-yard">YARD</span>' : ""}</span></div>`;
   }).join("");
 }
 $("sys-sel").addEventListener("change", (e) => { sysPick = e.target.value; renderSystemMarkets(); });
+// Tap any chart to see it large (shared/blowout.js; operator request, low vision).
+enableChartBlowout();
 $("sys-market-list").addEventListener("click", (e) => {
   const b = e.target.closest(".keeper-badge[data-wp]");
   if (b) toggleKeeperPriority(b.dataset.wp);
