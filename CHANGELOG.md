@@ -23,6 +23,7 @@ Why: the operator has low vision and wants Tower easy to read at a glance, keepi
 Why: the operator has low vision and said charts were hard to read at their normal size, and that the number of goods and the yard flag on Tower's Expand > By system rows were too small to read.
 
 - **`public/shared/blowout.js`** (new, used by `public/m.js` and `public/deck.js`): one delegated click handler; tapping a chart (the shared metrics/compare/explorer charts, the pace sparkline, the price charts) opens a full-screen copy with a close button, A− / A+ size steps (the chart gets up to 3.4x the screen width and the view scrolls), a rotate button for a phone held upright, Esc and a tap on the backdrop to close. It brings its own styles, so no page CSS was touched for it. Test: `tests/blowout.test.ts`. The v6 page is not wired (nothing asked for it).
+- (Follow-up, same day: the word "goods" is dropped from those rows, the bare number stays; it keeps a `title`/`aria-label` of "N goods".)
 - **`public/m.js`, `public/m.css`**: By system rows show the goods count in 30px bold and a solid amber "YARD" chip (was 15px grey text "· yard"); "not priced yet" is amber; row text 19px.
 - Not deployed: static files only, but a deploy to main restarts the box, so it waits for the operator's go (see the week journal).
 

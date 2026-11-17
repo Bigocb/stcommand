@@ -1818,7 +1818,7 @@ function renderSystemMarkets() {
     const mins = stamp ? Math.round((Date.now() - new Date(stamp).getTime()) / 60000) : null;
     const age = mins === null ? "" : mins < 90 ? `${mins}m` : mins < 2880 ? `${Math.round(mins / 60)}h` : `${Math.round(mins / 1440)}d`;
     // Large number of goods and a loud YARD chip (operator request, low vision): the count and the yard flag are what this list is for.
-    return `<div class="detail-row sys-row"><span class="sys-wp">${escapeHtml(shortWp(wp))} ${keeperBadge(wp)}</span><span class="sys-meta"><span class="sys-goods"><b>${goods}</b> goods</span>${age ? `<span class="sys-age">${age} old</span>` : '<span class="sys-age sys-unpriced">not priced yet</span>'}${yard ? '<span class="sys-yard">YARD</span>' : ""}</span></div>`;
+    return `<div class="detail-row sys-row"><span class="sys-wp">${escapeHtml(shortWp(wp))} ${keeperBadge(wp)}</span><span class="sys-meta"><span class="sys-goods" title="${goods} goods" aria-label="${goods} goods"><b>${goods}</b></span>${age ? `<span class="sys-age">${age} old</span>` : '<span class="sys-age sys-unpriced">not priced yet</span>'}${yard ? '<span class="sys-yard">YARD</span>' : ""}</span></div>`;
   }).join("");
 }
 $("sys-sel").addEventListener("change", (e) => { sysPick = e.target.value; renderSystemMarkets(); });
