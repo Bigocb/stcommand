@@ -15,7 +15,7 @@
   --raised: #3c3836;
   --raised-2: #504945;
   --hair: #504945;
-  --hair-hi: #7c6f64;
+  --hair-hi: #928374; /* Gruvbox gray: control borders reach 3:1 */
   --amber: #fabd2f;
   --amber-dim: rgba(250, 189, 47, 0.16);
   --amber-glow: rgba(250, 189, 47, 0.35);
@@ -23,7 +23,8 @@
   --green: #b8bb26;
   --red: #fb4934;
   --bone: #ebdbb2;
-  --dim: #a89984;
+  --dim: #bdae93; /* Gruvbox fg3 (was fg4 #a89984): secondary text passes AA on panels */
+  --red-text: #fb8467; /* red + 35% fg0: red TEXT reaches AA; --red stays for fills, borders and dots */
   --label: #fe8019;
   --on-accent: #282828;
   --field: #1d2021;
@@ -82,7 +83,7 @@ body {
 .tile .v { font-family: var(--mono); font-weight: 600; font-size: 20px; font-variant-numeric: tabular-nums; }
 .tile .v.amber { color: var(--amber); }
 .tile .v.green { color: var(--green); }
-.tile .v.red { color: var(--red); }
+.tile .v.red { color: var(--red-text); }
 .tile .sub { font-family: var(--mono); font-size: 15px; color: var(--dim); }
 
 /* ── triage feed ── */
@@ -105,7 +106,7 @@ body {
 .card .row1 { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
 .card .who { font-family: var(--chrome); font-weight: 600; font-size: 16px; }
 .card .amt { font-family: var(--mono); font-size: 16px; font-weight: 600; }
-.card .amt.red { color: var(--red); }
+.card .amt.red { color: var(--red-text); }
 .card .amt.amber { color: var(--amber); }
 .card .detail { font-family: var(--mono); font-size: 16px; color: var(--dim); line-height: 1.5; }
 /* Hint lines placed straight in a screen (not in a card) had no style and rendered at the page's default size. */
@@ -130,7 +131,7 @@ body {
 .btn:active { background: var(--raised-2); }
 .btn.pri { background: var(--amber); border-color: var(--amber); color: var(--on-accent); }
 .btn.ghost { background: transparent; }
-.btn.deny { border-color: rgba(255, 97, 82, 0.4); color: var(--red); background: transparent; }
+.btn.deny { border-color: rgba(255, 97, 82, 0.4); color: var(--red-text); background: transparent; }
 .btn[disabled] { opacity: 0.5; }
 
 .empty { font-family: var(--mono); font-size: 16px; color: var(--dim); padding: 24px 0; text-align: center; }
@@ -221,7 +222,7 @@ body {
 .roster-row .rr-stats .fg.mid { background:var(--amber); }
 .roster-row .rr-stats .fg.low { background:var(--red); box-shadow:0 0 5px rgba(255,97,82,.6); }
 .roster-row .rr-stats .fg.none { visibility:hidden; }
-.roster-row .rr-stats .lo { color: var(--red); }
+.roster-row .rr-stats .lo { color: var(--red-text); }
 /* ETA — dim "—" for a docked/idle ship, amber (Tower's own in-transit
    color, same as the map's ship blip) with tabular-nums only while a ship
    is actually en route. Same reasoning as desktop's own .eta.live. */
@@ -344,7 +345,7 @@ body {
 .act-row .txt b { color: var(--bone); font-weight: 600; }
 .act-row .amt { font-weight: 600; }
 .act-row .amt.pos { color: var(--green); }
-.act-row .amt.neg { color: var(--red); }
+.act-row .amt.neg { color: var(--red-text); }
 
 /* ── Map: a literal radar scope ──────────────
  * Ties the visual identity to the "Radar" concept name directly rather
@@ -586,7 +587,7 @@ body {
   background: var(--field); border: 1px solid var(--hair-hi); color: var(--bone); font-family: var(--mono);
   font-size: 18px; padding: 10px 11px; border-radius: 3px;
 }
-.auth-card .err { color: var(--red); font-size: 16px; min-height: 12px; }
+.auth-card .err { color: var(--red-text); font-size: 16px; min-height: 12px; }
 .auth-switch { background: none; border: 0; font: inherit; font-size: 16px; letter-spacing: 0.03em; color: var(--amber); cursor: pointer; padding: 6px 0; }
 .auth-switch:hover, .auth-switch:focus-visible { text-decoration: underline; outline: none; }
 .auth-card.onboard-card { width: min(360px, 92vw); max-height: 88vh; }
@@ -658,7 +659,7 @@ body {
 .mx .kpi .v { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .mx .kpi .sub { font-size: 15px; color: var(--dim); }
 .mx .v.good, .mx .mv.good { color: var(--green); }
-.mx .v.bad, .mx .mv.bad { color: var(--red); }
+.mx .v.bad, .mx .mv.bad { color: var(--red-text); }
 .mx .cols2, .mx .cols3 { display: flex; flex-direction: column; gap: 12px; }
 .mx .panel { background: var(--panel); border: 1px solid var(--hair); border-radius: 8px; overflow: hidden; }
 .mx .panel-h { display: flex; align-items: center; gap: 8px; padding: 9px 12px; border-bottom: 1px solid var(--hair); }
@@ -760,7 +761,7 @@ body {
 .notify-row input[type="time"], .notify-row input[type="number"] { font: 17px var(--mono); color: var(--bone); background: transparent; border: 1px solid var(--hair); border-radius: 4px; padding: 4px 6px; }
 .notify-row input[type="number"] { width: 56px; }
 /* Must out-specify `.route-row .rr-legs` (dim gray), or the block reason reads as faded. */
-.route-row .rr-legs.rr-blocked { color: var(--red); font-size: 16px; font-weight: 600; }
+.route-row .rr-legs.rr-blocked { color: var(--red-text); font-size: 16px; font-weight: 600; }
 .rr-skipped { margin: 0 0 8px; padding: 8px 10px; border-left: 3px solid var(--amber, #d9a400); font-size: 16px; }
 .route-sort { display: flex; gap: 6px; align-items: center; margin: 0 0 8px; font-size: 16px; color: var(--dim); }
 .route-sort button { padding: 3px 9px; border-radius: 999px; border: 1px solid var(--hair); background: transparent; color: inherit; font: inherit; }
@@ -837,7 +838,7 @@ select:focus, .price-picker select:focus, select.role-select:focus { outline: 1p
 .ss-tower .ss-phase { color: var(--amber); }
 .ss-st { font-family: var(--chrome); font-size: 15px; letter-spacing: .06em; text-transform: uppercase; padding: 1px 6px; border-radius: 9px; border: 1px solid rgba(255,255,255,.12); color: var(--dim); }
 .ss-st-met { color: var(--green); border-color: rgba(88,214,141,.35); }
-.ss-st-missed { color: var(--red); border-color: rgba(255,97,82,.35); }
+.ss-st-missed { color: var(--red-text); border-color: rgba(255,97,82,.35); }
 .ss-st-pending { color: var(--amber); border-color: rgba(255,176,32,.35); }
 .ss-st-dropped { text-decoration: line-through; }
 .ex-kpis { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px; }
@@ -847,7 +848,7 @@ select:focus, .price-picker select:focus, select.role-select:focus { outline: 1p
 .bg-note { font-size: 16px; color: var(--dim); line-height: 1.5; margin-bottom: 8px; }
 .bg-form { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
 .bg-form input { min-width: 0; background: var(--field); border: 1px solid var(--hair-hi); color: var(--bone); font-family: var(--mono); font-size: 16px; padding: 8px 10px; border-radius: 3px; }
-.bg-err { font-size: 16px; color: var(--red); }
+.bg-err { font-size: 16px; color: var(--red-text); }
 .bg-row { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--hair); }
 .bg-good { font-family: var(--mono); font-size: 16px; }
 .bg-why { flex: 1; font-size: 16px; color: var(--dim); }
@@ -1011,7 +1012,7 @@ input, select, textarea { font-size: 16px; }
 }
 .check .ck { grid-area: k; font-family: var(--chrome); font-weight: 700; font-size: 18px; }
 .check .cv { grid-area: v; font-weight: 700; font-size: 20px; font-variant-numeric: tabular-nums; }
-.check .cv.amber { color: var(--amber); } .check .cv.red { color: var(--red); }
+.check .cv.amber { color: var(--amber); } .check .cv.red { color: var(--red-text); }
 .check .cl { grid-area: l; font-size: 16px; color: var(--dim); }
 .check .chev, .menu-row .chev { grid-area: chev; font-size: 28px; color: var(--label); text-align: right; }
 .menu-row { grid-template-areas: "k chev"; grid-template-columns: 1fr 24px; min-height: 64px; font-family: var(--chrome); font-weight: 700; font-size: 18px; }
@@ -1020,7 +1021,7 @@ input, select, textarea { font-size: 16px; }
 .card.trouble .row1 { display: flex; justify-content: space-between; gap: 10px; }
 .card.trouble .who { font-weight: 700; font-size: 20px; }
 .card.trouble .sev { font-family: var(--chrome); font-weight: 700; font-size: 16px; text-transform: uppercase; }
-.card.trouble.crit { border-color: var(--red); } .card.trouble.crit .sev { color: var(--red); }
+.card.trouble.crit { border-color: var(--red); } .card.trouble.crit .sev { color: var(--red-text); }
 .card.trouble.warn { border-color: var(--amber); } .card.trouble.warn .sev { color: var(--amber); }
 .card.trouble .detail { font-size: 18px; margin-top: 6px; }
 /* Expand › Queue as cards (shared/queue.js layout "cards") */
@@ -1065,12 +1066,12 @@ input, select, textarea { font-size: 16px; }
  * One knob for the whole app: every page, the sheet, the sign-in cards and the rate-limit toast are drawn at --tower-scale
  * of the sizes above. The fixed shell is enlarged by the inverse so it still fills the screen. Raise it (0.8, 0.9) or lower
  * it here to retune everything at once; 1 is the Clear Tower sizes as designed. */
-:root { --tower-scale: 0.7; }
+:root { --tower-scale: 0.85; } /* 2026-11-17 operator: readability (was 0.7); Menu > Text size changes it per phone */
 .app, .auth-gate { zoom: var(--tower-scale); width: calc(100vw / var(--tower-scale)); height: calc(100dvh / var(--tower-scale)); }
 .rl-toast { zoom: var(--tower-scale); }
 
 /* Sub-tabs: square-cornered rectangles, not pills. Active = filled amber. */
-.subnav button { min-height: 44px; padding: 0 14px; border: 1px solid var(--hair-hi); border-radius: 2px; background: transparent; color: var(--dim); font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; }
+.subnav button { min-height: calc(44px / var(--tower-scale)); padding: 0 14px; border: 1px solid var(--hair-hi); border-radius: 2px; background: transparent; color: var(--dim); font-size: 16px; letter-spacing: 0.06em; text-transform: uppercase; }
 .subnav button.on { background: var(--amber); border-color: var(--amber); color: var(--on-accent); }
 .tabbar button .ti { width: 22px; height: 22px; display: block; }
 
@@ -1086,3 +1087,29 @@ input, select, textarea { font-size: 16px; }
 /* Front page: section headers get room above and below, so they do not crowd the boxes. */
 .home-scroll .sec-h { margin-top: 24px; margin-bottom: 8px; }
 .tile .v.ice { color: var(--ice); }
+
+
+/* ══ Readability pass (operator, 2026-11-17; docs/tower-readability-audit.md) ═════════════════════════════════════════
+ * Keeps the layout and the Gruvbox palette; changes how it reads: sentence-case labels, one bold number per row, loud
+ * profit/loss in the hourly table, bigger tap targets, a visible fade on the sub-tab row. */
+.tile .k, .tile .pair .pk, .hr-t th, .qq .qq-q, .mx .kpi .k, .ex-k, .mx th, .mx-projgrid .k, .ss-tower .ss-lbl,
+.mx-contracts .mx-sub, .sec-h, .dtl-h, .roster-grp, .hull .role {
+  text-transform: none; letter-spacing: 0.02em; font-size: 16px; font-weight: 600;
+}
+.hr-t .green { color: var(--green); }
+.hr-t .red { color: var(--red-text); }
+.hr-t td.n { font-variant-numeric: tabular-nums; font-weight: 700; }
+.keeper-badge, .yc-more, .why-more, .route-sort button, .crew-toggle, .mat-hold {
+  min-height: calc(36px / var(--tower-scale)); display: inline-flex; align-items: center; padding-left: 10px; padding-right: 10px;
+}
+/* the sub-tab row scrolls sideways: fade the right edge so a cut-off tab reads as "more", and leave room to scroll it clear */
+#subnav { padding-right: 56px !important; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 44px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 44px), transparent); }
+.tile .v.hero { font-size: clamp(28px, 9vw, 40px); }
+.filter-pills button, .ship-filter button { white-space: nowrap; }
+.doc-row .dv { width: 9.5ch; min-width: 120px; font-variant-numeric: tabular-nums; }
+.sys-yard { color: #1d2021; }
+/* Menu > Text size */
+.ts-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.ts-row button { flex: 1 1 auto; font-family: var(--chrome); font-weight: 700; min-height: calc(48px / var(--tower-scale)); padding: 0 12px; border-radius: 8px; border: 1px solid var(--hair-hi); background: var(--raised); color: var(--bone); }
+.ts-row button.on { background: var(--amber); border-color: var(--amber); color: #1d2021; }
+.ts-note { color: var(--dim); font-size: 16px; margin-top: 8px; }

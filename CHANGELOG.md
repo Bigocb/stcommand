@@ -8,6 +8,16 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-17 — Tower readability pass: default size 85%, Text size setting, lighter dim and red text, sentence-case labels
+
+Why: the operator has low vision and wants Tower easy to read at a glance, keeping the layout and the Gruvbox palette. The audit (`docs/tower-readability-audit.md`) found the 0.7 scale (set 2026-10-29) made the 15-16px text about 11px on screen, `user-scalable=no` blocked pinch-zoom, and secondary and red text failed contrast. Operator answers: default 85% plus a Large text setting, allow pinch-zoom, lighter Gruvbox red for text, sentence case for most labels, profit in green, sub-tab row stays one row with an edge fade.
+
+- **`public/m.css`**: `--tower-scale` 0.7 to 0.85; `--dim` from fg4 #a89984 to fg3 #bdae93; `--hair-hi` to Gruvbox gray #928374 (control borders reach 3:1); new `--red-text` #fb8467 used for every red text colour (fills, borders and dots keep `--red`); `.subnav button` min-height now scales with `--tower-scale` (was 31px on screen); a readability block at the end: sentence-case 16px labels (`.tile .k`, table heads, `.sec-h` and similar, not buttons or the tab bar), colour rules for the hourly table's profit and loss (the JS already emitted the classes), 36px tap height on keeper badges and small pills, a right-edge fade and extra end padding on the sub-tab row, hero figures clamped for narrow phones, a wider doctrine value box.
+- **`public/m.js`**: profit per hour and matched profit are green (red when negative), not cyan; **Menu > Text size** with Compact (0.7), Standard (0.85, default), Large (1), Larger (1.15) and Largest (1.3), saved per phone in `localStorage` (`tower.textScale`).
+- **`public/m.html`**: viewport no longer has `user-scalable=no`, so pinch-zoom works.
+- Checked with the audit's stub-data harness at 390px: Now, Hourly, Menu and By system at 0.85, Now at 1.0; no overflow. Not checked on a real phone; above 1.0 the top bar and filter pills can crowd (the Menu says so). Not done: ON/OFF text on switches, text in place of the fuel and cargo dots, one-bold-number rows in Routes and Ships (audit P2).
+- Not deployed: a deploy to main restarts the box.
+
 ## 2026-11-17 — Tap a chart to see it large; bigger goods count and YARD chip in Tower's By system list
 
 Why: the operator has low vision and said charts were hard to read at their normal size, and that the number of goods and the yard flag on Tower's Expand > By system rows were too small to read.

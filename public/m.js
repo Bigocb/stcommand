@@ -422,8 +422,8 @@ function renderTiles() {
 
   // Now › Status (redesign B): two headline figures, then the hourly table and the checks (renderStatusExtras).
   setHtml($("home-tiles"), `
-    <div class="tile"><div class="k">Profit per hour</div><div class="v hero ${rate >= 0 ? "ice" : "red"}">${signed(rate)}<span class="sub"> /hr${trend}</span></div>${pace ? `<div class="sub">3h average ${signed(pace.perHour3h)} · traders' sales less their own fuel and jumps</div>${bridge.paceExpansion ? `<div class="sub" title="Fuel and jumps paid by keepers, explorers and tour ships: probe deliveries to new systems, explorers pricing them. Not trading, so it is kept out of the figure above. Trading plus this is the all-in rate.">Expansion ${signed(bridge.paceExpansion.perHour1h)}/hr · all-in ${signed(rate + bridge.paceExpansion.perHour1h)}/hr</div>` : ""}${paceSparkline(pace.series)}` : ""}</div>
-    <div class="tile"><div class="k">Matched profit</div><div class="v hero ${matchedCum === null || matchedCum >= 0 ? "ice" : "red"}" title="${escapeAttr(matchedCum === null ? "" : fmt(matchedCum))}">${matchedCum === null ? "—" : signed(matchedCum)}</div><div class="sub">cumulative since reset · realized profit on sells</div></div>
+    <div class="tile"><div class="k">Profit per hour</div><div class="v hero ${rate >= 0 ? "green" : "red"}">${signed(rate)}<span class="sub"> /hr${trend}</span></div>${pace ? `<div class="sub">3h average ${signed(pace.perHour3h)} · traders' sales less their own fuel and jumps</div>${bridge.paceExpansion ? `<div class="sub" title="Fuel and jumps paid by keepers, explorers and tour ships: probe deliveries to new systems, explorers pricing them. Not trading, so it is kept out of the figure above. Trading plus this is the all-in rate.">Expansion ${signed(bridge.paceExpansion.perHour1h)}/hr · all-in ${signed(rate + bridge.paceExpansion.perHour1h)}/hr</div>` : ""}${paceSparkline(pace.series)}` : ""}</div>
+    <div class="tile"><div class="k">Matched profit</div><div class="v hero ${matchedCum === null || matchedCum >= 0 ? "green" : "red"}" title="${escapeAttr(matchedCum === null ? "" : fmt(matchedCum))}">${matchedCum === null ? "—" : signed(matchedCum)}</div><div class="sub">cumulative since reset · realized profit on sells</div></div>
     <div class="tile"><div class="k">Credits + holds</div><div class="v hero">${fmt(wph.total)}${wph.partial ? "+" : ""}</div>
       ${wp && wp.perHour1h !== null ? `<div class="sub" title="Change in credits plus the estimated value of every hold, per hour, with ship purchases added back. Counts cargo at what it should fetch, so it includes profit not yet sold.">Worth ${signed(wp.perHour1h)}/hr${wp.perHour3h !== null ? ` · 3h ${signed(wp.perHour3h)}` : ""}</div>` : ""}
       <div class="pair"><div><div class="pk">Credits</div><div class="pv" title="${escapeAttr(fmt(state?.agent?.credits ?? bridge.credits ?? 0))}">${short(state?.agent?.credits ?? bridge.credits ?? 0).replace("+", "")}</div></div><div><div class="pk">Holds</div><div class="pv" title="${escapeAttr(fmt(wph.holds))}">~${short(wph.holds).replace("+", "")}</div></div></div>
@@ -521,13 +521,32 @@ async function renderHourlyScreen() {
   }
 }
 
+
+/* ── Text size (operator, 2026-11-17): one knob, --tower-scale (m.css), saved per phone ── */
+const TEXT_SIZES = [
+  { label: "Compact", value: "0.7" }, { label: "Standard", value: "0.85" }, { label: "Large", value: "1" },
+  { label: "Larger", value: "1.15" }, { label: "Largest", value: "1.3" },
+];
+function currentTextScale() {
+  try { return localStorage.getItem("tower.textScale") || "0.85"; } catch { return "0.85"; }
+}
+function applyTextScale(v, save = true) {
+  document.documentElement.style.setProperty("--tower-scale", String(v));
+  if (!save) return;
+  try { localStorage.setItem("tower.textScale", String(v)); } catch { /* private mode: the size just is not remembered */ }
+}
+applyTextScale(currentTextScale(), false);
+
 /* ── Menu: everything that is not Now, Money, Expand or Ships, as a list of big rows ── */
 function renderMenu() {
   const el = $("menu-list");
   if (!el) return;
   const items = groupTabs("menu").filter((t) => t.section);
   const sections = [...new Set(items.map((t) => t.section))];
-  setHtml(el, sections.map((sec) => `<div class="sec-h">${escapeHtml(sec)}</div><div class="menu-sec">${items.filter((t) => t.section === sec).map((t) => `<button class="menu-row" data-go="menu:${t.key}">${escapeHtml(t.label)}<span class="chev">›</span></button>`).join("")}</div>`).join(""));
+  const cur = currentTextScale();
+  const sizes = TEXT_SIZES.map((s) => `<button type="button" data-textsize="${s.value}"${s.value === cur ? ' class="on"' : ""}>${s.label}</button>`).join("");
+  const textSize = `<div class="sec-h">Text size</div><div class="ts-row" id="ts-row">${sizes}</div><div class="ts-note">Bigger text for this phone. Standard is the default; Large and Larger can crowd the top bar on a small screen.</div>`;
+  setHtml(el, textSize + sections.map((sec) => `<div class="sec-h">${escapeHtml(sec)}</div><div class="menu-sec">${items.filter((t) => t.section === sec).map((t) => `<button class="menu-row" data-go="menu:${t.key}">${escapeHtml(t.label)}<span class="chev">›</span></button>`).join("")}</div>`).join(""));
 }
 
 /* ── home: triage feed ──────────────────────
@@ -1805,6 +1824,12 @@ function renderSystemMarkets() {
 $("sys-sel").addEventListener("change", (e) => { sysPick = e.target.value; renderSystemMarkets(); });
 // Tap any chart to see it large (shared/blowout.js; operator request, low vision).
 enableChartBlowout();
+$("menu-list")?.addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-textsize]");
+  if (!b) return;
+  applyTextScale(b.dataset.textsize);
+  renderMenu();
+});
 $("sys-market-list").addEventListener("click", (e) => {
   const b = e.target.closest(".keeper-badge[data-wp]");
   if (b) toggleKeeperPriority(b.dataset.wp);
