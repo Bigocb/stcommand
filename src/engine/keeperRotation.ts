@@ -39,3 +39,18 @@ export function rotationReason(first: string | undefined, lastServedAt: Readonly
   const at = lastServedAt.get(s);
   return at === undefined ? `${s} has not had a keeper card yet` : `${s} was last served ${Math.round((nowMs - at) / 60_000)} min ago`;
 }
+
+/**
+ * Should an operator's tap on a "Coming up" row displace the keeper card that holds the single request slot?
+ *
+ * The slot holds one `buyKeeperProbeForMarket` card at a time, so a tap for another market used to return ok and raise nothing
+ * (operator, 2026-11-17: B64-CA2B got no card while SN86-K83 sat open). The tap is the operator's choice of what comes next, so a
+ * card that is still pending, and is about a different market, steps aside: it is closed as expired (not denied, so its market is
+ * not put on the 15-minute denial cooldown) and the queue raises it again on a later pass. A card the operator already approved
+ * (waiting for a ship to buy) stays: that is a decision, not an open question. `shipSymbol` is `yard|market|hull`.
+ */
+export function shouldDisplaceCard(open: { status: string; shipSymbol: string | null } | undefined, targetMarket: string): boolean {
+  if (!open || open.status !== "pending" || !open.shipSymbol) return false;
+  const market = open.shipSymbol.split("|")[1] ?? open.shipSymbol.split("|")[0];
+  return market !== targetMarket;
+}

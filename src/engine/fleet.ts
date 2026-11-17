@@ -71,7 +71,7 @@ import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, legTravel, fuelCredits, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { cannotProfit, netCeiling } from "./routePrefilter.js";
 import { yardsFirst } from "./keeperOrder.js";
-import { rotateBySystem, rotationReason, systemOf as keeperSystemOf } from "./keeperRotation.js";
+import { rotateBySystem, rotationReason, shouldDisplaceCard, systemOf as keeperSystemOf } from "./keeperRotation.js";
 import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
 import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
@@ -8125,9 +8125,9 @@ export class FleetManager {
    * through the whole priority list on a bounded cadence instead of
    * stalling indefinitely on markets nothing happens to visit.
    */
-  /** When each open keeper request first found no ship at its yard (request row id -> ms), and the markets let go of since (market -> ms until which the queue skips them). Memory only: a restart starts the wait again. */
   /** When each system last got a keeper card or purchase from the queue (system -> ms); the rotation serves the least recent first. Memory only: a restart starts everyone level, in score order. */
   private readonly keeperSystemServedAt = new Map<string, number>();
+  /** When each open keeper request first found no ship at its yard (request row id -> ms), and the markets let go of since (market -> ms until which the queue skips them). Memory only: a restart starts the wait again. */
   private get keeperYardWait(): Map<string, number> { return this.timersDoc?.book.yardWait ?? this.noTimers.yardWait; }
   private get keeperQueueCooldown(): Map<string, number> { return this.timersDoc?.book.queueCooldown ?? this.noTimers.queueCooldown; }
   private keeperStallPolicy(): StallPolicy {
@@ -12020,7 +12020,15 @@ export class FleetManager {
     // already on the list, and only this explicit call turns "approve" into a request now.
     if (before.some((m) => m.trim().toUpperCase() === target)) {
       try {
-        await this.maybeRequestKeeperProbeForMarket(target);
+        // The slot holds one card at a time: a pending card about another market steps aside for the operator's tap (shouldDisplaceCard).
+        if (this.store && this.tenantId) {
+          const open = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
+          if (open && shouldDisplaceCard(open, target)) {
+            await this.store.decideApproval(this.tenantId, open.id, "expired", true);
+            this.log(`keeper card ${open.shipSymbol} closed without a denial to make room for the approved ${target}; its market goes back in the queue`);
+          }
+        }
+        if (await this.maybeRequestKeeperProbeForMarket(target)) this.keeperSystemServedAt.set(keeperSystemOf(target), Date.now());
       } catch (err) {
         this.log(`immediate keeper-probe check for approved ${target} failed: ${err instanceof Error ? err.message : String(err)}`);
       }

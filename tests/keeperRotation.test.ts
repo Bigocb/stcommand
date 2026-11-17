@@ -32,3 +32,13 @@ test("rotation reason names the system", () => {
   assert.match(rotationReason("X1-B64-A", new Map(), 0), /has not had/);
   assert.match(rotationReason("X1-B64-A", new Map([["X1-B64", 0]]), 120_000), /2 min ago/);
 });
+
+import { shouldDisplaceCard } from "../src/engine/keeperRotation.js";
+
+test("a tap displaces a pending card about another market only", () => {
+  const card = { status: "pending", shipSymbol: "X1-SN86-C38|X1-SN86-K83|SHIP_PROBE" };
+  assert.equal(shouldDisplaceCard(card, "X1-B64-CA2B"), true);
+  assert.equal(shouldDisplaceCard(card, "X1-SN86-K83"), false);
+  assert.equal(shouldDisplaceCard({ ...card, status: "approved" }, "X1-B64-CA2B"), false);
+  assert.equal(shouldDisplaceCard(undefined, "X1-B64-CA2B"), false);
+});
