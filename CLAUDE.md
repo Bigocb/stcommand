@@ -126,6 +126,13 @@ here so they don't get lost between sessions:
     after a `dispatch_tour` call on the same ship, not a usage error.
     Worth a proper look if it recurs.
 
+## Operator rule: do not mention fuel (2026-11-17)
+
+Ships run their tanks down to almost nothing on purpose to reach their destination; a low reading is normal, not a fault, and the
+operator gets their own alert for a real problem. Do not mention fuel levels, low fuel or refuelling in hourly updates, status
+reports, "Needs attention" or analysis, and do not offer refuels as a fix. Only a ship reported stranded or out of fuel by the
+tools counts as a real problem. (Fuel as a cost line in P&L is fine.)
+
 ## SpaceTraders universe resets
 
 SpaceTraders resets its entire game universe **weekly** (per the game's
