@@ -38,6 +38,7 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
   tour send? the fleet roll-up cache showing fuel 96 against live 300?). Until fixed, nudge each leg by hand at an opening, and start tours from a ship already
   near the gate (A4 to I56 is two long legs, about 13 minutes).
 - [ ] **Trader stall after ~30 h uptime (2026-11-16 22:38, open at 00:25 UTC; journal INCIDENT entry in docs/journal/2026-11-08.md).** No trade for 1 h 47 min+, five traders idle in orbit, dispatcher assigning but nothing executing; same as 2026-11-10 01:43 (uptime ~31 h, cured by restart). Find the root cause; add a watchdog (assignments held, no buy/sell for 20 min -> loud log + Tower alert); consider a planned restart in a quiet hour before ~28 h uptime.
+- [ ] **Sell-side depth guard (2026-11-17 01:09).** THEO-A sold 40 LAB_INSTRUMENTS into X1-KJ19-A4 at 1,641 then 426 a unit (bought about 2,970), a 99k loss in one burst. The second lot should have been held or sent elsewhere once the price fell below cost; check the lot-block logic (`nextLotBlock`) against a thin market.
 - [ ] **Simulation test rig: run what-if simulations faster than real time and in parallel (raised 2026-11-03, operator).** Today every idea is tried on the live
   fleet and a week (168 h) gives one sample, so opening orders, buy cadence, keeper rotation, gate timing and chart scouting are compared by memory. Wanted: a rig
   that can play many runs of a week in minutes, side by side, and compare strategies. Prompted by a player on the SpaceTraders Discord (2026-11-02) whose test rig
