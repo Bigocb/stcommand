@@ -274,6 +274,8 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** How often a halted agent re-checks whether the fleet has resumed. */
 /** How long a trader holds a lot below its loss floor before asking the operator for a decision. */
 const HOLD_BEFORE_FLOOR_APPROVAL_MS = 5 * 60_000;
+/** A market priced more recently than this is not visited again just to look at its prices (see discoverPrices()). */
+export const DISCOVERY_FRESH_MS = 20 * 60_000;
 /** How long a route whose destination bid refused the trip stays blocked. Long enough for a market to stop moving and
  *  for the ship to pick something else, short enough that a genuinely recovered route is not lost: deadRoutes is
  *  cleared every tick, so without this the same two markets would be read and the same line logged every few seconds. */
@@ -2283,8 +2285,24 @@ export class TraderAgent {
   private async discoverPrices(preferred: string[]): Promise<boolean> {
     const here = this.ship.nav.waypointSymbol;
     const hereSystem = this.ship.nav.systemSymbol;
-    const knownMarkets = [...new Set(((await this.getMarketSnapshots?.()) ?? []).map((s) => s.waypointSymbol))].filter((m) => m !== here);
-    const sameSystem = knownMarkets.filter((m) => this.systemOf(m) === hereSystem);
+    const snapshots = (await this.getMarketSnapshots?.()) ?? [];
+    const knownMarkets = [...new Set(snapshots.map((s) => s.waypointSymbol))].filter((m) => m !== here);
+    // Only a market whose price is stale is worth a trip just to look at it. Without this an idle trader with no route
+    // toured its own system's markets back to back (THEO-7 in X1-VM8, a "discovering prices" every ~16 s, 2026-11-18),
+    // paying fuel at every stop to re-read prices a keeper or the last pass had already read. With every market fresh it
+    // reports no progress, so the next try waits the usual 30 s backoff. A `preferred` market (one a route needs) is
+    // always visited.
+    const newest = new Map<string, number>();
+    for (const s of snapshots) {
+      const t = s.timestamp ? Date.parse(s.timestamp) : NaN;
+      if (Number.isFinite(t) && t > (newest.get(s.waypointSymbol) ?? 0)) newest.set(s.waypointSymbol, t);
+    }
+    const now = Date.now();
+    const stale = (m: string): boolean => {
+      const t = newest.get(m);
+      return t === undefined || now - t > DISCOVERY_FRESH_MS;
+    };
+    const sameSystem = knownMarkets.filter((m) => this.systemOf(m) === hereSystem && stale(m));
     // A market in another system is only worth a gate jump when a route needs its price (`preferred`). The generic
     // fallback stays in this system: going to the first market in any other system cost a jump (~6,000c) a hop and
     // left an idle trader ping-ponging between two gates (THEO-1, MV84 <-> XD69, 2026-11-18).

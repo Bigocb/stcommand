@@ -8,6 +8,16 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-18: price discovery no longer tours a system's markets in a loop
+
+With the self-claim fallback off and traders set local-only, an idle trader with no route went "discovering prices" in its own
+system over and over: THEO-7 visited X1-VM8's markets back to back, one every ~16 seconds from 12:46 to 13:01, paying fuel at
+each stop (the fleet spent about 50k on fuel in the hour to 13:12 against 80k matched profit). `discoverPrices()` in
+`src/engine/trader.ts` now skips a same-system market whose price is younger than `DISCOVERY_FRESH_MS` (20 minutes); when every
+market is fresh it reports no progress, so the trader waits the usual 30-second backoff. A market a route needs (the
+`preferred` list) is always visited. Test: `tests/trader.test.ts`, "does not revisit a same-system market whose price is fresh".
+At the same time the 80- and 225-unit traders were set back to reach any (THEO-1 and THEO-3 stay local-only).
+
 ## 2026-11-18: traders no longer pick their own far routes or jump systems to look at prices
 
 From 05:17 on 11-18 the fleet lost money every hour (jump fees 2.65M against 1.75M matched profit over 7 hours).

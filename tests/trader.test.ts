@@ -531,6 +531,35 @@ describe("TraderAgent.discoverPrices: reachability", () => {
     assert.equal(navigated, false);
   });
 
+  it("does not revisit a same-system market whose price is fresh (2026-11-18)", async () => {
+    // THEO-7 toured X1-VM8's markets back to back ("discovering prices" every ~16 s), paying fuel at each stop to re-read
+    // prices it already had. A market priced in the last 20 minutes is skipped; a stale one is still visited.
+    const ship = makeShip();
+    const fresh = new Date().toISOString();
+    const old = new Date(Date.now() - 60 * 60_000).toISOString();
+    const make = (ts: string) => {
+      const trader = new TraderAgent(ship, {
+        api: { getCallCount: () => 0, getShip: async () => ship } as any,
+        getMarketSnapshots: async () => [{ waypointSymbol: "X1-A-A2", goodSymbol: "IRON", purchasePrice: 5, sellPrice: 10, tradeVolume: 10, timestamp: ts }],
+      });
+      trader.withWorld([{ symbol: "X1-A-A1", x: 0, y: 0 }, { symbol: "X1-A-A2", x: 1, y: 1 }]);
+      let navigated = false;
+      (trader as any).navigateTo = async () => { navigated = true; };
+      (trader as any).refuelAt = async () => {};
+      (trader as any).observeMarket = async () => {};
+      return { trader, navigated: () => navigated };
+    };
+    const a = make(fresh);
+    assert.equal(await (a.trader as any).discoverPrices([]), false);
+    assert.equal(a.navigated(), false);
+    const b = make(old);
+    assert.equal(await (b.trader as any).discoverPrices([]), true);
+    assert.equal(b.navigated(), true);
+    // A market a route needs is visited even when fresh.
+    const c = make(fresh);
+    assert.equal(await (c.trader as any).discoverPrices(["X1-A-A2"]), true);
+  });
+
   it("does not jump to another system for price discovery unless a route needs that market (2026-11-18)", async () => {
     // THEO-1 ping-ponged MV84 <-> XD69 paying a jump each way: with nothing claimable, discovery went to the first
     // reachable market in any other system. Without a preferred market it now stays in its own system.
