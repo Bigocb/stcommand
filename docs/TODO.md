@@ -11,8 +11,8 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 (`docs/lessons-learned.md`): a pure `economyHealth` module (jump fees over profit, net negative, wallet plus holds falling, release
 drought, margin decay, small hulls jumping, cash-starved) feeding a Tower/Deck card and a new `economy` push category, and a pure
 `buyAdvice` module behind a buy preflight that warns (never blocks) when the wallet after a buy would fall under the
-working-capital floor or margins are falling. Spec: `docs/economy-alerts-plan.md`. Also the root dispatcher fix: score routes net
-of jump fees (~6k/jump) against hold size.
+working-capital floor or margins are falling. Spec: `docs/economy-alerts-plan.md`. (The dispatcher already nets jump fees per ship;
+open instead: why route estimates and realized trips diverged on the night of 11-17/18.)
 
 
 **Priority order (triaged 2026-10-31, before the reset around 11-01).** Rank = damage to a week of play, then effort. Do 1-6 before the reset; 7-9 early next week; the rest when the engine settles.

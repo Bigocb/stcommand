@@ -1,5 +1,7 @@
 # Economy alerts and the buy-ship warning (plan, not built)
 
+Note (2026-11-18): the dispatcher already nets jump fees per ship and per hold (`scoreItem()` in `src/engine/dispatcher.ts`, `routeHoldAware`); no dispatcher change is part of this plan.
+
 Operator request, 2026-11-18: "I wonder how we could monitor for these types of situations and alert within the app. Additionally,
 maybe if I go to buy a ship and the situation is a certain way it could give me a warning." Background: `docs/lessons-learned.md`,
 "the domino week". Built as self-contained pure modules per CLAUDE.md, each behind a doctrine clause that ships off or advisory.

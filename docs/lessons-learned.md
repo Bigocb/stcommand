@@ -43,9 +43,11 @@ against 1.87M), and wallet plus holds roughly halved after adding back the hulls
   hand until the buy warning below exists. (CLAUDE.md, "Cash discipline".)
 - **Don't buy into falling margins.** If no system has opened for about 3 hours and profit per sale is falling, the next hull will
   earn less than the last one did. Fix the pipeline first (tours, releases), then buy.
-- **Jump fees must be counted against the hold.** A route's score has to be net of its jumps (about 6k each) for the ship that
-  would fly it: 3 jumps on a 40-unit shuttle can never pay. Until the dispatcher does this, small hulls stay local-only
-  (`set_ship_reach system`) and `positioningHops` stays low when the live systems are spread out.
+- **Jump fees ate the profit even though routes are scored net of them.** The dispatcher already subtracts each ship's
+  positioning jumps in full and scores each hull on its own hold (`routeHoldAware`), yet THEO-1 (40 cargo) made 29 jumps for 22k.
+  So the estimates a route was chosen on did not match what the trips made (stale or decaying prices at far markets, or the
+  return trip to sell). Until that is understood, small hulls stay local-only (`set_ship_reach system`) and `positioningHops`
+  stays low when the live systems are spread out. Check `trip_planned` against `trip_closed` (ops `analysis`) for the night.
 - **A fix to one stage can overload the next.** Releasing four far-apart systems in 75 minutes pulled every trader across the
   gates at once. Release far systems at a pace the traders' jump budget can carry.
 - **Watch the net, not just matched profit.** Matched profit stayed positive all night while the fleet lost money. The hourly
