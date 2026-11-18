@@ -135,6 +135,7 @@ async function loadTenants() {
     unlockPanel.hidden = true;
     tenantsPanel.hidden = false;
     renderTenants(tenants);
+    startHealth();
   } catch (err) {
     sessionStorage.removeItem(STORAGE_KEY);
     unlockPanel.hidden = false;
@@ -319,6 +320,57 @@ async function runResetCleanup() {
   } finally {
     btn.disabled = false;
   }
+}
+
+
+/* ── Server health board ─────────────────────────────────────────────
+ * GET /api/admin/health (src/http/admin.ts); the status words and thresholds
+ * come from the server (src/engine/serverHealth.ts), this only draws them.
+ * Refreshes every 20 s while the tab is visible. */
+const HEALTH_REFRESH_MS = 20_000;
+let healthTimer;
+
+function tileHtml(t) {
+  return `<div class="htile ${escapeHtml(t.level)}">
+    <div class="hl">${escapeHtml(t.label)}</div>
+    <div class="hv">${escapeHtml(t.value)}</div>
+    <div class="hw">${escapeHtml(t.word)}</div>
+    <div class="hd">${escapeHtml(t.detail)}</div>
+  </div>`;
+}
+
+function renderHealth(h) {
+  const word = $("health-word");
+  word.textContent = h.word;
+  word.className = `health-word ${h.level}`;
+  $("health-asof").textContent = `as of ${new Date(h.asOf).toLocaleTimeString()} · refreshes every ${HEALTH_REFRESH_MS / 1000} s`;
+  const reasons = (h.reasons ?? []).length ? `<ul class="health-reasons">${h.reasons.map((r) => `<li>${escapeHtml(r)}</li>`).join("")}</ul>` : "";
+  const tenants = (h.tenants ?? []).map((t) => `
+    <div class="health-group">${escapeHtml(t.agent)}<span class="agent-word ${escapeHtml(t.level)}">${escapeHtml(t.word)}</span></div>
+    <div class="health-tiles">${t.tiles.map(tileHtml).join("")}</div>`).join("");
+  $("health-body").innerHTML = `${reasons}
+    ${tenants || '<div class="health-note">No tenant engine is running in this process.</div>'}
+    <div class="health-group">Server (all tenants)</div>
+    <div class="health-tiles">${(h.process ?? []).map(tileHtml).join("")}</div>
+    ${(h.notBooted ?? []).length ? `<div class="health-note">Not running here: ${h.notBooted.map(escapeHtml).join(", ")}</div>` : ""}
+    ${(h.errors ?? []).length ? `<div class="health-err">Could not read: ${h.errors.map(escapeHtml).join("; ")}</div>` : ""}`;
+}
+
+async function loadHealth() {
+  try {
+    renderHealth(await adminFetch("/api/admin/health"));
+  } catch (err) {
+    const word = $("health-word");
+    word.textContent = "NO ANSWER";
+    word.className = "health-word bad";
+    $("health-asof").textContent = `health check failed at ${new Date().toLocaleTimeString()}: ${err.message}`;
+  }
+}
+
+function startHealth() {
+  if (healthTimer) return;
+  loadHealth();
+  healthTimer = setInterval(() => { if (!document.hidden) loadHealth(); }, HEALTH_REFRESH_MS);
 }
 
 function escapeHtml(s) {

@@ -11127,14 +11127,37 @@ export class FleetManager {
     if (this.haltedByDeadToken()) return;
     const rec: PassRecorder = { loop, steps: [] };
     const startedAt = Date.now();
+    const stat = this.passStats.get(loop) ?? { lastStartedAt: null, lastEndedAt: null, lastMs: null, recent: [] };
+    stat.lastStartedAt = startedAt;
+    this.passStats.set(loop, stat);
     try {
       // Every game-API call the pass makes carries its loop's urgency: feeds
       // move real cargo (critical), the control loop's reads are routine, and
       // maintenance — purchase checks, refreshes — can wait a few seconds.
       await runWithApiPriority(FleetManager.LOOP_API_PRIORITY[loop] ?? API_PRIORITY.ROUTINE, () => this.passRecorder.run(rec, fn));
     } finally {
+      const endedAt = Date.now();
+      stat.lastEndedAt = endedAt;
+      stat.lastMs = endedAt - startedAt;
+      stat.recent.push({ at: endedAt, ms: stat.lastMs });
+      while (stat.recent.length && stat.recent[0]!.at < endedAt - FleetManager.PASS_STATS_WINDOW_MS) stat.recent.shift();
       await this.flushPass(rec, startedAt);
     }
+  }
+
+  /** Each coordinator loop's last pass, kept in memory for the admin health board (src/engine/serverHealth.ts). */
+  private readonly passStats = new Map<string, { lastStartedAt: number | null; lastEndedAt: number | null; lastMs: number | null; recent: { at: number; ms: number }[] }>();
+  private static readonly PASS_STATS_WINDOW_MS = 5 * 60_000;
+
+  /** When each loop's last pass started and ended, how long it took, and the longest pass in the last 5 minutes. Read-only. */
+  passTimings(now = Date.now()): { name: string; lastStartedAt: number | null; lastEndedAt: number | null; lastMs: number | null; maxMs: number | null }[] {
+    return [...this.passStats].map(([name, s]) => {
+      const recent = s.recent.filter((r) => r.at >= now - FleetManager.PASS_STATS_WINDOW_MS);
+      // A pass still running counts toward the max with the time it has taken so far.
+      const running = s.lastStartedAt !== null && (s.lastEndedAt === null || s.lastStartedAt > s.lastEndedAt) ? now - s.lastStartedAt : 0;
+      const maxMs = Math.max(running, ...recent.map((r) => r.ms), 0);
+      return { name, lastStartedAt: s.lastStartedAt, lastEndedAt: s.lastEndedAt, lastMs: s.lastMs, maxMs: maxMs || null };
+    });
   }
 
   /**

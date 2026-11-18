@@ -12,6 +12,7 @@ import type { TenantWorker } from "../engine/tenantRegistry.js";
 import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { getCurrentResetDate } from "../core/universe.js";
 import { classifySystem, ARCHETYPE_LABELS, DOCTRINE_TEMPLATES, type SystemAttributes } from "../engine/systemClassifier.js";
+import { gatherServerHealth } from "../ops/serverHealthSources.js";
 
 /** The home-system attributes both the checkpoint tool and the template
  *  endpoints below read — one place computing it from GalaxyAtlas so the
@@ -383,6 +384,24 @@ export function createAdminRoutes(pool: pg.Pool, registry: TenantRegistry, galax
       res.json({ agent, events, samples });
     } catch (err) {
       console.error("[admin] timeline error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * The server health board (admin page): one status word for the whole server, big tiles per tenant (heartbeat gap
+   * since the last trade against the normal gap, idle traders, stuck ships, engine loop passes, ship tasks, profit and
+   * wallet) and process-wide tiles (uptime and restarts, API calls against the cap, 429s, the limiter queue). Logic and
+   * thresholds: src/engine/serverHealth.ts; sources: src/ops/serverHealthSources.ts. Read-only, no game-API calls.
+   */
+  router.get("/health", async (_req, res) => {
+    try {
+      const tenants = await listAllTenantsAdmin(pool);
+      res.json(await gatherServerHealth({
+        tenants, worker: (id) => registry.get(id), store: new Store(pool), now: Date.now(), uptimeMs: Math.round(process.uptime() * 1000),
+      }));
+    } catch (err) {
+      console.error("[admin] health error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });

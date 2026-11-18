@@ -146,7 +146,44 @@
   .ps-tmpl-row:first-of-type { border-top: none; }
   .ps-apply-template { margin-top: 8px; background: var(--amber); color: #1a1200; font-size: 11px; padding: 7px 12px; }
 
+
+  /* ── server health board (GET /api/admin/health; logic in src/engine/serverHealth.ts) ──
+     Large type and a status word on every tile: the operator reads this at a glance and colour is never the only cue. */
+  .health { margin-bottom: 22px; padding-bottom: 18px; border-bottom: 1px solid var(--hairline); }
+  .health-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 14px; }
+  .health-head h2 { font-family: var(--chrome); font-size: 18px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--bone); margin: 0; }
+  .health-word {
+    font-family: var(--chrome); font-weight: 700; font-size: 34px; letter-spacing: 0.06em; line-height: 1;
+    padding: 10px 22px; border-radius: 10px; border: 3px solid currentColor;
+  }
+  .health-word.ok { color: var(--green); }
+  .health-word.warn { color: var(--amber); }
+  .health-word.bad { background: var(--red); border-color: var(--red); color: #000; }
+  .health-asof { color: var(--bone); font-size: 15px; }
+  .health-reasons { margin: 0 0 14px; padding: 0; list-style: none; }
+  .health-reasons li { font-size: 16px; line-height: 1.5; color: var(--bone); padding: 4px 0 4px 12px; border-left: 4px solid var(--red); margin-bottom: 4px; }
+  .health-group { font-family: var(--chrome); font-size: 16px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--bone); margin: 16px 0 8px; }
+  .health-group .agent-word { margin-left: 10px; font-size: 16px; padding: 2px 10px; border-radius: 6px; border: 2px solid currentColor; }
+  .health-group .agent-word.ok { color: var(--green); }
+  .health-group .agent-word.warn { color: var(--amber); }
+  .health-group .agent-word.bad { background: var(--red); border-color: var(--red); color: #000; }
+  .health-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+  .htile { background: var(--ink); border: 2px solid var(--hairline-hi); border-left-width: 10px; border-radius: 10px; padding: 14px 16px; min-height: 150px; display: flex; flex-direction: column; gap: 4px; }
+  .htile.ok { border-left-color: var(--green); }
+  .htile.warn { border-left-color: var(--amber); border-color: var(--amber); }
+  .htile.bad { border-color: var(--red); background: #2a0a0f; }
+  .htile .hl { font-family: var(--chrome); font-weight: 600; font-size: 15px; color: var(--bone); }
+  .htile .hv { font-family: var(--chrome); font-weight: 700; font-size: 40px; line-height: 1.1; color: #fff; word-break: break-word; }
+  .htile .hw { font-family: var(--chrome); font-weight: 700; font-size: 22px; letter-spacing: 0.06em; }
+  .htile.ok .hw { color: var(--green); }
+  .htile.warn .hw { color: var(--amber); }
+  .htile.bad .hw { background: var(--red); color: #000; align-self: flex-start; padding: 0 8px; border-radius: 4px; }
+  .htile .hd { font-size: 14px; line-height: 1.45; color: #c9d1de; margin-top: auto; }
+  .health-note { font-size: 14px; color: #c9d1de; margin-top: 10px; }
+  .health-err { font-size: 14px; color: var(--red); margin-top: 8px; }
+
   @media (max-width: 640px) {
+    .htile .hv { font-size: 32px; }
     .cmdbar { flex-direction: column; align-items: flex-start; }
     table, thead, tbody, tr, th, td { display: block; }
     thead { display: none; }
@@ -175,6 +212,14 @@
   <div class="err" id="err" hidden></div>
 
   <div id="tenants-panel" hidden>
+    <section class="health" id="health-panel" aria-live="polite">
+      <div class="health-head">
+        <h2>Server health</h2>
+        <span class="health-word warn" id="health-word">…</span>
+        <span class="health-asof" id="health-asof">Loading</span>
+      </div>
+      <div id="health-body"></div>
+    </section>
     <div class="banner" id="reset-banner" hidden></div>
     <div class="toolbar">
       <span id="count">—</span>

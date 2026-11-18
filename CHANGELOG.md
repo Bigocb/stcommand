@@ -8,6 +8,30 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-18 — Admin page: a server health board that says STALLED when the engine freezes
+
+On 2026-11-17 the engine stalled at about 31 h uptime (traders idle in orbit, the dispatcher assigning but nothing
+executing, about 3 API calls a minute) and it cost an hour of trading before a manual restart, because nothing on any
+screen said so. The admin page (`/admin`) now opens with a **Server health** board, refreshed every 20 s: one big status
+word for the whole server (OK / WARN / PROBLEM / STALLED), the reasons under it, then large tiles per running tenant and
+for the server. Every tile carries a word as well as a colour (the operator has low vision).
+
+- Per tenant: **heartbeat** (time since the last buy or sell against the normal gap, the median gap between trades over
+  the last 3 h; STALLED past max(10 min, 5 x normal), SLOW past max(5 min, 3 x normal), never STALLED while paused, with
+  no traders, or in the first 10 min after a restart), **traders idle over 10 min** (the fleet's own idle tracker),
+  **stuck ships** (ops `stuck`), **longest engine pass in the last 5 min** (HUNG when a coordinator loop has not finished a
+  pass for 3 min, which also makes the tenant STALLED), **ship tasks: last one ran** (the scheduler), **matched profit
+  last hour** and **wallet**.
+- Server: **uptime** (RESTART SOON from 28 h, OVERLAP when two instances are alive), **API calls a minute against the
+  limiter's cap** (NEARLY SILENT under 10 a minute with traders on the books), **429s in the last 60 s** (warn 3, bad 10)
+  and **the limiter queue's oldest wait** (warn 30 s, bad 2 min).
+- Endpoint `GET /api/admin/health` (same `x-admin-key` auth; also reachable as `/api/operator/health`). Logic and
+  thresholds are a pure module with a policy object, `src/engine/serverHealth.ts` (tests: `tests/serverHealth.test.ts`);
+  `src/ops/serverHealthSources.ts` gathers inputs from what the process already had (ledger, fleet summary, scheduler
+  counters, instance heartbeats, the shared rate limiter). The one new measurement is in memory only:
+  `FleetManager.passTimings()` keeps each coordinator loop's last pass and the longest pass of the last 5 minutes.
+- Read-only, no game-API calls, nothing stored. Phase 2 (history, 6-hour charts, alerts) is in `docs/TODO.md`.
+
 ## 2026-11-17 — Tour ships were locked out of the queue after a restart; they are freed once their system is done
 
 - **Symptom:** from the 13:44 deploy on, the fresh-system log said "X1-RS9, X1-PD3, X1-TA36, ... need a tour: no tour or explorer ship" every 5 minutes while THEO-4, THEO-8, THEO-32 and THEO-33 kept touring systems that were already live (PN45, FD13, FT2) and eight staged systems sat at 0-13% keepers. No system opened between 22:30 and the end of the day.
