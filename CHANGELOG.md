@@ -8,6 +8,15 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-18: Deck: an Expand group, like Tower's
+
+Operator request: "I need an explore view in deck like I have in tower." Tower's tab bar has an Expand group (Queue,
+Keepers, By system, Explorers, Yards), and in Deck those five screens were spread over Fleet (Explorers, Queue, Yards) and
+Trade (Keepers, Markets by system). Deck's rail now has an **Expand** item (⊕) between Fleet and Trade with the same five
+tabs in the same order; Fleet keeps Ships, Mining and Miner preference, and Trade keeps Routes, Contracts, Prices, Local
+placement and Dispatch. Only the navigation changed (`NAV_GROUPS` in `public/deck.js`): every tab opens the view it opened
+before, and the command palette lists them under their new group.
+
 ## 2026-11-18 — Health board history, stall alert, Deck (server health Phase 2)
 
 The admin health board (entry below) only showed the present moment, and a stall still needed someone to be looking.

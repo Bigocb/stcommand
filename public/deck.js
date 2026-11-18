@@ -199,18 +199,22 @@ const NAV_GROUPS = [
   { key: "overview", label: "Overview", ic: "◎", tabs: [{ key: "overview", label: "Overview", view: "overview" }] },
   { key: "fleet", label: "Fleet", ic: "⛴", tabs: [
     { key: "ships", label: "Ships", view: "fleet" },
-    { key: "explorers", label: "Explorers", view: "explorers" },
-    { key: "queue", label: "Queue", view: "queue" },
     { key: "mining", label: "Mining", view: "mining" },
     { key: "minerpref", label: "Miner preference", view: "markets", seg: ["mk-tools-seg", "minerpref"], hide: ["mk-panel-markets"], oneRow: "mk-grid" },
+  ] },
+  // Expand: the same five screens, in the same order, as Tower's Expand group (operator 2026-11-18: "an explore view in
+  // deck like I have in tower"). Growing into new systems: the queue, keepers, markets by system, explorers, yards.
+  { key: "expand", label: "Expand", ic: "⊕", tabs: [
+    { key: "queue", label: "Queue", view: "queue" },
+    { key: "keepers", label: "Keepers", view: "markets", seg: ["mk-mkt-seg", "keeper"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
+    { key: "bysystem", label: "By system", view: "markets", seg: ["mk-mkt-seg", "systems"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
+    { key: "explorers", label: "Explorers", view: "explorers" },
     { key: "yards", label: "Yards", view: "markets", seg: ["mk-mkt-seg", "yards"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
   ] },
   { key: "trade", label: "Trade", ic: "₡", tabs: [
     { key: "routes", label: "Routes", view: "markets", seg: ["mk-mkt-seg", "routes"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
     { key: "contracts", label: "Contracts", view: "ops", hide: ["ops-row1", "ops-panel-missions"], oneCol: "ops-row2" },
     { key: "prices", label: "Prices", view: "markets", seg: ["mk-mkt-seg", "prices"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
-    { key: "keepers", label: "Keepers", view: "markets", seg: ["mk-mkt-seg", "keeper"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
-    { key: "bysystem", label: "Markets by system", view: "markets", seg: ["mk-mkt-seg", "systems"], hide: ["mk-panel-tools"], oneRow: "mk-grid" },
     { key: "placement", label: "Local placement", view: "systems" },
     { key: "dispatch", label: "Dispatch", view: "markets", seg: ["mk-tools-seg", "dispatch"], hide: ["mk-panel-markets"], oneRow: "mk-grid" },
   ] },
