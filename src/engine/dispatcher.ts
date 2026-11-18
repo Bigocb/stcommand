@@ -116,6 +116,7 @@ export const DECLINE_MS = 15 * 60_000;
  */
 export const MAX_LOTS_PER_TRIP = 3;
 
+import { jumpCashBlock } from "./jumpCashGuard.js";
 import { coolOffReason, DEFAULT_HEAT_POLICY, type RouteTrip } from "./routeHeat.js";
 import { estimateBuyPrice, estimateSellPrice, profitAfterShortfall, type SaleImpact } from "./marketCrash.js";
 import { ROUNDS_WINDOW_MIN, buyMarketRoundsReason, roundsReason } from "./routeRounds.js";
@@ -1061,7 +1062,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; spacingAutoPct?: number; marketRecoveryMin?: number; routeBlockMin?: number; fitMinTrip?: number; fitBigHold?: number; slowHullSpeed?: number; slowHullHauledHops?: number; slowHullPositioningHops?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; spacingAutoPct?: number; marketRecoveryMin?: number; routeBlockMin?: number; fitMinTrip?: number; fitBigHold?: number; slowHullSpeed?: number; slowHullHauledHops?: number; slowHullPositioningHops?: number; jumpCashFloor?: number; credits?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -1677,6 +1678,14 @@ export class RouteDispatcher {
       if (outside !== undefined) return outside;
       const slow = slowHullRefusal(t, w);
       if (slow !== undefined) return slow;
+      {
+        const sellSystem = w.sellAt !== undefined ? systemOfWaypoint(w.sellAt) : undefined;
+        const fromBuy = w.buySystem ?? t.system;
+        const needsJump = (w.buySystem !== undefined && t.system !== undefined && w.buySystem !== t.system)
+          || (sellSystem !== undefined && fromBuy !== undefined && sellSystem !== fromBuy);
+        const cash = jumpCashBlock(tuning?.credits, tuning?.jumpCashFloor, needsJump);
+        if (cash !== undefined) return cash;
+      }
       if (w.buySystem === undefined || t.system === undefined) return undefined;
       if (w.buySystem !== t.system) {
         if (!canJump(t.system, w.buySystem)) {

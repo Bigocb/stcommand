@@ -8,6 +8,19 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-18: no new jump routes while the wallet is under a floor (doctrine jumpCashFloor)
+
+The dispatcher nets a route's jump fees against its profit but never asked whether the wallet could carry them. On 2026-11-18
+the wallet fell from 148k to 22k in 90 minutes, mostly in jump fees (THEO-A7, -A1, -6C, -A and -37 each jumping toward work that
+did not pay off), and at 22k three jumps would have emptied it. New pure module `src/engine/jumpCashGuard.ts`: while the wallet
+is under `jumpCashFloor` (clause off by default, value 100,000c), `whyUnreachable` refuses any NEW route that needs a gate jump,
+either to reach the buy market or to carry the cargo to the sell market, with the reason in `dispatch_explain`. Same-system routes
+are unaffected, and a ship already carrying cargo keeps its leg (the dispatcher holds loaded legs before this check). Clause off,
+or an unknown wallet, is exactly the old behaviour.
+
+Tests: `tests/jumpCashGuard.test.ts` (8: the module, and the dispatcher seam for a far buy, a far sell, above the floor and clause
+off). Dispatcher suites' failing subtests are the same before and after.
+
 ## 2026-11-18: a tour ship stays on the system it was assigned to; auto-explore no longer takes one on a silent card (#46)
 
 Operator rule: a tour ship tours only the system it is assigned to, by the operator or by the queue.

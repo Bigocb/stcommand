@@ -164,6 +164,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "jumpCashFloor",
+    name: "No new jump routes below this wallet",
+    description: "A gate jump costs about 6-8k, and the dispatcher nets that against a route's profit but never asked whether the wallet can carry it: on 2026-11-18 the wallet fell from 148k to 22k in 90 minutes, mostly in jump fees, and at 22k three jumps would have emptied it. With this on, while the wallet is under the value no trader is given a NEW route that needs a gate jump (to reach the buy market or to carry the cargo to the sell market); same-system routes are unaffected, and a ship already carrying cargo keeps its leg. Off by default. Takes effect on the next dispatch recompute.",
+    value: 100000, min: 0, max: 5000000, step: 10000, unit: "c",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "routeHoldAware",
     name: "Score a route by what this ship's hold earns",
     description: "A route's profit is priced at the biggest hold in the fleet, and the dispatcher scored every ship against that same figure, so a small ship looked as well placed for a far, rich route as a big one while paying the same positioning cost. With this on, each ship is scored on what ITS hold earns from the route (the route's own figure for that hold, else its share of the units the trip can move), so small ships stay with nearby work and big hulls are the ones that find far routes worth the trip. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",
