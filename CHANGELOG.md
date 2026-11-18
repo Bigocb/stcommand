@@ -8,6 +8,21 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-18: route refusals are recorded (`route_refused`, ops `route_refusals`)
+
+Overnight on 11-17/18 THEO-1, a 40-unit shuttle, made 32 gate jumps (about 191k) between two buys, turning back on itself
+(SN86 > BB74 > SN86, AC26 > KJ19 > AC26 > KJ19). The dispatcher charges each pick for its own jumps, but the ship's target kept
+changing while it was empty, and the in-memory log that would say why had already rolled over. The leading suspect is cash (the
+wallet was 95-270k, so the trader could not afford the full load the dispatcher had priced and refused it), but it could not be
+proven. Now every time a trader turns a route down it writes an `action_events` row, kind `route_refused`, with the stage
+(`assigned`: the dispatcher's pick failed the trader's own check in `findRoute`; `arrival_price`: at the buy market the live price
+left the margin under the floor; `arrival_sink`: the destination's bid no longer paid), the reason, and the spendable credits and
+hold size the trader saw. Read them with ops `route_refusals` (`stcommand_ops_route_refusals`: rows newest first plus counts by
+ship, stage and reason). Recording never changes what the trader does, and a failed write is ignored. Builder
+`routeRefusedEvent()` in `src/engine/actionEvents.ts`, hook `onRouteRefused` in `src/engine/trader.ts`, wired in
+`FleetManager.traderOptions()`; tests in `tests/routeRefusal.test.ts`. Nothing about routing changed: the fix for the churn waits
+until the rows say which cause it is.
+
 ## 2026-11-18: Economy alerts and the buy-ship warning
 
 On the night of 2026-11-17/18 the fleet lost money for hours while matched profit stayed positive: fresh systems stopped opening,

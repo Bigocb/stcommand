@@ -164,3 +164,39 @@ export function gateOpenedEvent(g: {
     reason: `home gate open in ${g.system}${g.hoursIntoWeek === null ? "" : ` after ${(Math.round(g.hoursIntoWeek * 10) / 10)} h`}${g.lateNotice ? " (noticed late)" : ""}`,
   };
 }
+
+/**
+ * A trader turned down a route: the dispatcher's assignment failed the trader's own check (findRoute), or at the buy market
+ * the live price or the destination's bid no longer paid. Recorded so a ship that keeps changing its target while empty can
+ * be explained from data (2026-11-18: THEO-1 made 32 jumps between two buys and the in-memory log had already rolled over).
+ * `credits` is the spendable cash the trader saw, so a refusal caused by a thin wallet can be told from one caused by price.
+ */
+export type RouteRefusalStage = "assigned" | "arrival_price" | "arrival_sink";
+export function routeRefusedEvent(r: {
+  shipSymbol: string;
+  good: string;
+  buyAt: string;
+  sellAt?: string;
+  stage: RouteRefusalStage;
+  reason: string;
+  credits?: number;
+  cargoCapacity?: number;
+  waypoint?: string;
+  atIso: string;
+}): ActionEventRecord {
+  return {
+    at: r.atIso,
+    kind: "route_refused",
+    actor: "engine",
+    shipSymbol: r.shipSymbol,
+    good: r.good,
+    waypoint: r.waypoint,
+    subject: `${r.buyAt}>${r.sellAt ?? "?"}`,
+    context: {
+      stage: r.stage,
+      credits: r.credits === undefined || !Number.isFinite(r.credits) ? null : Math.round(r.credits),
+      cargoCapacity: r.cargoCapacity ?? null,
+    },
+    reason: `${r.stage}: ${r.reason}`.slice(0, 500),
+  };
+}

@@ -642,6 +642,29 @@ export const OPS_TOOLS: OpsTool[] = [
   },
 
   {
+    name: "route_refusals",
+    title: "Routes traders turned down, with the reason and the cash they saw",
+    description: "Every time a trader refused a route, newest first, from action_events kind route_refused (kept across restarts, unlike ops logs): stage `assigned` (the dispatcher's pick failed the trader's own check, e.g. profit <= 0 at the units it can afford; the dispatcher then hands it something else), `arrival_price` (at the buy market the live price left the margin under the floor) or `arrival_sink` (the destination's live bid no longer paid). Each row has ship, good, route, reason, the spendable credits and hold size the trader saw, and where it was. `summary` counts by ship, stage and reason prefix. Use it when a ship keeps changing its target while empty (2026-11-18: THEO-1 made 32 jumps between two buys). Read-only.",
+    input: { sinceHours: num(6), ship: z.string().optional(), limit: num(200) },
+    async run(ctx, a) {
+      const sinceIso = iso(ctx.now() - Math.min(Math.max(a.sinceHours, 0.25), 24 * 7) * 3_600_000);
+      const rows = await ctx.w.store.actionEvents(ctx.w.tenantId, { sinceIso, kinds: ["route_refused"], ship: a.ship, limit: Math.min(Math.max(a.limit, 1), 2000) });
+      const count = (key: (r: (typeof rows)[number]) => string) => Object.entries(rows.reduce<Record<string, number>>((m, r) => { const k = key(r); m[k] = (m[k] ?? 0) + 1; return m; }, {})).sort((x, y) => y[1] - x[1]).map(([k, n]) => ({ key: k, n }));
+      const stageOf = (r: (typeof rows)[number]) => String((r.context as { stage?: string } | undefined)?.stage ?? "?");
+      return {
+        since: sinceIso,
+        total: rows.length,
+        summary: {
+          byShip: count((r) => r.shipSymbol ?? "?"),
+          byStage: count(stageOf),
+          byReason: count((r) => (r.reason ?? "").replace(/^[a-z_]+: /, "").split(/[ (]/).slice(0, 2).join(" ")),
+        },
+        rows: rows.map((r) => ({ at: r.at, ship: r.shipSymbol, good: r.good, route: r.subject, stage: stageOf(r), reason: r.reason, credits: (r.context as { credits?: number | null } | undefined)?.credits ?? null, cargoCapacity: (r.context as { cargoCapacity?: number | null } | undefined)?.cargoCapacity ?? null, waypoint: r.waypoint })),
+      };
+    },
+  },
+
+  {
     name: "buy_preflight",
     title: "Buy-ship warning: what buying this hull here would break",
     description: "The same check Deck and Tower run before a buy: the yard's last known price and cargo for shipType at yardSymbol against the cash rules (doctrine buyAdvice*): wallet after the buy under the working-capital floor (big hulls x 400k + other traders x 100k), wallet under 3M (any hull) or 10M (a hull over 80 cargo), the last big hull bought under 6 h ago and not yet paid back in matched profit, and any bad economy finding. Returns ok, warnings, notes (the escape clause: cash flat or falling for 2 h with traders idle), floor and walletAfter. Warn only: it never blocks, and stcommand_buy_ship returns the same warnings. Read it before every manual buy and tell the operator what it says.",

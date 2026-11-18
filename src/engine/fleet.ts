@@ -12,7 +12,7 @@ import { FeedManager } from "./feed.js";
 import type { MarketSnapshot } from "./market.js";
 import type { WaypointPos } from "./agent.js";
 import type { Store, CargoIntent, HeldRouteRow, ShipMovement, ActionEventRecord, ShipLifecycleState, ManifestRow } from "../db/store.js";
-import { configChangeEvent, gateOpenedEvent, GATE_OPEN_SUBJECT, keeperListChange } from "./actionEvents.js";
+import { configChangeEvent, gateOpenedEvent, GATE_OPEN_SUBJECT, keeperListChange, routeRefusedEvent } from "./actionEvents.js";
 import { ApprovalGate, mootRoleApprovals } from "./approvals.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
@@ -1622,6 +1622,7 @@ export class FleetManager {
       reservedGoods: () => this.reservedTradeGoods(shipSymbol),
       assignedRoute: () => this.dispatcher.assignmentFor(shipSymbol),
       declineRoute: (wholeGood) => this.dispatcher.decline(shipSymbol, wholeGood),
+      onRouteRefused: (r) => this.recordAction(routeRefusedEvent({ shipSymbol, ...r, atIso: new Date().toISOString() })),
       reportDeadRoute: (good, buyAt, sellAt, reason) => this.dispatcher.reportDeadRoute(good, buyAt, sellAt, reason),
       deadRouteReason: (good, buyAt, sellAt) => this.dispatcher.deadRouteReason(good, buyAt, sellAt),
       stopManualRoute: async (reason) => {

@@ -99,6 +99,8 @@ export interface TraderOptions {
   noteWarpNeed?: (fromSystem: string, toSystem: string, cruiseNeed: number, how: string) => void;
   /** One decision for the analysis engine: a trip planned (with its estimate) or closed (with its result). */
   recordAction?: (e: ActionEventRecord) => void;
+  /** A route this trader turned down (see actionEvents.routeRefusedEvent): written to action_events by the fleet. */
+  onRouteRefused?: (r: { good: string; buyAt: string; sellAt?: string; stage: "assigned" | "arrival_price" | "arrival_sink"; reason: string; credits?: number; cargoCapacity?: number; waypoint?: string }) => void;
   /** Writes each warp and gate jump to the ship_movements history (see migrations/052). */
   recordMovement?: (m: ShipMovement) => Promise<void>;
   /** Store for runExploreGoal to record module catalogs and shipyard data. */
@@ -352,6 +354,7 @@ export class TraderAgent {
   private readonly knownWarpNeed?: TraderOptions["knownWarpNeed"];
   private readonly noteWarpNeed?: TraderOptions["noteWarpNeed"];
   private readonly recordAction?: TraderOptions["recordAction"];
+  private readonly onRouteRefused?: TraderOptions["onRouteRefused"];
   /**
    * The trip each held good belongs to, for the analysis engine's trip_planned/trip_closed pair: its correlation id,
    * when its first lot was bought, and what has been sold so far (a sale cut short by the loss floor resumes on a later
@@ -503,6 +506,7 @@ export class TraderAgent {
     this.knownWarpNeed = opts.knownWarpNeed;
     this.noteWarpNeed = opts.noteWarpNeed;
     this.recordAction = opts.recordAction;
+    this.onRouteRefused = opts.onRouteRefused;
     this.recordMovement = opts.recordMovement;
     this.store = opts.store;
     this.getWarehouseShip = opts.getWarehouseShip;
@@ -1523,6 +1527,15 @@ export class TraderAgent {
    * minutes; for a pinned route runArbitrage() reads the live balance first. 2026-10-06: pinned ships at their buy
    * market were rejected with `credits=242` while the wallet held 130k, and flew off to discover prices, four times.
    */
+  /** Report a refused route to the fleet with the cash and hold in view. Never throws: recording must not break trading. */
+  private refused(r: { good: string; buyAt: string; sellAt?: string; stage: "assigned" | "arrival_price" | "arrival_sink"; reason: string }): void {
+    try {
+      this.onRouteRefused?.({ ...r, credits: this.creditsForPlanning(), cargoCapacity: this.ship.cargo.capacity, waypoint: this.ship.nav.waypointSymbol });
+    } catch {
+      // ignore: a failed record must never change what the trader does
+    }
+  }
+
   private creditsForPlanning(): number {
     const p = this.planningCredits;
     if (p && Date.now() - p.at < 60_000) return p.value;
@@ -1628,7 +1641,10 @@ export class TraderAgent {
       // the dashboard — fall through to discovery/idle instead. An auto leg we
       // refuse for good (not just missing prices, which discovery fixes) goes
       // back to the dispatcher so the next recompute hands us something else.
-      if (!ignoreProfitFloor && why !== "viable" && !why.startsWith("missing prices")) this.declineRoute?.(why.startsWith("protected good"));
+      if (!ignoreProfitFloor && why !== "viable" && !why.startsWith("missing prices")) {
+        this.declineRoute?.(why.startsWith("protected good"));
+        this.refused({ good: assigned.good, buyAt: assigned.buyAt, sellAt: assigned.sellAt, stage: "assigned", reason: why });
+      }
       return undefined;
     }
 
@@ -2593,6 +2609,7 @@ export class TraderAgent {
           this.deadRoutes.add(`${route.good}@${route.buyAt}`);
           // And tell the dispatcher, so the next ship is not sent to the same dead buy market.
           this.reportDeadRoute?.(route.good, route.buyAt, undefined, `buy price now ${liveBuy}c, margin ${liveMargin}c under the floor`);
+          this.refused({ good: route.good, buyAt: route.buyAt, sellAt: route.sellAt, stage: "arrival_price", reason: `buy price now ${liveBuy}c (snapshot ${route.buyPrice}c), margin ${liveMargin}c under the floor` });
           continue;
         }
       }
@@ -2626,6 +2643,7 @@ export class TraderAgent {
           this.sinkBlockedUntil.set(`${route.good}@${route.buyAt}`, Date.now() + SINK_BLOCK_MS);
           this.deadRoutes.add(`${route.good}@${route.buyAt}`);
           this.reportDeadRoute?.(route.good, route.buyAt, route.sellAt, verdict.reason);
+          this.refused({ good: route.good, buyAt: route.buyAt, sellAt: route.sellAt, stage: "arrival_sink", reason: verdict.reason });
           continue;
         }
       }
