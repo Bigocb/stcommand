@@ -16,7 +16,7 @@ import { configChangeEvent, gateOpenedEvent, GATE_OPEN_SUBJECT, keeperListChange
 import { ApprovalGate, mootRoleApprovals } from "./approvals.js";
 import { ShipRegistry, type Owner as ShipClaimOwner, type ShipRole as ShipClaimRole } from "./shipRegistry.js";
 import type { Scheduler, Task, TaskResult } from "./scheduler.js";
-import { CooldownPending, IDLE_STEP, Pending, describeError, type AgentStep } from "./agentStep.js";
+import { CooldownPending, IDLE_STEP, Pending, cooldownPendingFrom, describeError, type AgentStep } from "./agentStep.js";
 import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { unpricedMarkets, gateProgressPct } from "./surveyCoverage.js";
@@ -4860,20 +4860,23 @@ export class FleetManager {
    * nothing further to pin beyond "get it there".
    */
   async dispatchTourShip(shipSymbol: string, targetSystem: string): Promise<void> {
+    const ship = await this.api.getShip(shipSymbol);
+    const here = ship.nav.systemSymbol === targetSystem;
+    // The destination is saved BEFORE the role change: setShipRole() installs the tour agent and its first tick runs at once.
+    // Saved after, that tick saw no destination and toured the ship's current system instead (THEO-7, 2026-11-18 15:47: it
+    // flew from the VM8 gate to VM8-C16D, a 20-minute detour, issue #46). setShipRole() does not touch tourDestination.
+    // No "last tour ship in the system" guard (removed 2026-10-09, operator):
+    // it predated keepers, which now camp every market worth watching, and it
+    // stopped the operator moving a tour ship out to map a new system.
+    await this.updateShipManualState(shipSymbol, { tourDestination: here ? null : targetSystem });
     // A scout keeps its role: it walks to the system, then scouts it.
     if (this.roleOf(shipSymbol) !== "tour" && this.roleOf(shipSymbol) !== "scout") {
       await this.setShipRole(shipSymbol, "tour");
     }
-    const ship = await this.api.getShip(shipSymbol);
-    if (ship.nav.systemSymbol === targetSystem) {
-      await this.updateShipManualState(shipSymbol, { tourDestination: null });
+    if (here) {
       this.log(`${shipSymbol}: already in ${targetSystem}, touring in place`);
       return;
     }
-    // No "last tour ship in the system" guard (removed 2026-10-09, operator):
-    // it predated keepers, which now camp every market worth watching, and it
-    // stopped the operator moving a tour ship out to map a new system.
-    await this.updateShipManualState(shipSymbol, { tourDestination: targetSystem });
     this.log(`${shipSymbol}: dispatched to tour ${targetSystem}, ${this.findSystemPath(ship.nav.systemSymbol, targetSystem)?.length ?? "?"} known hop(s) away`);
   }
 
@@ -5003,6 +5006,15 @@ export class FleetManager {
       // scheduler-driven tour ship, nextTourTask()'s, which already
       // reschedules correctly at `err.resumeAt`).
       if (err instanceof Pending) throw err;
+      // A cooldown refusal means "jump in N seconds", not "go do something else": the ship is already at the gate. Returning
+      // false let the tour loop tour the system it was passing through and fly away from the gate (THEO-17 in BQ46,
+      // 2026-11-18 16:04, issue #46). Wait for the cooldown instead; the scheduler resumes the ship at the gate and the next
+      // tick jumps. Longer blocks (no path, unfinished gate) still fall through to touring while waiting.
+      const cooldown = cooldownPendingFrom(err);
+      if (cooldown) {
+        this.log(`${shipSymbol}: waiting at the gate for the jump cooldown, then hop to ${nextSystem} (toward ${targetSystem})`);
+        throw cooldown;
+      }
       // No cache correction here: jumpShip() above already closes the gate the game names when, and only when, the rejection
       // says "under construction". This catch used to close the gate on ANY error, so a cooldown or an in-transit refusal
       // ("Ship action is still on cooldown for 131 second(s)") marked a finished hub gate unfinished. 2026-11-05: three explorers,

@@ -8,6 +8,24 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-18: a ship sent on a tour walks to its target instead of touring the systems on the way (#46)
+
+Two ways a `dispatch_tour` ship ended up touring the wrong system, both seen on the first wave of trader tours:
+
+- **The first tick ran before the destination was saved.** `dispatchTourShip()` changed the role first, and the new tour agent's
+  first tick ran a second before `tourDestination` was written, so it toured the ship's current system (THEO-7 flew from the VM8
+  gate to VM8-C16D, about 20 minutes lost). The destination is now saved before the role change; `setShipRole()` does not clear it.
+- **A jump cooldown sent the ship off touring.** Arriving in a pass-through system and trying the next hop at once is refused with
+  "still on cooldown for N seconds". `hopToward()` returned false, which the tour loop reads as "nothing to do", so it toured
+  the system and flew away from the gate (THEO-17 in BQ46). A cooldown refusal now becomes a `CooldownPending`: the scheduler
+  resumes the ship at the gate when the cooldown ends and the next tick jumps. The gate is still not marked unfinished (the
+  2026-11-05 rule). Longer blocks (no known path, an unfinished gate, any other failure) still fall through to touring while
+  waiting, as before. The same wait now applies to cross-system holds, scrap trips and tenders, which share `hopToward()`; they
+  retried the refused jump every tick before.
+
+Tests: `tests/tourDispatchOrder.test.ts` (new, 5), `tests/jumpRejectionFleet.test.ts` (cooldown case updated). The tour suites'
+failing subtests are the same before and after (fixture issues, see CLAUDE.md "Running the database tests locally").
+
 ## 2026-11-18: idle traders wait for the dispatcher; below the cash floor traders can still trade
 
 Two fixes from the 11-18 recovery (operator priorities 1 and 2):

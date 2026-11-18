@@ -64,9 +64,11 @@ describe("FleetManager.hopToward: only a construction rejection closes a gate", 
     return { fleet, flagged };
   }
 
-  it("leaves the gate open when the ship is on cooldown (2026-11-05: 16 hub gates closed this way in an hour)", async () => {
+  it("leaves the gate open when the ship is on cooldown (2026-11-05: 16 hub gates closed this way in an hour), and waits at the gate (issue #46)", async () => {
+    const { CooldownPending } = await import("../src/engine/agentStep.js");
     const { fleet, flagged } = await hopRig("Ship action is still on cooldown for 131 second(s).");
-    assert.equal(await fleet.hopToward("S-1", "X1-FG54"), false);
+    const before = Date.now();
+    await assert.rejects(() => fleet.hopToward("S-1", "X1-FG54"), (err: unknown) => err instanceof CooldownPending && (err as any).resumeAt >= before + 131_000);
     assert.deepEqual(flagged, []);
   });
 
