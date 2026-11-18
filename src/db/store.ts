@@ -770,6 +770,57 @@ export class Store {
     });
   }
 
+  // ── Health board history (migration 068, src/engine/serverHealth.ts) ──
+
+  private static readonly HEALTH_COLS = [
+    ["gap_ms", "gapMs", "bigint"], ["normal_gap_ms", "normalGapMs", "bigint"], ["stall_line_ms", "stallLineMs", "bigint"],
+    ["idle_traders", "idleTraders", "integer"], ["traders", "traders", "integer"], ["longest_pass_ms", "longestPassMs", "bigint"],
+    ["profit_last_hour", "profitLastHour", "bigint"], ["wallet", "wallet", "bigint"], ["uptime_ms", "uptimeMs", "bigint"],
+    ["calls_per_min", "callsPerMin", "real"], ["cap", "cap", "integer"], ["hits_429", "hits429", "integer"], ["oldest_wait_ms", "oldestWaitMs", "bigint"],
+  ] as const;
+
+  /** Store one health reading (a server row and one per tenant). Not tenant data. */
+  async recordHealthSamples(instanceId: string, rows: import("../engine/serverHealth.js").HealthSampleRow[]): Promise<void> {
+    if (rows.length === 0) return;
+    const cols = Store.HEALTH_COLS;
+    const names = ["sampled_at", "scope", "instance_id", "word", "level", ...cols.map((c) => c[0])];
+    const types = ["timestamptz", "text", "text", "text", "text", ...cols.map((c) => c[2])];
+    const values: unknown[][] = [
+      rows.map((r) => r.sampledAt), rows.map((r) => r.scope), rows.map(() => instanceId), rows.map((r) => r.word), rows.map((r) => r.level),
+      ...cols.map((c) => rows.map((r) => r[c[1]])),
+    ];
+    await withPool(this.pool, (c) =>
+      c.query(
+        `INSERT INTO health_samples (${names.join(", ")})
+         SELECT * FROM unnest(${types.map((t, i) => `$${i + 1}::${t}[]`).join(", ")})
+         ON CONFLICT DO NOTHING`,
+        values,
+      ),
+    );
+  }
+
+  /** Health readings since `sinceIso`, oldest first, every scope. */
+  async listHealthSamples(sinceIso: string, limit = 20_000): Promise<import("../engine/serverHealth.js").HealthSampleRow[]> {
+    return withPool(this.pool, async (c) => {
+      const r = await c.query(
+        `SELECT sampled_at, scope, word, level, ${Store.HEALTH_COLS.map((x) => x[0]).join(", ")}
+         FROM health_samples WHERE sampled_at >= $1 ORDER BY sampled_at, scope LIMIT $2`,
+        [sinceIso, limit],
+      );
+      const num = (v: unknown) => (v === null || v === undefined ? null : Number(v));
+      return r.rows.map((x: any) => {
+        const row: any = { sampledAt: new Date(x.sampled_at).toISOString(), scope: x.scope, word: x.word, level: x.level };
+        for (const [col, key] of Store.HEALTH_COLS) row[key] = num(x[col]);
+        return row;
+      });
+    });
+  }
+
+  /** Delete health readings older than `beforeIso`; returns how many went. */
+  async pruneHealthSamples(beforeIso: string): Promise<number> {
+    return withPool(this.pool, async (c) => (await c.query(`DELETE FROM health_samples WHERE sampled_at < $1`, [beforeIso])).rowCount ?? 0);
+  }
+
   // ── Instance heartbeats ─────────────────────────────────────
 
   /** Refresh this process's liveness row (see migration 034). */

@@ -910,6 +910,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     // whatever ships *after* this feature, not retroactively.
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
+  {
+    key: "healthStallAlert",
+    name: "Health: alert when the engine stalls",
+    description: "When the admin health board reads STALLED for this agent (no buy or sell for longer than max(10 min, 5x the normal gap between trades), or an engine loop that has not finished a pass for 3 minutes), write one loud HEALTH ALERT log line and send a Tower push: once per stall, never twice within this many minutes. Built after 2026-11-17, when a stall at ~31 h uptime went unnoticed for an hour. The push reaches only devices that turned Tower notifications on and left the \"Engine stalled\" kind on, so on by default. Off = no log line and no push; the board still says STALLED. Takes effect on the next reading (once a minute).",
+    value: 15, min: 5, max: 120, step: 5, unit: " min",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
 ];
 
 /**

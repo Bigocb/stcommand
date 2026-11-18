@@ -31,6 +31,7 @@ import { crawlerProxyFromEnv, makePublicFetch } from "../engine/crawlerProxy.js"
 import { AgentWatcher } from "../engine/agentWatcher.js";
 import { createResetWatcher } from "../engine/resetWatcherLive.js";
 import { startRunTimeline } from "../engine/runTimeline.js";
+import { startHealthRecorder } from "../engine/healthRecorder.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = resolve(__dirname, "../../public");
@@ -151,6 +152,9 @@ async function main(): Promise<void> {
 
   // Cash/fleet sample every 15 min into run_timeline, for the weekly curve.
   startRunTimeline(registry, log);
+
+  // The admin health board's minute-by-minute history and the engine-stall alert (migration 068, healthRecorder.ts).
+  startHealthRecorder(pool, registry, log);
 
   // Heartbeat so any instance can tell whether another one is alive at the
   // same time (deploy overlap — the usual 429-storm cause). See migration 034.

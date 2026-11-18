@@ -11,6 +11,7 @@ export const CATEGORIES: readonly CategoryDef[] = [
   { id: "idle", label: "Idle traders", description: "A trader has had no route for five minutes or more.", defaultOn: true, cooldownMin: 60 },
   { id: "attention", label: "Needs a look", description: "A ship the attention feed rates critical (stuck, looping, wasting).", defaultOn: true, cooldownMin: 180 },
   { id: "reset", label: "Server reset", description: "The weekly universe reset is close.", defaultOn: true, cooldownMin: 0 },
+  { id: "health", label: "Engine stalled", description: "The server's engine has stopped trading or an engine loop has hung (the admin health board reads STALLED).", defaultOn: true, cooldownMin: 0 },
   { id: "rate", label: "Earning rate", description: "The hourly rate has fallen well below its recent average.", defaultOn: false, cooldownMin: 180 },
 ];
 

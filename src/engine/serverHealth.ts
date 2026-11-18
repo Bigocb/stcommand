@@ -132,6 +132,28 @@ export interface TenantHealth {
   word: string;
   tiles: Tile[];
   heartbeat: { gapMs: number | null; normalGapMs: number; trades: number; stalled: boolean };
+  /** The numbers behind the tiles, for the minute-by-minute history (healthSampleRows). Null where not known. */
+  metrics: TenantMetrics;
+}
+
+export interface TenantMetrics {
+  gapMs: number | null;
+  normalGapMs: number | null;
+  stallLineMs: number | null;
+  idleTraders: number | null;
+  traders: number | null;
+  longestPassMs: number | null;
+  profitLastHour: number | null;
+  wallet: number | null;
+}
+
+/** Process-wide numbers behind the server tiles. */
+export interface ServerMetrics {
+  uptimeMs: number;
+  callsPerMin: number | null;
+  cap: number | null;
+  hits429: number | null;
+  oldestWaitMs: number | null;
 }
 
 export interface HealthReport {
@@ -142,6 +164,7 @@ export interface HealthReport {
   reasons: string[];
   process: Tile[];
   tenants: TenantHealth[];
+  server: ServerMetrics;
   policy: HealthPolicy;
 }
 
@@ -183,10 +206,15 @@ export function heartbeat(tradeTimes: number[], now: number, p: HealthPolicy = D
   return { lastAt, gapMs: lastAt === null ? null : now - lastAt, normalGapMs, trades: tradeTimes.filter((t) => t >= since && t <= now).length, measured };
 }
 
+/** The gap past which the heartbeat says STALLED: max(stallMinMs, stallFactor x normal gap). */
+export function stallLine(normalGapMs: number, p: HealthPolicy = DEFAULT_HEALTH_POLICY): number {
+  return Math.max(p.stallMinMs, p.stallFactor * normalGapMs);
+}
+
 function heartbeatTile(t: TenantHealthInput, now: number, uptimeMs: number, p: HealthPolicy): { tile: Tile; stalled: boolean; hb: ReturnType<typeof heartbeat> } {
   const hb = heartbeat(t.tradeTimes ?? [], now, p);
   const traders = (t.traders ?? []).length;
-  const stallAt = Math.max(p.stallMinMs, p.stallFactor * hb.normalGapMs);
+  const stallAt = stallLine(hb.normalGapMs, p);
   const warnAt = Math.max(p.warnMinMs, p.warnFactor * hb.normalGapMs);
   // No trade in the window counts as a gap at least the window long.
   const gap = hb.gapMs ?? p.windowMs;
@@ -226,6 +254,7 @@ function loopsTile(loops: LoopTiming[], now: number, p: HealthPolicy): { tile: T
 export function assessTenant(t: TenantHealthInput, now: number, uptimeMs: number, p: HealthPolicy = DEFAULT_HEALTH_POLICY): TenantHealth {
   if (!t.booted) {
     return { agent: t.agent, level: "ok", word: "NOT BOOTED", heartbeat: { gapMs: null, normalGapMs: p.defaultNormalGapMs, trades: 0, stalled: false },
+      metrics: { gapMs: null, normalGapMs: null, stallLineMs: null, idleTraders: null, traders: null, longestPassMs: null, profitLastHour: null, wallet: null },
       tiles: [{ key: "engine", label: "Engine", value: "Off", word: "NOT BOOTED", level: "ok", detail: "No engine is running for this tenant in this process." }] };
   }
   const tiles: Tile[] = [];
@@ -267,7 +296,13 @@ export function assessTenant(t: TenantHealthInput, now: number, uptimeMs: number
 
   const level = worst(tiles.map((x) => x.level));
   const word = stalled || hung ? "STALLED" : t.deadToken ? "DEAD TOKEN" : t.paused ? "PAUSED" : level === "bad" ? "PROBLEM" : level === "warn" ? "WARN" : "OK";
-  return { agent: t.agent, level: stalled || hung ? "bad" : level, word, tiles, heartbeat: { gapMs: hb.gapMs, normalGapMs: hb.normalGapMs, trades: hb.trades, stalled: stalled || hung } };
+  const passes = (t.loops ?? []).map((l) => l.maxMs ?? l.lastMs ?? 0);
+  const metrics: TenantMetrics = {
+    gapMs: hb.gapMs, normalGapMs: hb.normalGapMs, stallLineMs: stallLine(hb.normalGapMs, p),
+    idleTraders: idle, traders: traders.length, longestPassMs: passes.length ? Math.max(...passes) : null,
+    profitLastHour: t.profitLastHour ?? null, wallet: t.wallet ?? null,
+  };
+  return { agent: t.agent, level: stalled || hung ? "bad" : level, word, tiles, heartbeat: { gapMs: hb.gapMs, normalGapMs: hb.normalGapMs, trades: hb.trades, stalled: stalled || hung }, metrics };
 }
 
 /** Process-wide tiles: uptime and restarts, and the shared API limiter. `anyTraders` lets a near-silent API count as a warning. */
@@ -319,5 +354,136 @@ export function assessServerHealth(pr: ProcessInput, tenants: TenantHealthInput[
     ...processTiles.filter((x) => x.level !== "ok").map((x) => `${x.label}: ${x.word}`),
   ];
   const word = stalled.length ? "STALLED" : level === "bad" ? "PROBLEM" : level === "warn" ? "WARN" : "OK";
-  return { asOf: new Date(now).toISOString(), level: stalled.length ? "bad" : level, word, reasons, process: processTiles, tenants: th, policy: p };
+  const server: ServerMetrics = {
+    uptimeMs: pr.uptimeMs, callsPerMin: pr.api?.callsPerMin ?? null, cap: pr.api?.cap ?? null,
+    hits429: pr.api?.hits429Last60s ?? null, oldestWaitMs: pr.api?.oldestWaitMs ?? null,
+  };
+  return { asOf: new Date(now).toISOString(), level: stalled.length ? "bad" : level, word, reasons, process: processTiles, tenants: th, server, policy: p };
+}
+
+// ── Phase 2: the minute-by-minute history and the stall alert ─────────────
+
+/** One stored reading (migrations/068_health_samples.sql). `scope` is "server" or a tenant's agent symbol. */
+export interface HealthSampleRow {
+  sampledAt: string;
+  scope: string;
+  word: string;
+  level: HealthLevel;
+  gapMs: number | null;
+  normalGapMs: number | null;
+  stallLineMs: number | null;
+  idleTraders: number | null;
+  traders: number | null;
+  longestPassMs: number | null;
+  profitLastHour: number | null;
+  wallet: number | null;
+  uptimeMs: number | null;
+  callsPerMin: number | null;
+  cap: number | null;
+  hits429: number | null;
+  oldestWaitMs: number | null;
+}
+
+export const SERVER_SCOPE = "server";
+
+const EMPTY_SAMPLE = {
+  gapMs: null, normalGapMs: null, stallLineMs: null, idleTraders: null, traders: null, longestPassMs: null, profitLastHour: null,
+  wallet: null, uptimeMs: null, callsPerMin: null, cap: null, hits429: null, oldestWaitMs: null,
+};
+
+/** The rows to store for one reading: one for the server (the overall word and the process numbers), one per running tenant. */
+export function healthSampleRows(report: HealthReport, now: number): HealthSampleRow[] {
+  const sampledAt = new Date(now).toISOString();
+  const r = (x: number | null) => (x === null ? null : Math.round(x));
+  const rows: HealthSampleRow[] = [{
+    ...EMPTY_SAMPLE, sampledAt, scope: SERVER_SCOPE, word: report.word, level: report.level,
+    uptimeMs: r(report.server.uptimeMs), callsPerMin: report.server.callsPerMin, cap: r(report.server.cap), hits429: r(report.server.hits429), oldestWaitMs: r(report.server.oldestWaitMs),
+  }];
+  for (const t of report.tenants) {
+    if (t.word === "NOT BOOTED") continue;
+    const m = t.metrics;
+    rows.push({
+      ...EMPTY_SAMPLE, sampledAt, scope: t.agent, word: t.word, level: t.level,
+      gapMs: r(m.gapMs), normalGapMs: r(m.normalGapMs), stallLineMs: r(m.stallLineMs), idleTraders: m.idleTraders, traders: m.traders,
+      longestPassMs: r(m.longestPassMs), profitLastHour: r(m.profitLastHour), wallet: r(m.wallet),
+    });
+  }
+  return rows;
+}
+
+/** What the alert remembers per tenant between readings. Plain data. */
+export interface StallAlertState {
+  /** True once the current stall has been announced. Cleared when the stall ends. */
+  announced: boolean;
+  lastAlertAt: number | null;
+}
+
+export const EMPTY_ALERT_STATE: StallAlertState = { announced: false, lastAlertAt: null };
+
+export interface StallAlertDecision {
+  alert: boolean;
+  state: StallAlertState;
+  /** Why, in one line. */
+  reason: string;
+  /** The message when alert is true. No credit figures: push payloads pass through the platform's servers. */
+  title?: string;
+  body?: string;
+}
+
+/**
+ * Whether to raise the stall alert for one tenant now. Rules:
+ *  1. only while the tenant reads STALLED (heartbeat over the stall line, or an engine loop HUNG);
+ *  2. once per stall: a stall that goes on for hours is announced once, when it starts;
+ *  3. never within `cooldownMs` of the last alert, so a stall that flaps on and off is not repeated every minute.
+ *     A stall that begins inside the cool-down and is still on when the cool-down ends is announced then.
+ */
+export function decideStallAlert(state: StallAlertState, t: TenantHealth, now: number, cooldownMs: number): StallAlertDecision {
+  if (!t.heartbeat.stalled) {
+    return { alert: false, state: { announced: false, lastAlertAt: state.lastAlertAt }, reason: state.announced ? "stall over" : "not stalled" };
+  }
+  if (state.announced) return { alert: false, state, reason: "this stall was already announced" };
+  if (state.lastAlertAt !== null && now - state.lastAlertAt < cooldownMs) {
+    return { alert: false, state, reason: `cool-down: last alert ${formatDuration(now - state.lastAlertAt)} ago, next allowed after ${formatDuration(cooldownMs)}` };
+  }
+  const hung = t.tiles.find((x) => x.word === "HUNG");
+  const hb = t.tiles.find((x) => x.key === "heartbeat" && x.word === "STALLED");
+  const body = hung
+    ? `An engine loop has stopped. ${hung.detail}`
+    : hb
+      ? `No buy or sell for ${hb.value} (stall line ${formatDuration(t.metrics.stallLineMs ?? 0)}, normal gap ${formatDuration(t.heartbeat.normalGapMs)}). A restart cured the last two stalls.`
+      : "The health board reads STALLED.";
+  return { alert: true, state: { announced: true, lastAlertAt: now }, reason: "stall started", title: `${t.agent}: engine ${hung ? "HUNG" : "STALLED"}`, body };
+}
+
+export interface HealthHistory {
+  hours: number;
+  from: string;
+  to: string;
+  /** The process-wide rows (overall word, API numbers, uptime), oldest first. */
+  server: HealthSampleRow[];
+  /** One series per agent, oldest first. */
+  tenants: { agent: string; rows: HealthSampleRow[] }[];
+  /** Readings in the window by level, per scope: how long the board read OK, WARN and red (a reading is about a minute). */
+  minutes: Record<string, { ok: number; warn: number; bad: number }>;
+}
+
+/** Group stored readings for the board's charts. When two instances overlapped, both rows are kept; the charts draw them in time order. */
+export function healthHistory(rows: HealthSampleRow[], now: number, hours: number): HealthHistory {
+  const sorted = [...rows].sort((a, b) => a.sampledAt.localeCompare(b.sampledAt));
+  const byScope = new Map<string, HealthSampleRow[]>();
+  for (const r of sorted) (byScope.get(r.scope) ?? byScope.set(r.scope, []).get(r.scope)!).push(r);
+  const minutes: HealthHistory["minutes"] = {};
+  for (const [scope, list] of byScope) {
+    const m = { ok: 0, warn: 0, bad: 0 };
+    for (const r of list) m[r.level]++;
+    minutes[scope] = m;
+  }
+  return {
+    hours,
+    from: new Date(now - hours * 3_600_000).toISOString(),
+    to: new Date(now).toISOString(),
+    server: byScope.get(SERVER_SCOPE) ?? [],
+    tenants: [...byScope].filter(([s]) => s !== SERVER_SCOPE).map(([agent, list]) => ({ agent, rows: list })).sort((a, b) => a.agent.localeCompare(b.agent)),
+    minutes,
+  };
 }

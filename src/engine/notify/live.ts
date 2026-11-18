@@ -3,6 +3,7 @@ import type { FleetManager } from "../fleet.js";
 import { paceFromBuckets } from "../pace.js";
 import { resetWatcherStatus } from "../resetWatcher.js";
 import type { NotifySnapshot } from "./types.js";
+import { stallAlerts } from "../stallAlerts.js";
 
 /**
  * Reads the live fleet into the small snapshot the detectors work from. The only part of the notification system that
@@ -39,6 +40,7 @@ export function liveSnapshotProvider(deps: { tenantId: string; store: Store; fle
       msToReset: Number.isFinite(nextReset) ? nextReset - t : undefined,
       rate,
       status: { ships: deps.fleet.getShipStatuses().length, credits: deps.fleet.walletCredits() },
+      health: stallAlerts.get(deps.tenantId),
     };
   };
 }

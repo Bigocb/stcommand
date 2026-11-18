@@ -8,6 +8,8 @@
  */
 import { api } from "/shared/api.js";
 import { escapeHtml } from "/shared/domain.js";
+import { loadHealthBoard } from "/shared/healthBoard.js";
+import { enableChartBlowout } from "/shared/blowout.js";
 
 const $ = (id) => document.getElementById(id);
 const TABS = ["reset", "scoreboard", "timeline", "health", "tenants"];
@@ -194,7 +196,7 @@ async function renderHealth() {
   ]);
   if (t !== renderToken) return;
   const card = (title, res, fn) => `<div class="adm-card"><h3>${title}</h3>${res.status === "fulfilled" ? fn(res.value) : err(res.reason)}</div>`;
-  body().innerHTML = `<div class="adm-grid3">
+  body().innerHTML = `<div id="adm-health-board"></div><div class="adm-grid3" style="margin-top:16px">
     ${card("Stuck ships", stuck, (d) => {
       const c = d.counts ?? {};
       return `${kv("Ships", n(d.ships))}${kv("Critical / warn / info", `<span class="down">${c.crit ?? 0}</span> / <span class="warn">${c.warn ?? 0}</span> / ${c.info ?? 0}`)}
@@ -210,6 +212,10 @@ async function renderHealth() {
         ${(d.uncoveredPriority ?? []).length ? kv("Uncovered priority", badge(String(d.uncoveredPriority.length), "bad")) : ""}`;
     })}
   </div>`;
+  // The server health board (src/engine/serverHealth.ts), the same one the key-gated /admin page shows.
+  enableChartBlowout();
+  const board = document.getElementById("adm-health-board");
+  if (board) await loadHealthBoard(board, (path) => api("GET", path), { base: "/api/operator", hours: 6, refreshSec: 10 }).catch(() => {});
 }
 
 /* ── Tenants ───────────────────────────── */

@@ -13,6 +13,7 @@ import { resetWatcherStatus } from "../engine/resetWatcher.js";
 import { getCurrentResetDate } from "../core/universe.js";
 import { classifySystem, ARCHETYPE_LABELS, DOCTRINE_TEMPLATES, type SystemAttributes } from "../engine/systemClassifier.js";
 import { gatherServerHealth } from "../ops/serverHealthSources.js";
+import { healthHistory } from "../engine/serverHealth.js";
 
 /** The home-system attributes both the checkpoint tool and the template
  *  endpoints below read — one place computing it from GalaxyAtlas so the
@@ -402,6 +403,22 @@ export function createAdminRoutes(pool: pg.Pool, registry: TenantRegistry, galax
       }));
     } catch (err) {
       console.error("[admin] health error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  /**
+   * The health board's history (migration 068, written once a minute by src/engine/healthRecorder.ts): the last
+   * `hours` (default 6, up to 168), as a server series and one series per agent, oldest first.
+   */
+  router.get("/health/history", async (req, res) => {
+    try {
+      const hours = Math.min(Math.max(Number(req.query.hours) || 6, 0.25), 168);
+      const now = Date.now();
+      const rows = await new Store(pool).listHealthSamples(new Date(now - hours * 3_600_000).toISOString());
+      res.json(healthHistory(rows, now, hours));
+    } catch (err) {
+      console.error("[admin] health history error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
   });

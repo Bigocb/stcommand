@@ -49,6 +49,8 @@ export interface NotifySnapshot {
   rate?: { perHour1h: number; perHour3h: number };
   /** What the status report says besides the rate: hulls in the fleet and the wallet. */
   status?: { ships: number; credits: number };
+  /** The engine-stall alert the health recorder has raised and not yet cleared (src/engine/healthRecorder.ts); its key is new for each stall. */
+  health?: { key: string; title: string; body: string };
 }
 
 export interface Detector {

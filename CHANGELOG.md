@@ -8,6 +8,39 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-18 — Health board history, stall alert, Deck (server health Phase 2)
+
+The admin health board (entry below) only showed the present moment, and a stall still needed someone to be looking.
+Phase 2, approved by the operator the same day:
+
+- **History.** The server process takes the board's reading once a minute (`src/engine/healthRecorder.ts`) and stores it
+  in a new table, `health_samples` (migration 068): one `server` row (the overall word, uptime, API calls a minute and
+  the cap, 429s, the limiter's oldest wait) and one row per running agent (word, heartbeat gap, normal gap, stall line,
+  idle traders, longest engine pass, matched profit in the last hour, wallet). Rows older than 7 days are pruned hourly.
+  Operational data, keyed by agent symbol like `agent_samples`: no tenant_id, no row-level policy, not wiped at the reset.
+  The recorder can never throw into the engine: every step is wrapped and logged, and a reading still running when the
+  next is due is skipped. `GET /api/admin/health/history?hours=6` (also `/api/operator/...`) returns it grouped.
+- **Charts** under the tiles, for the last 6 hours, drawn at the width they are shown at so the 15-16 px labels stay
+  that size, with tap-to-enlarge (`shared/blowout.js`): a status strip per scope with the word written on each run and
+  the minutes spent OK / WARN / STALLED in words above it; time since the last trade against the dashed stall line
+  ("OVER THE LINE" / "UNDER THE LINE"); matched profit per hour; API calls a minute against the cap. A gap of more than
+  3 minutes between readings (a restart) breaks the line. The board now lives in `public/shared/healthBoard.js`.
+- **Stall alert.** When an agent's board turns STALLED (heartbeat over the stall line, or an engine loop HUNG), the
+  recorder writes one `HEALTH ALERT !!!!!!!!!!` log line and raises a Tower push of a new kind, "Engine stalled"
+  (critical, so it passes quiet hours when the device allows critical alerts). When to alert is
+  `decideStallAlert()` in `src/engine/serverHealth.ts`: once per stall however long it lasts, never twice within the
+  cool-down, and a stall that starts inside the cool-down is announced when the cool-down ends if it is still on. Behind
+  the new doctrine clause `healthStallAlert` (value = cool-down minutes, default 15), **on by default** because the push
+  path is already opt-in per device: only devices that turned Tower notifications on, with the new kind left on, get it.
+  The push goes through the existing notification pass (a `health` detector reading `stallAlerts`), so per-device quiet
+  hours and the hourly cap still apply.
+- **Deck and Tower.** Admin > Health (the operator-only tab) now opens with the same board and charts, from
+  `/api/operator/health*`, above the cards it already had.
+
+Tests: `tests/serverHealth.test.ts` (alert decision including the 2026-11-17 stall and the cool-down, history rows,
+the recorder with fakes, the push detector) and `tests/healthSamplesStore.test.ts` (write, read back, prune, against
+Postgres).
+
 ## 2026-11-18 — Admin page: a server health board that says STALLED when the engine freezes
 
 On 2026-11-17 the engine stalled at about 31 h uptime (traders idle in orbit, the dispatcher assigning but nothing

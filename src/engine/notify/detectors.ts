@@ -122,7 +122,14 @@ export const rateDetector: Detector = {
   },
 };
 
-export const DETECTORS: readonly Detector[] = [approvalsDetector, strandedDetector, idleDetector, statusDetector, attentionDetector, resetDetector, rateDetector];
+/** The engine-stall alert, when the health recorder has raised one. The recorder decides when (serverHealth.ts decideStallAlert); this only carries it. */
+export const healthDetector: Detector = {
+  id: "health",
+  category: "health",
+  detect: (s) => (s.health ? [{ key: s.health.key, category: "health", severity: "critical", title: s.health.title, body: s.health.body, url: "/m#home" }] : []),
+};
+
+export const DETECTORS: readonly Detector[] = [approvalsDetector, strandedDetector, idleDetector, statusDetector, attentionDetector, resetDetector, rateDetector, healthDetector];
 
 /** Run every detector. One that throws is skipped, so a bad detector never silences the others. */
 export function detectAll(snapshot: NotifySnapshot, detectors: readonly Detector[] = DETECTORS): NotifyEvent[] {
