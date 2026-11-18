@@ -443,6 +443,13 @@ fail on a clean checkout (fixtures whose fake `api` lacks methods the `FleetMana
 The test role bypasses row-level security, so one tenant's query can see other tenants' rows: filter to your own ship symbols. To check a change,
 compare the failing subtests before and after (`git worktree add /tmp/base <commit>`, symlink `node_modules`, copy `.env.test`), not the count.
 
+## Lessons learned
+
+`docs/lessons-learned.md` holds the durable lessons across weeks (what happened, what it cost, the rule it left). Read it at
+the start of a week and before a big purchase; add to it when a week's journal shows a mistake with a real cost. First entry
+(2026-11-18): the domino week (fresh systems stopped, margins thinned, a second heavy bought on a thin wallet, jump fees over
+profit).
+
 ## Week journal: read it first, write to it as you go
 
 `docs/journal/<reset date>.md` (format in `docs/journal/README.md`) is the running record of the current week: decisions, standing
