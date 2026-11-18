@@ -1,5 +1,7 @@
 # Bug log
 
+> From 2026-11-18 new bugs go to GitHub issues (`bug` label) and incidents to `docs/incidents/`; this file keeps the older open list.
+
 Reported or observed, not yet fixed. Each entry says what was seen, what is
 known about the cause, and what is still assumption — so nothing here is
 mistaken for a diagnosis that has actually been made.

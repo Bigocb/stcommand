@@ -443,6 +443,15 @@ fail on a clean checkout (fixtures whose fake `api` lacks methods the `FleetMana
 The test role bypasses row-level security, so one tenant's query can see other tenants' rows: filter to your own ship symbols. To check a change,
 compare the failing subtests before and after (`git worktree add /tmp/base <commit>`, symlink `node_modules`, copy `.env.test`), not the count.
 
+## Bugs, issues and incidents: GitHub
+
+Operator rule (2026-11-18): track bugs, follow-up work and incidents as GitHub issues on `bigocb/stcommand` (GitHub MCP tools,
+`mcp__github__*`), not only in docs. Labels: `bug`, `enhancement`, `incident`, plus `ready-for-agent` (well specified, can be
+built) or `ready-for-human` (needs an operator decision). When something costs real money or hours, write an incident report in
+`docs/incidents/` (index in its README), open an `incident` issue linking it, and file each open follow-up as a sub-issue. Close
+an issue with the commit that fixes it; check the open list before opening a new one. `docs/bug-log.md` and `docs/TODO.md` are
+older lists; new items go to GitHub.
+
 ## Lessons learned
 
 `docs/lessons-learned.md` holds the durable lessons across weeks (what happened, what it cost, the rule it left). Read it at
