@@ -1,0 +1,129 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Tailwinds system map</title>
+<style>
+:root{--bg:#1a1618;--panel:#211c1e;--edge:#3a3236;--ink:#ece4dc;--dim:#b3a9a2;--mute:#7d736e;--amber:#e3a565;--teal:#8fc0a9;--violet:#b49ad8;--rose:#e08c8c;--grid:rgba(255,255,255,.025)}
+*{box-sizing:border-box;margin:0;padding:0}
+body{width:2000px;height:1600px;background:var(--bg);color:var(--ink);font-family:Inter,sans-serif;position:relative;overflow:hidden;
+ background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:40px 40px}
+.wrap{position:absolute;inset:0 75px}
+.mono{font-family:"JetBrains Mono",monospace}
+h1{font-family:Caladea,"Bitstream Charter",serif;font-weight:700;font-size:64px;letter-spacing:.09em;position:absolute;top:38px;left:0}
+.sub{position:absolute;top:118px;left:2px;font-size:13px;letter-spacing:.28em;color:var(--dim)}
+.legend{position:absolute;top:46px;right:368px;font-size:10.5px;letter-spacing:.1em;color:var(--dim);line-height:25px}
+.legend i{display:inline-block;width:32px;height:2px;vertical-align:middle;margin-right:12px}
+.rule{position:absolute;top:163px;left:0;right:0;height:1px;background:var(--edge)}
+.sec{position:absolute;left:0;font-size:13px;letter-spacing:.24em;color:var(--amber)}
+.row{position:absolute;left:0;right:0;display:flex;align-items:stretch}
+.box{background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:18px 24px;position:relative}
+.box h3{font-size:16px;font-weight:700;letter-spacing:.03em;margin-bottom:12px}
+.box p{font-size:13.5px;color:var(--dim);line-height:24px}
+.box .tag{position:absolute;left:24px;bottom:14px;font-size:10px;letter-spacing:.11em;color:var(--mute)}
+.cap{border-color:#4a3d2f;background:#221d19}
+.data{border-color:#2e4a3f;background:#18201d}
+.async{border-color:#3d3550;background:#1d1a22}
+.priv{border-color:#5a3434;background:#241a1a}
+.priv h3{color:var(--rose)}
+.arrow{width:42px;flex:0 0 42px;display:flex;align-items:center;justify-content:center}
+.arrow svg{width:30px;height:14px}
+.badge{position:absolute;top:-24px;width:24px;height:24px;border-radius:50%;background:var(--amber);color:#2a1d10;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center}
+.small{font-size:10px;letter-spacing:.11em;color:var(--mute)}
+.tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:18px}
+.tile{background:#29232a;border:1px solid #3a3238;border-radius:7px;padding:12px 16px}
+.tile b{display:block;font-size:12.5px;letter-spacing:.04em;margin-bottom:5px}
+.tile span{font-size:11.5px;color:var(--dim)}
+.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:40px;margin-top:20px}
+.cols h4{font-size:12.5px;letter-spacing:.05em;margin-bottom:8px}
+.cols p{font-size:11.5px;color:var(--dim);line-height:20px}
+.foot{position:absolute;bottom:52px;left:0;right:0;display:flex;justify-content:space-between;font-size:10.5px;letter-spacing:.14em;color:var(--mute)}
+.footrule{position:absolute;bottom:85px;left:0;right:0;height:1px;background:var(--edge)}
+.curve{position:absolute;inset:0;pointer-events:none}
+</style></head>
+<body>
+<svg class="curve" viewBox="0 0 2000 1600"><path d="M0 255 C 400 200, 700 330, 1100 300 S 1700 140, 2000 240" stroke="#3a3236" stroke-width="2" fill="none" opacity=".55"/><path d="M0 860 C 500 800, 900 950, 1300 880 S 1800 800, 2000 840" stroke="#3a3236" stroke-width="2" fill="none" opacity=".45"/><path d="M0 1290 C 400 1260, 900 1320, 1400 1280 S 1800 1250, 2000 1270" stroke="#3a3236" stroke-width="2" fill="none" opacity=".4"/></svg>
+<div class="wrap">
+ <h1>TAILWINDS</h1>
+ <div class="sub mono">FLEET SYSTEM MAP / FROM UNCHARTED GALAXY TO WEEKLY PROFIT</div>
+ <div class="legend mono" style="right:0">
+  <div><i style="background:var(--amber)"></i>SENSE &amp; ACT</div>
+  <div><i style="background:var(--teal)"></i>DATA &amp; STORAGE</div>
+  <div><i style="background:repeating-linear-gradient(90deg,var(--violet) 0 6px,transparent 6px 10px)"></i>OPERATOR / APPROVAL</div>
+  <div><i style="background:var(--rose)"></i>GUARDRAIL</div>
+ </div>
+ <div class="rule"></div>
+
+ <!-- 01 -->
+ <div class="sec mono" style="top:198px">01 / SEE THE GALAXY</div>
+ <div class="row" style="top:232px;height:140px">
+  <div class="box cap" style="flex:1"><h3>GALAXY CRAWLER</h3><p>public systems · gates · factions<br>tokenless · background priority</p><div class="tag mono">OWN PROXY · OWN LIMITER</div></div>
+  <div class="arrow"><svg viewBox="0 0 30 14"><path d="M0 7h24M18 1l8 6-8 6" stroke="#e3a565" stroke-width="2" fill="none"/></svg></div>
+  <div class="box cap" style="flex:1"><div class="badge" style="left:-30px">1</div><h3>EXPLORERS &amp; SURVEYOR</h3><p>chart new systems · score worth<br>remote survey reads with no ship</p><div class="tag mono">SCOUTED → QUEUE</div></div>
+  <div class="arrow"><svg viewBox="0 0 30 14"><path d="M0 7h24M18 1l8 6-8 6" stroke="#e3a565" stroke-width="2" fill="none"/></svg></div>
+  <div class="box cap" style="flex:1.15"><div class="badge" style="left:-30px">2</div><h3>KEEPERS &amp; TOUR SHIPS</h3><p>probes camp one market each<br>tour ships price staged systems</p><div class="tag mono">READS VIA PROXY LANES</div></div>
+  <div class="arrow"><svg viewBox="0 0 30 14"><path d="M0 7h24M18 1l8 6-8 6" stroke="#e3a565" stroke-width="2" fill="none"/></svg></div>
+  <div class="box data" style="flex:1.05"><h3>MARKET INTEL</h3><p>market_snapshots · market_latest<br>shipyard inventory · jump costs</p><div class="tag mono">SHARED · WIPED AT RESET</div></div>
+  <div class="arrow"><svg viewBox="0 0 30 14"><path d="M0 7h24M18 1l8 6-8 6" stroke="#e3a565" stroke-width="2" fill="none"/></svg></div>
+  <div class="box async" style="flex:1.05"><h3>API LIMITER</h3><p>2 req/s per source IP · 105/min cap<br>priority lanes · proxy pool</p><div class="tag mono">429S · CALLS · BUDGET</div></div>
+ </div>
+
+ <!-- 02 -->
+ <div class="sec mono" style="top:410px">02 / DECIDE</div>
+ <div class="row" style="top:445px;height:172px">
+  <div class="box cap" style="flex:1.1"><h3>FRESH-SYSTEM QUEUE</h3><p>scouted → staged → live<br>keepers parked until release<br>release on keepers or tour pricing</p><div class="tag mono">NEW SYSTEMS PAY ~1.7X FOR HOURS</div></div>
+  <div class="arrow"><svg viewBox="0 0 30 14"><path d="M0 7h24M18 1l8 6-8 6" stroke="#e3a565" stroke-width="2" fill="none"/></svg></div>
+  <div class="box cap" style="flex:1.35"><h3>DISPATCHER</h3><p>ranks routes each minute · margin floor<br>per-ship jump cost · scored on own hold<br>spacing &amp; rest let markets recover</p><div class="tag mono">EXPLAINS EVERY REFUSAL</div></div>
+  <div class="arrow"><svg viewBox="0 0 30 14"><path d="M0 7h24M18 1l8 6-8 6" stroke="#8fc0a9" stroke-width="2" fill="none"/></svg></div>
+  <div class="box data" style="flex:1.05"><h3>DOCTRINE</h3><p>standing orders as data<br>clauses on · off · tuned live<br>missions · feeds · contracts</p><div class="tag mono">OFF = TODAY'S BEHAVIOUR</div></div>
+  <div class="arrow"><svg viewBox="0 0 30 14"><path d="M0 7h22" stroke="#b49ad8" stroke-width="2" stroke-dasharray="4 3" fill="none"/><path d="M18 1l8 6-8 6" stroke="#b49ad8" stroke-width="2" fill="none"/></svg></div>
+  <div class="box async" style="flex:1.2"><h3>APPROVALS</h3><p>keeper cards · one open at a time<br>rotated by system · tap to approve<br>hull buys warn before they spend</p><div class="tag mono">A HUMAN GATE ON SPENDING</div></div>
+ </div>
+ <div class="small mono" style="position:absolute;top:632px;left:740px">LIVE FLEET: SHIPS KEEP FLYING BETWEEN DECISIONS</div>
+
+ <!-- connector -->
+ <svg style="position:absolute;top:617px;left:0;width:1850px;height:90px" viewBox="0 0 1850 90">
+  <path d="M640 0 V68" stroke="#8fc0a9" stroke-width="2"/>
+  <path d="M250 68 H1670" stroke="#8fc0a9" stroke-width="2"/>
+  <g stroke="#8fc0a9" stroke-width="2" fill="none"><path d="M250 68 V84M244 78l6 8 6-8"/><path d="M720 68 V84M714 78l6 8 6-8"/><path d="M1200 68 V84M1194 78l6 8 6-8"/><path d="M1670 68 V84M1664 78l6 8 6-8"/></g>
+ </svg>
+ <div class="small mono" style="position:absolute;top:668px;left:860px">EVERY ACTION LANDS IN THE LEDGER</div>
+
+ <!-- 03 -->
+ <div class="sec mono" style="top:680px">03 / ACT &amp; LEARN</div>
+ <div class="row" style="top:710px;height:200px;gap:24px">
+  <div class="box cap" style="flex:1"><h3>TRADERS</h3><p>buy in lots · live price before buying<br>destination bid checked first<br>refused routes recorded with reason</p><div class="tag mono">40 · 80 · 225-UNIT HULLS</div></div>
+  <div class="box data" style="flex:1"><h3>LEDGER</h3><p>every buy · sell · jump · hull<br>keyed agent@week, kept across resets<br>row-level security per tenant</p><div class="tag mono">MATCHED P&amp;L, NOT RAW TOTALS</div></div>
+  <div class="box data" style="flex:1"><h3>ANALYSIS ENGINE</h3><p>trip_planned vs trip_closed<br>calibration · freshness premium<br>findings carry the exact fix</p><div class="tag mono">ADVISORY · NOTHING APPLIED</div></div>
+  <div class="box data" style="flex:1"><h3>ECONOMY HEALTH</h3><p>jump fees vs profit · net after costs<br>release drought · cash floor<br>buy-ship warning · health board</p><div class="tag mono">WARNS, NEVER BLOCKS</div></div>
+ </div>
+ <svg style="position:absolute;top:910px;left:1230px;width:40px;height:60px" viewBox="0 0 40 60"><path d="M20 0 V48M14 42l6 8 6-8" stroke="#8fc0a9" stroke-width="2" fill="none"/></svg>
+ <div class="small mono" style="position:absolute;top:932px;left:1265px">SIGNALS BECOME SCREENS AND PUSHES</div>
+
+ <!-- 04 -->
+ <div class="sec mono" style="top:960px">04 / SURFACES &amp; BOUNDARIES</div>
+ <div class="row" style="top:990px;height:292px;gap:24px">
+  <div class="box" style="flex:2.25"><h3>APPS</h3><p style="margin-top:-6px">one fleet, many ways to steer it</p>
+   <div class="tiles">
+    <div class="tile"><b>TOWER · /m</b><span>phone · status · approvals · economy</span></div>
+    <div class="tile"><b>DECK · /deck</b><span>desktop · fleet · expand · trade · map</span></div>
+    <div class="tile"><b>ADMIN</b><span>health board · stall alert · resets</span></div>
+    <div class="tile"><b>MCP SERVER</b><span>stcommand_* tools · ops reads</span></div>
+    <div class="tile"><b>CLAUDE OPERATOR</b><span>hourly reports · journal · lessons</span></div>
+    <div class="tile"><b>PUSH ALERTS</b><span>approvals · stalls · economy · idle</span></div>
+   </div></div>
+  <div class="box priv" style="flex:1"><h3>GUARDRAILS</h3><p>no autonomous spending<br>3M any hull · 10M big hulls<br>working-capital floor after a buy<br>deploys only on the operator's go</p><div class="tag mono" style="bottom:46px">LESSONS-LEARNED, WEEK OVER WEEK</div><div class="tag mono">FREEZE BEFORE THE WEEKLY RESET</div></div>
+  <div class="box" style="flex:1"><h3>RUNTIME</h3><p>Node · TypeScript engine<br>Express API · Postgres + RLS<br>local Linux box · deploy from main<br>SpaceTraders API · proxy pool</p><div class="tag mono" style="bottom:46px">MULTI-TENANT · AGENT@WEEK</div><div class="tag mono">PER-MINUTE HEALTH SAMPLES</div></div>
+ </div>
+
+ <!-- guardrail strip -->
+ <div class="box" style="position:absolute;top:1312px;left:0;right:0;height:162px">
+  <h3>WEEKLY CONTRACT</h3><p style="margin-top:-6px">the universe resets every week: open fast, expand without stopping, keep the operator in the loop</p>
+  <div class="cols">
+   <div><h4 style="color:var(--amber)">OPENING</h4><p>reset recovery queues the saved template<br>command ship tours, then trades · gate mission</p></div>
+   <div><h4 style="color:var(--violet)">OPERATOR REVIEW</h4><p>keeper cards and hull buys by hand<br>settings changes logged with before and after</p></div>
+   <div><h4 style="color:var(--teal)">TRUST</h4><p>every estimate checked against what it made<br>refusals, stalls and leaks are recorded, not lost</p></div>
+  </div>
+ </div>
+
+ <div class="footrule"></div>
+ <div class="foot mono"><span>TAILWINDS / STCOMMAND</span><span>SEE THE GALAXY · DECIDE · ACT · LEARN · KEEP THE HUMAN IN THE LOOP</span><span>TYPESCRIPT · NODE · POSTGRES · SPACETRADERS</span></div>
+</div>
+</body></html>
