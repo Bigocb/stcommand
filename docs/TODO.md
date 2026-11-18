@@ -7,6 +7,13 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+**From the 11-18 phase review (gate open and expansion; playbook "Phase 3/4"):**
+- Route build near the cash floor: `priceLeg()` in `src/engine/fleet.ts` sizes every leg by `spendableCredits()` (wallet less `cashFloor`, 100k), so below the floor
+  all stored legs are dropped and every trader is idle (11-18 12:17: 8,051 legs, 0 offered at a 31k wallet). Keep cheap same-system legs, or scale the floor to the fleet.
+- Release ordering and a jump-fee brake: the fresh-system queue released 1-3 far-apart systems an hour on 11-18; release the nearest staged system first and slow
+  releases while jump fees exceed a share of matched profit (`src/engine/` release rule, see ops `system_queue`).
+- Economy alert actions (opt-in clause): when `jumpsOverProfit` holds for an hour, set positioningHops 3 and small hulls local-only, and say so; today it is advisory only.
+
 **Economy alerts and buy-ship warning (raised 2026-11-18, operator): BUILT 2026-11-18, on the feature branch, not yet deployed.**
 `src/engine/economyHealth.ts`, `src/engine/buyAdvice.ts`, ops `economy_health` / `buy_preflight`, the Economy card in Tower and
 Deck, the "Economy warning" push and the buy confirm sheet; see the CHANGELOG entry of 2026-11-18 and

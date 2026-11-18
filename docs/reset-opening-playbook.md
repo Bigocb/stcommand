@@ -543,3 +543,32 @@ result (42.5% refund on a light hauler), cargo left at the reset.
 **Is it in the saved template?** No: the feeds start by hand (template has no startFeed step for iron or quartz at the F48 producer with ABUNDANT stops, nor a loss cap). Ask the operator before editing the template.
 
 **Code items** (added to docs/TODO.md): ceiling check must re-read the market at dock; `yieldToTrading` in the `startGateMission` template step; feed loss cap relative to the source price; `start_feed` carrier argument; deadhead report treat feed carriers separately.
+
+### Phase 3/4: gate open and expansion (review at 2026-11-18 13:00 UTC, hour 72 of the 2026-11-15 week)
+
+**What happened (numbers).**
+- The gate opened at about hour 34 (11-16 23:00), 13 hours earlier than the week before. Tuesday 11-17 made 14.6M matched (610k an hour, up to 11 ships selling an
+  hour, peak 1.59M at 20:00). By hour 60 the week stood at 21.9M against 9.4M the week before.
+- Releases: about 38 systems went live from 11-17 01:00 to 11-18 11:24, one to three an hour, apart from a gap 22:30-01:30 while the tour ships were locked out after a
+  restart (fixed 11-17 23:54 and 11-18 00:30). 39 live systems at hour 72, most of them far apart.
+- Hulls: two heavy freighters bought by hand (11-17 19:24 and 22:11, about 4.5M) left 0.6-1M of working capital. They were the best earners afterwards.
+- From 11-18 05:00 the fleet lost money every hour: over 7 hours 1.75M matched profit against 2.65M in jump fees (432 jumps). Wallet plus holds fell from 1.60M (04:12)
+  to 250k (11:33); the wallet reached 86c, and two parked probes were scrapped (31k) so THEO-37 could jump and sell its 243k of JEWELRY.
+- Causes found in the code (journal 11-18 11:35-12:20, CHANGELOG 11-18): a trader the dispatcher had nothing for claimed a route itself, priced without the jumps to
+  reach it and not held between hops, or jumped to another system to look at prices (43 of 67 trader jumps 10:20-11:42); and the route build sizes every route by
+  wallet less `cashFloor` (100k), so below 100k there are no routes at all and every trader is left to those fallbacks. positioningHops 3 -> 6 at 05:17 widened their reach.
+- Engine load: keeper reads 4-7 a minute, API at 28% of its cap, event loop p99 19 ms at hour 72 (a mostly idle fleet). `routeReuseMaxSec` kept the core tick short this week.
+
+**What to change next week.**
+1. Keep `traderSelfClaim` off and price discovery in-system (shipped 69b674f). Confirmed by the 11-18 logs.
+2. Do not let `cashFloor` empty the route list: either a floor that scales with the fleet (well under the working capital) or a route build that keeps cheap same-system
+   routes when the wallet is near the floor. Confirmed: at 31k every one of 8,051 stored legs was dropped.
+3. Keep working capital after a big hull (big hulls x ~400k + ~100k per other trader, about 2M for 12 traders); the buy warning now says so. Confirmed.
+4. Pace releases to what the traders can reach: release the nearest staged system first, and slow releases when jump fees pass a share of profit. Likely.
+5. When jump fees exceed profit for an hour, act (positioningHops 3, small hulls local) rather than only report it. The economy card and hourly report showed it from 07:31;
+   nothing was changed until 11:41. Confirmed.
+6. Replace weak keepers (score 0.1-3 at TV64/AC26/YH41/KJ19) with the top uncovered markets (YU93-FE5A, VU4-F24X 90+), per `keeper_review` swaps. Likely.
+
+**Is it in the saved template?** No. Items 2-5 are not template steps (doctrine values and code); item 3 is advice the buy warning gives. Ask before editing the template.
+
+**Code items** (added to docs/TODO.md): route build near the cash floor; release ordering by distance and a jump-fee brake; economy alert actions (opt-in) for jumps over profit.
