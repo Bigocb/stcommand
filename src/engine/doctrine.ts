@@ -143,6 +143,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "traderSelfClaim",
+    name: "Traders may pick their own route",
+    description: "When the dispatcher gives a trader nothing, the trader used to claim the first route on the fleet-wide list it could fly and head for it. That pick priced only the buy-to-sell leg, not the jumps to reach the buy market, and it was not held between hops, so a ship took one jump toward one route, then one toward another (2026-11-18: 41 self-claims in 80 minutes, 3 of them bought anything, about 108k profit against at least 33 jumps, about 200k). With this clause off (the default) a trader with no assignment waits for the dispatcher, which scores routes net of each ship's jumps. Turn it on to bring the old fallback back. Takes effect on the trader's next tick.",
+    value: 1, min: 1, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "routeHoldAware",
     name: "Score a route by what this ship's hold earns",
     description: "A route's profit is priced at the biggest hold in the fleet, and the dispatcher scored every ship against that same figure, so a small ship looked as well placed for a far, rich route as a big one while paying the same positioning cost. With this on, each ship is scored on what ITS hold earns from the route (the route's own figure for that hold, else its share of the units the trip can move), so small ships stay with nearby work and big hulls are the ones that find far routes worth the trip. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",

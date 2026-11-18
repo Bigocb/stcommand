@@ -315,6 +315,8 @@ export class TraderAgent {
   private readonly reportDeadRoute?: TraderOptions["reportDeadRoute"];
   private readonly deadRouteReason?: TraderOptions["deadRouteReason"];
   private readonly claimRoute?: TraderOptions["claimRoute"];
+  /** The last leg this trader claimed for itself (good|buyAt|sellAt), so its trip is recorded with source "claim". */
+  private claimedLeg?: string;
   private readonly releaseRoute?: () => void;
   private readonly recordSale?: TraderOptions["recordSale"];
   private readonly recordBuy?: TraderOptions["recordBuy"];
@@ -1652,6 +1654,8 @@ export class TraderAgent {
       const claimed = this.asDirectLeg(this.claimRoute((r) => this.viableRoute(r) !== undefined));
       if (claimed) {
         this.log(`findRoute: claimed ${claimed.good} ${claimed.buyAt} -> ${claimed.sellAt}`);
+        // Remember it so the trip's trip_planned event says it came from a self-claim (source "claim").
+        this.claimedLeg = `${claimed.good}|${claimed.buyAt}|${claimed.sellAt}`;
         return this.viableRoute(claimed);
       }
       this.log("findRoute: no claimable route viable");
@@ -2281,8 +2285,10 @@ export class TraderAgent {
     const hereSystem = this.ship.nav.systemSymbol;
     const knownMarkets = [...new Set(((await this.getMarketSnapshots?.()) ?? []).map((s) => s.waypointSymbol))].filter((m) => m !== here);
     const sameSystem = knownMarkets.filter((m) => this.systemOf(m) === hereSystem);
-    const crossSystem = knownMarkets.filter((m) => this.systemOf(m) !== hereSystem);
-    const candidates = [...new Set([...preferred.filter((m) => m && m !== here), ...sameSystem, ...crossSystem])];
+    // A market in another system is only worth a gate jump when a route needs its price (`preferred`). The generic
+    // fallback stays in this system: going to the first market in any other system cost a jump (~6,000c) a hop and
+    // left an idle trader ping-ponging between two gates (THEO-1, MV84 <-> XD69, 2026-11-18).
+    const candidates = [...new Set([...preferred.filter((m) => m && m !== here), ...sameSystem])];
 
     let target: string | undefined;
     for (const m of candidates) {
@@ -2516,7 +2522,8 @@ export class TraderAgent {
       buyPrice: route.buyPrice, sellPrice: route.sellPrice, units: route.volume,
       profit: this.routeProfit(route), tripCost: this.tripCost(route.buyAt, route.sellAt),
       lotSize: route.lotSize, buyVolume: route.buyVolume, sellVolume: route.sellVolume,
-      source: this.isManualLegFor(route.good) ? "manual" : "auto", maxLots: this.maxLotsPerTrip(),
+      source: this.isManualLegFor(route.good) ? "manual" : this.claimedLeg === `${route.good}|${route.buyAt}|${route.sellAt}` ? "claim" : "auto",
+      maxLots: this.maxLotsPerTrip(),
     }, id, new Date(now).toISOString(), { units: bought, avgPrice: bought > 0 ? totalPaid / bought : 0 }));
   }
 

@@ -1637,7 +1637,9 @@ export class FleetManager {
         await this.setManualDispatch(shipSymbol, undefined);
         this.log(`${shipSymbol}: pinned route cleared — ${reason}`);
       },
-      claimRoute: (accept) => this.dispatcher.claim(shipSymbol, (r) => accept(r)),
+      // Off by default (doctrine traderSelfClaim, 2026-11-18): a self-claim ignored the jumps to the buy market and was not
+      // held between hops, so empty traders zigzagged across gates. Returning undefined leaves the ship to the dispatcher.
+      claimRoute: (accept) => this.doctrine.isEnabled("traderSelfClaim") ? this.dispatcher.claim(shipSymbol, (r) => accept(r)) : undefined,
       releaseRoute: () => this.dispatcher.release(shipSymbol),
       recordSale: (good, sellAt, units, price) => this.dispatcher.recordSale(good, sellAt, units, price),
       recordBuy: (good, buyAt, units, price) => this.dispatcher.recordBuy(good, buyAt, units, price),

@@ -8,6 +8,29 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-18: traders no longer pick their own far routes or jump systems to look at prices
+
+From 05:17 on 11-18 the fleet lost money every hour (jump fees 2.65M against 1.75M matched profit over 7 hours).
+The cause was not the dispatcher, which scores routes net of each ship's jumps, but two fallbacks in the trader
+that it uses when the dispatcher hands it nothing:
+
+- **Self-claim.** `findRoute()` claimed the first route on the fleet-wide list the ship could fly
+  (`dispatcher.claim()`). `viableRoute()` prices only the buy-to-sell leg, not the jumps from where the ship stands
+  to the buy market, and a claim got no commitment, so the next minute's recompute dropped it and the trader claimed
+  something else after one hop. THEO-38 took nine jumps in 30 minutes toward six different routes without buying.
+  Measured from the logs, 10:20-11:42: 41 self-claims, 3 of which bought anything (about 108k profit), against at
+  least 33 jumps made right after a claim (about 200k). It now sits behind the doctrine clause `traderSelfClaim`, off
+  by default: a trader with no assignment waits for the dispatcher. Turn the clause on to restore the old fallback.
+- **Price discovery.** With nothing claimable, `discoverPrices()` went to the first reachable market in any other
+  system, which left THEO-1 jumping MV84 <-> XD69 every few minutes. It now crosses a gate only for a market a route
+  actually needs (the `preferred` list); otherwise it stays in its own system.
+- **Measurement.** A trip that started from a self-claim is recorded in `trip_planned` with source `claim` (instead of
+  `auto`), so ops `analysis` can show what claimed trips earn if the clause is ever turned back on.
+
+`positioningHops` was set back to 3 at the same time as a stopgap; with these fixes a higher value is safe again.
+Tests: `tests/selfClaim.test.ts` (new), `tests/trader.test.ts` (discovery reachability tests now pass the market as
+preferred, plus one for the in-system rule). Journal: `docs/journal/2026-11-08.md`, 11-18 11:35-11:50.
+
 ## 2026-11-18: the engine's wallet follows every trade; the cash warning says what is in cargo
 
 Operator, looking at Tower at 04:42 UTC: "the Wallet isn't 84,000. It's 400,000." Right. THEO-38 had just sold 80 ASSAULT_RIFLES

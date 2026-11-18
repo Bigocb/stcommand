@@ -506,7 +506,7 @@ describe("TraderAgent.discoverPrices: reachability", () => {
     let navigated = false;
     (trader as any).navigateTo = async () => { navigated = true; };
 
-    const made = await (trader as any).discoverPrices([]);
+    const made = await (trader as any).discoverPrices(["X1-B-A2"]);
 
     assert.equal(made, false, "with no reachable market at all, this must report no progress — that's what gives nextTask() its 30s backoff instead of looping with zero delay");
     assert.equal(navigated, false);
@@ -525,9 +525,27 @@ describe("TraderAgent.discoverPrices: reachability", () => {
     let navigated = false;
     (trader as any).navigateTo = async () => { navigated = true; };
 
-    const made = await (trader as any).discoverPrices([]);
+    const made = await (trader as any).discoverPrices(["X1-B-A2"]);
 
     assert.equal(made, false, "an under-construction gate must not be treated as reachable, even though atlas.gatesTo() found a connection");
+    assert.equal(navigated, false);
+  });
+
+  it("does not jump to another system for price discovery unless a route needs that market (2026-11-18)", async () => {
+    // THEO-1 ping-ponged MV84 <-> XD69 paying a jump each way: with nothing claimable, discovery went to the first
+    // reachable market in any other system. Without a preferred market it now stays in its own system.
+    const ship = makeShip();
+    const trader = new TraderAgent(ship, {
+      api: { getCallCount: () => 0, getShip: async () => ship } as any,
+      getMarketSnapshots: async () => [{ waypointSymbol: "X1-B-A2", goodSymbol: "IRON", purchasePrice: 5, sellPrice: 10, tradeVolume: 10 }],
+      atlas: { gatesTo: () => ["X1-A-GATE"], refreshGateConstruction: async () => true } as any,
+    });
+    let navigated = false;
+    (trader as any).navigateTo = async () => { navigated = true; };
+
+    const made = await (trader as any).discoverPrices([]);
+
+    assert.equal(made, false);
     assert.equal(navigated, false);
   });
 
@@ -543,7 +561,7 @@ describe("TraderAgent.discoverPrices: reachability", () => {
     (trader as any).refuelAt = async () => {};
     (trader as any).observeMarket = async () => {};
 
-    const made = await (trader as any).discoverPrices([]);
+    const made = await (trader as any).discoverPrices(["X1-B-A2"]);
 
     assert.equal(made, true);
     assert.equal(navigatedTo, "X1-B-A2");
@@ -561,7 +579,7 @@ describe("TraderAgent.discoverPrices: reachability", () => {
     (trader as any).refuelAt = async () => {};
     (trader as any).observeMarket = async () => {};
 
-    const made = await (trader as any).discoverPrices([]);
+    const made = await (trader as any).discoverPrices(["X1-B-A2"]);
 
     assert.equal(made, true);
     assert.equal(navigatedTo, "X1-B-A2");
