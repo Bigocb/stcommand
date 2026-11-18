@@ -143,6 +143,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "traderIdleDiscovery",
+    name: "Traders with no route look for prices",
+    description: "When a trader has no route at all it used to fly from market to market in its own system re-reading prices. Keepers and tour ships already price the markets, so this mostly cost fuel: about 50,000 an hour against 5,000 profit on 2026-11-18 (13:12-14:12), with THEO-7 visiting a market in X1-VM8 every 16 seconds. With this clause off (the default) such a trader waits for the dispatcher and tries again every 30 seconds. A trader whose route lacks a price still goes to look at that route's markets. Turn it on to bring the old behaviour back. Takes effect on the trader's next tick.",
+    value: 1, min: 1, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
+    key: "cashFloorTradeSharePct",
+    name: "Below the cash floor, traders may still spend this share of the wallet",
+    description: "The cash floor (cashFloor) keeps a reserve: nothing is bought that would take the wallet under it. For cargo that was a trap. On 2026-11-18 the wallet fell under the 100,000 floor, every route sized to 0 units, all 8,051 stored legs were dropped and no trader could buy anything to earn its way back. With this on, cargo may use the larger of (wallet less the floor) and this share of the wallet, so below the floor traders keep trading with part of the cash while the rest stays in reserve. Ship, keeper and mission purchases keep the full floor. Off = cargo keeps the full floor too (the old rule). Takes effect on the next route build (about a minute).",
+    value: 50, min: 0, max: 100, step: 5, unit: "%",
+    enabled: true, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "traderSelfClaim",
     name: "Traders may pick their own route",
     description: "When the dispatcher gives a trader nothing, the trader used to claim the first route on the fleet-wide list it could fly and head for it. That pick priced only the buy-to-sell leg, not the jumps to reach the buy market, and it was not held between hops, so a ship took one jump toward one route, then one toward another (2026-11-18: 41 self-claims in 80 minutes, 3 of them bought anything, about 108k profit against at least 33 jumps, about 200k). With this clause off (the default) a trader with no assignment waits for the dispatcher, which scores routes net of each ship's jumps. Turn it on to bring the old fallback back. Takes effect on the trader's next tick.",

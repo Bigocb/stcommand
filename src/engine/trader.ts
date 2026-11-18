@@ -135,6 +135,9 @@ export interface TraderOptions {
    * assignment — the dispatcher's live-claim path predates warehousing roles.
    */
   claimRoute?: (accept: (route: DirectLeg) => boolean) => TraderAssignment | undefined;
+  /** Whether a trader with no route at all may still fly around its system re-pricing markets (doctrine traderIdleDiscovery,
+   *  off by default). Undefined (a standalone trader) keeps the old behaviour. */
+  idleDiscovery?: () => boolean;
   /** Give up this trader's claim so a fleetmate can take the good. */
   releaseRoute?: () => void;
   /** Tell the dispatcher a sale just landed at this (good, sellAt) pair, so
@@ -317,6 +320,8 @@ export class TraderAgent {
   private readonly reportDeadRoute?: TraderOptions["reportDeadRoute"];
   private readonly deadRouteReason?: TraderOptions["deadRouteReason"];
   private readonly claimRoute?: TraderOptions["claimRoute"];
+  private readonly idleDiscovery?: TraderOptions["idleDiscovery"];
+  private idleWaitLoggedAt = 0;
   /** The last leg this trader claimed for itself (good|buyAt|sellAt), so its trip is recorded with source "claim". */
   private claimedLeg?: string;
   private readonly releaseRoute?: () => void;
@@ -486,6 +491,7 @@ export class TraderAgent {
     this.reportDeadRoute = opts.reportDeadRoute;
     this.deadRouteReason = opts.deadRouteReason;
     this.claimRoute = opts.claimRoute;
+    this.idleDiscovery = opts.idleDiscovery;
     this.releaseRoute = opts.releaseRoute;
     this.recordSale = opts.recordSale;
     this.recordBuy = opts.recordBuy;
@@ -2816,6 +2822,17 @@ export class TraderAgent {
     // Prefer the assigned route's own buy/sell markets (that's where the
     // dispatcher wants us) for the price-discovery fallback.
     const direct = this.asDirectLeg(assigned);
+    // No route at all: wait for the dispatcher rather than fly market to market re-reading prices. With keepers and tours
+    // pricing the markets this only cost fuel (about 50k an hour on 2026-11-18, 13:12-14:12). Reported as no progress, so
+    // the next try comes after the usual 30 s backoff. A route's own markets (`direct`) are still visited for prices.
+    if (!direct && this.idleDiscovery && !this.idleDiscovery()) {
+      const now = Date.now();
+      if (now - this.idleWaitLoggedAt > 10 * 60_000) {
+        this.idleWaitLoggedAt = now;
+        this.log("no route: waiting for the dispatcher (idle discovery off, doctrine traderIdleDiscovery)");
+      }
+      return false;
+    }
     return this.discoverPrices(direct ? [direct.buyAt, direct.sellAt] : []);
   }
 

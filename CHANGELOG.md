@@ -8,6 +8,26 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-18: idle traders wait for the dispatcher; below the cash floor traders can still trade
+
+Two fixes from the 11-18 recovery (operator priorities 1 and 2):
+
+- **Idle traders wait** (doctrine `traderIdleDiscovery`, off by default). A trader with no route at all used to fly from
+  market to market in its own system re-reading prices; the 13:50 fix (skip markets priced in the last 20 minutes) rarely
+  applied because the parked keepers had left most markets stale. 13:12-14:12 the fleet spent 49k on fuel against 4.9k profit.
+  `runArbitrage()` in `src/engine/trader.ts` now returns no progress instead (the usual 30 s backoff) and logs "no route: waiting
+  for the dispatcher" at most every 10 minutes. A trader whose route lacks a price still visits that route's markets. Turn the
+  clause on to restore the old behaviour.
+- **Trade budget below the cash floor** (new module `src/engine/tradeBudget.ts`, doctrine `cashFloorTradeSharePct`, on at 50%).
+  The route build and the trader's purchases sized cargo by `wallet - cashFloor`, so with the wallet under the 100k floor every
+  route sized to 0 units, all 8,051 stored legs were dropped and the fleet could not trade its way back. Cargo now uses the
+  larger of (wallet less the floor) and 50% of the wallet; well above the floor nothing changes. Ship, keeper and mission
+  purchases keep the full floor (`FleetManager.spendableCredits()` is unchanged; traders and the route build use
+  `tradeSpendable()`). Clause off = the old rule.
+
+Tests: `tests/tradeBudget.test.ts` (module, the fleet seam, the idle wait on/off/unwired); trader, self-claim, cash floor,
+contract, pinned-route, refusal, wallet, economy and dispatcher suites all pass.
+
 ## 2026-11-18: price discovery no longer tours a system's markets in a loop
 
 With the self-claim fallback off and traders set local-only, an idle trader with no route went "discovering prices" in its own

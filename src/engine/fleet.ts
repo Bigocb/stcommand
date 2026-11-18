@@ -38,6 +38,7 @@ import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, ty
 import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
 import { boundLoadedBySystem, decideIdleParking, runsIdleParking, systemUse, useSince, type IdleFacts } from "./idleSystems.js";
 import { BootWatch, assignmentKey } from "./bootWatch.js";
+import { tradeBudget } from "./tradeBudget.js";
 import { bidKey, sellPriceVerdict, type BidStat } from "./priceSanity.js";
 import { ReadRate, rotationMin } from "./keeperThroughput.js";
 import { hourOf, hourlySnapshotEvent } from "./hourlySnapshot.js";
@@ -1371,6 +1372,13 @@ export class FleetManager {
     return Math.max(0, credits - this.minCashReserve());
   }
 
+  /** What a trader may spend on cargo: the wallet less the cash floor, or below the floor a share of the wallet (doctrine
+   *  cashFloorTradeSharePct; off = spendableCredits()). Ship, keeper and mission purchases keep the full floor. */
+  tradeSpendable(credits = this.credits): number {
+    const share = this.doctrine.isEnabledOr("cashFloorTradeSharePct", false) ? this.doctrine.value("cashFloorTradeSharePct", 0) : 0;
+    return tradeBudget(credits, this.minCashReserve(), share);
+  }
+
   /** Lots of a market's trade volume one trip may buy: doctrine `maxLotsPerTrip`, whole lots, default 3. */
   private maxLotsPerTrip(): number {
     return Math.max(1, Math.round(this.doctrine.value("maxLotsPerTrip", MAX_LOTS_PER_TRIP)));
@@ -1648,10 +1656,12 @@ export class FleetManager {
       // Already floor-adjusted — see spendableCredits()'s own comment. This
       // one is the fleet's cached balance, which is right for ranking routes
       // and wrong for committing to a purchase.
-      getCredits: () => this.spendableCredits(),
+      getCredits: () => this.tradeSpendable(),
       // The same floor applied to a live balance, for the purchase sites —
-      // see TraderAgent.spendableNow() for why they need both.
-      applyCashFloor: (credits: number) => this.spendableCredits(credits),
+      // see TraderAgent.spendableNow() for why they need both. Cargo uses the trade budget (tradeBudget.ts).
+      applyCashFloor: (credits: number) => this.tradeSpendable(credits),
+      // Off by default (doctrine traderIdleDiscovery): a trader with no route waits for the dispatcher instead of re-pricing markets.
+      idleDiscovery: () => this.doctrine.isEnabled("traderIdleDiscovery"),
       maxLossPct: this.doctrine.value("maxLossPct", 100),
       marginFloor: this.doctrine.value("marginFloor", 0),
       maxLotsPerTrip: () => effectiveMaxLots(this.maxLotsPerTrip(), this.shipLotPolicies.get(shipSymbol)),
@@ -2503,7 +2513,8 @@ export class FleetManager {
     // A drone hull (a mining drone repurposed as a tour ship, speed 9) never takes a trade route, so it must not
     // set the speed every route is costed at: THEO-17 did that on 2026-10-08, stretching every modelled trip ~1.7x.
     const fleetSpeed = this.routeModelSpeed();
-    const spendable = this.spendableCredits();
+    // Cargo budget, not the bare floor: below the floor every leg sized to 0 units and the route list went empty (2026-11-18).
+    const spendable = this.tradeSpendable();
     const maxLots = this.maxLotsPerTrip();
     const impactPolicy: ImpactPolicy = { ...DEFAULT_IMPACT_POLICY, maxAgeMs: 4 * 3_600_000, maxFactor: this.doctrine.isEnabledOr("lotImpactMaxFactor", false) ? this.doctrine.value("lotImpactMaxFactor", 0) : 0 };
     const thinPolicy = this.thinPolicy();
