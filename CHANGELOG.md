@@ -8,6 +8,22 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-18: a tour ship stays on the system it was assigned to; auto-explore no longer takes one on a silent card (#46)
+
+Operator rule: a tour ship tours only the system it is assigned to, by the operator or by the queue.
+
+- **Operator assignments outlive the trip.** `dispatch_tour` (tools and dashboard) now records `tourAssigned`, persisted in
+  `shipManualState`, alongside the trip's `tourDestination`. The destination is still cleared on arrival, but the assignment is
+  kept. The queue (`shouldConsiderTourShip`) never re-sends an assigned ship. Before, an arrived ship had no destination left, so
+  the queue counted it as free and could send it to a staged system mid-pricing. The queue's own trips (`dispatchTourShip(...,
+  { by: "queue" })`) are not assignments: it frees them when the job is done, as before. An assignment ends with a new dispatch,
+  a role change away from tour, a hold, or a sale. `ops ship_live` shows it as `tourAssigned`.
+- **Auto-explore's borrow card now denies on timeout** (`autoExploreBorrow`, 2 h). An unanswered card used to approve and hand
+  an idle tour ship to an explore trip.
+
+Tests: `tests/tourDispatchOrder.test.ts` (assignment set, cleared by a queue dispatch, kept on arrival), `tests/queueTours.test.ts`
+(an assigned ship is never considered). The tour suites' failing subtests are the same before and after.
+
 ## 2026-11-18: a ship sent on a tour walks to its target instead of touring the systems on the way (#46)
 
 Two ways a `dispatch_tour` ship ended up touring the wrong system, both seen on the first wave of trader tours:

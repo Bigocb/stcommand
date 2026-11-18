@@ -9,10 +9,17 @@ function rig(system: string) {
   const ship = { symbol: "T-1", nav: { status: "IN_ORBIT", waypointSymbol: `${system}-GATE`, systemSymbol: system }, fuel: { current: 100, capacity: 100 }, cargo: { units: 0, capacity: 80, inventory: [] } };
   const fleet: any = new FleetManager({ api: { onMarket: () => {}, getShip: async () => ship } as any });
   const calls: string[] = [];
-  fleet.updateShipManualState = async (_s: string, patch: { tourDestination?: string | null }) => {
-    calls.push(`dest=${patch.tourDestination ?? "null"}`);
-    if (patch.tourDestination) fleet.tourDestinations.set("T-1", patch.tourDestination);
-    else fleet.tourDestinations.delete("T-1");
+  fleet.updateShipManualState = async (_s: string, patch: { tourDestination?: string | null; tourAssigned?: string | null }) => {
+    if ("tourAssigned" in patch) {
+      calls.push(`assigned=${patch.tourAssigned ?? "null"}`);
+      if (patch.tourAssigned) fleet.tourAssignments.set("T-1", patch.tourAssigned);
+      else fleet.tourAssignments.delete("T-1");
+    }
+    if ("tourDestination" in patch) {
+      calls.push(`dest=${patch.tourDestination ?? "null"}`);
+      if (patch.tourDestination) fleet.tourDestinations.set("T-1", patch.tourDestination);
+      else fleet.tourDestinations.delete("T-1");
+    }
   };
   fleet.roleOf = () => "trader";
   fleet.setShipRole = async (_s: string, role: string) => {
@@ -27,21 +34,47 @@ describe("dispatchTourShip saves the destination before the role change", () => 
   it("the role change (and its first tour tick) already sees the target", async () => {
     const { fleet, calls } = rig("X1-A");
     await fleet.dispatchTourShip("T-1", "X1-B");
-    assert.deepEqual(calls, ["dest=X1-B", "role=tour sees=X1-B"]);
+    assert.deepEqual(calls, ["assigned=X1-B", "dest=X1-B", "role=tour sees=X1-B"]);
   });
 
   it("a ship already in the target clears any old destination and tours in place", async () => {
     const { fleet, calls } = rig("X1-B");
     fleet.tourDestinations.set("T-1", "X1-OLD");
     await fleet.dispatchTourShip("T-1", "X1-B");
-    assert.deepEqual(calls, ["dest=null", "role=tour sees=none"]);
+    assert.deepEqual(calls, ["assigned=X1-B", "dest=null", "role=tour sees=none"]);
+    assert.equal(fleet.tourAssignments.get("T-1"), "X1-B", "already there: still assigned to the system");
   });
 
   it("a ship already on the tour role keeps it (no role change)", async () => {
     const { fleet, calls } = rig("X1-A");
     fleet.roleOf = () => "tour";
     await fleet.dispatchTourShip("T-1", "X1-B");
-    assert.deepEqual(calls, ["dest=X1-B"]);
+    assert.deepEqual(calls, ["assigned=X1-B", "dest=X1-B"]);
+  });
+});
+
+describe("an operator dispatch is an assignment that outlives the trip; the queue's own trips are not (#46)", () => {
+  it("operator dispatch (default) records the assignment", async () => {
+    const { fleet } = rig("X1-A");
+    await fleet.dispatchTourShip("T-1", "X1-B");
+    assert.equal(fleet.tourAssignments.get("T-1"), "X1-B");
+  });
+  it("a queue dispatch clears any assignment", async () => {
+    const { fleet } = rig("X1-A");
+    fleet.tourAssignments.set("T-1", "X1-OLD");
+    await fleet.dispatchTourShip("T-1", "X1-B", { by: "queue" });
+    assert.equal(fleet.tourAssignments.has("T-1"), false);
+    assert.equal(fleet.tourDestinations.get("T-1"), "X1-B");
+  });
+  it("arrival clears the trip's destination but keeps the assignment", async () => {
+    const ship = { symbol: "T-1", nav: { status: "IN_ORBIT", waypointSymbol: "X1-B-A1", systemSymbol: "X1-B" }, fuel: { current: 1, capacity: 1 }, cargo: { units: 0, capacity: 80, inventory: [] } };
+    const fleet: any = new FleetManager({ api: { onMarket: () => {}, getShip: async () => ship } as any });
+    fleet.tourDestinations.set("T-1", "X1-B");
+    fleet.tourAssignments.set("T-1", "X1-B");
+    fleet.updateShipManualState = async (_s: string, patch: any) => { if ("tourDestination" in patch && !patch.tourDestination) fleet.tourDestinations.delete("T-1"); if ("tourAssigned" in patch) fleet.tourAssignments.delete("T-1"); };
+    assert.equal(await fleet.advanceTourDispatch("T-1"), false);
+    assert.equal(fleet.tourDestinations.has("T-1"), false);
+    assert.equal(fleet.tourAssignments.get("T-1"), "X1-B");
   });
 });
 

@@ -99,3 +99,11 @@ test("a touring ship in flight is considered; an explorer in flight, or an opera
   assert.equal(shouldConsiderTourShip({ ...base, destination: "X1-GV7", destinationNeedsTour: true, sentByModule: true }), true);
   assert.equal(shouldConsiderTourShip({ ...base, destination: "X1-FT2", destinationNeedsTour: false }), true);
 });
+
+test("an operator-assigned tour ship is never considered by the queue, before or after it arrives (#46)", () => {
+  const base = { destination: undefined, sentByModule: false, inTransit: true, isTourRole: true, destinationNeedsTour: false };
+  assert.equal(shouldConsiderTourShip({ ...base, operatorAssigned: true }), false, "arrived: no destination left, still assigned");
+  assert.equal(shouldConsiderTourShip({ ...base, inTransit: false, operatorAssigned: true }), false);
+  assert.equal(shouldConsiderTourShip({ ...base, destination: "X1-GV7", destinationNeedsTour: false, operatorAssigned: true }), false);
+  assert.equal(shouldConsiderTourShip({ ...base, operatorAssigned: false }), true, "not assigned: unchanged");
+});

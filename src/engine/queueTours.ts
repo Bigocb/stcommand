@@ -119,6 +119,7 @@ export function destinationNeedsTour(dest: string | undefined, targets: readonly
 /**
  * Does the queue-tour code consider this ship at all? Pure so the rule has a test.
  *
+ * - A ship the operator assigned to a system (dispatch_tour) is never considered, before or after it arrives.
  * - A ship with a destination this module did not set is the operator's while that system still needs a tour (`destinationNeedsTour`).
  * - A ship in flight with NO destination is skipped, EXCEPT a tour-role ship: it is touring the system it is in, hopping from market to
  *   market, so it is in flight about 95% of the time and a 5-minute check almost never catches it docked. 2026-11-18 (second blocker, after
@@ -126,7 +127,10 @@ export function destinationNeedsTour(dest: string | undefined, targets: readonly
  *   Giving it a destination is safe in flight: it finishes the leg, then walks (advanceTourDispatch). Explorers in flight stay skipped:
  *   they may be on a long charting trip.
  */
-export function shouldConsiderTourShip(s: { destination: string | undefined; sentByModule: boolean; inTransit: boolean; isTourRole: boolean; destinationNeedsTour: boolean }): boolean {
+export function shouldConsiderTourShip(s: { destination: string | undefined; sentByModule: boolean; inTransit: boolean; isTourRole: boolean; destinationNeedsTour: boolean; operatorAssigned?: boolean }): boolean {
+  // An operator-assigned tour ship belongs to its system until the operator moves it (issue #46, 2026-11-18). Its trip's destination is
+  // cleared on arrival, so without this the queue saw it as free and could send it off mid-pricing.
+  if (s.operatorAssigned) return false;
   if (s.destination !== undefined && !s.sentByModule && s.destinationNeedsTour) return false;
   if (s.inTransit && s.destination === undefined && !s.isTourRole) return false;
   return true;

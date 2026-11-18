@@ -522,6 +522,11 @@ export class FleetManager {
    *  mid-flight instead of stranding the ship at whatever system it had
    *  reached so far. Cleared once the ship actually arrives. */
   private tourDestinations = new Map<string, string>();
+  /** The system an operator assigned a tour ship to (dispatch_tour from the tools or dashboard). Unlike tourDestination it is kept
+   *  after the ship arrives, and the queue never re-sends an assigned ship (issue #46, operator 2026-11-18: "a tour ship only tours
+   *  the system it's assigned to, set by us or by the queue"). Cleared by a new dispatch, a role change away from tour, a hold or a sale.
+   *  Persisted as shipManualState.tourAssigned. */
+  private tourAssignments = new Map<string, string>();
   /**
    * A tour interrupted mid-itinerary by a control-flow signal — what is left
    * to visit and in which system, keyed by ship. See runTourStops()'s own
@@ -1126,6 +1131,10 @@ export class FleetManager {
       if (st.tourDestination) {
         this.tourDestinations.set(shipSymbol, st.tourDestination);
         this.log(`restored tour dispatch ${shipSymbol} -> ${st.tourDestination}`);
+      }
+      if (st.tourAssigned) {
+        this.tourAssignments.set(shipSymbol, st.tourAssigned);
+        this.log(`restored tour assignment ${shipSymbol} -> ${st.tourAssigned}`);
       }
       if (st.scrapAt) {
         // Restore the target yard directly rather than re-deriving "nearest"
@@ -4680,7 +4689,7 @@ export class FleetManager {
    */
   async manualJumpShip(shipSymbol: string, waypointSymbol: string): Promise<void> {
     await this.jumpShip(shipSymbol, waypointSymbol);
-    await this.updateShipManualState(shipSymbol, { holdWaypoint: waypointSymbol, tourDestination: null });
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: waypointSymbol, tourDestination: null, tourAssigned: null });
     this.dispatcher.release(shipSymbol);
     this.shipRegistry.claim(shipSymbol, "operator", this.roleOf(shipSymbol), {}, { preempt: true });
     this.log(`${shipSymbol}: operator hold at ${waypointSymbol} (manual jump)`);
@@ -4859,9 +4868,11 @@ export class FleetManager {
    * every charted system) means it just keeps touring there on its own —
    * nothing further to pin beyond "get it there".
    */
-  async dispatchTourShip(shipSymbol: string, targetSystem: string): Promise<void> {
+  async dispatchTourShip(shipSymbol: string, targetSystem: string, opts: { by?: "operator" | "queue" } = {}): Promise<void> {
     const ship = await this.api.getShip(shipSymbol);
     const here = ship.nav.systemSymbol === targetSystem;
+    // An operator dispatch is an assignment that outlives the trip; the queue's own trips are not (it frees them when the job is done).
+    await this.updateShipManualState(shipSymbol, { tourAssigned: (opts.by ?? "operator") === "operator" ? targetSystem : null });
     // The destination is saved BEFORE the role change: setShipRole() installs the tour agent and its first tick runs at once.
     // Saved after, that tick saw no destination and toured the ship's current system instead (THEO-7, 2026-11-18 15:47: it
     // flew from the VM8 gate to VM8-C16D, a 20-minute detour, issue #46). setShipRole() does not touch tourDestination.
@@ -5817,7 +5828,7 @@ export class FleetManager {
     // all, to the yard), so without clearing it a ship the operator then
     // re-roled kept hopping across systems to be scrapped. Confirmed live
     // 2026-10-02: THEO-A, switched scout -> tour, kept jumping for ~1.5h.
-    await this.updateShipManualState(shipSymbol, { holdWaypoint: null, scrapAt: null });
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: null, scrapAt: null, ...(role !== "tour" ? { tourAssigned: null } : {}) });
     this.clearRoleMaps(shipSymbol);
     const resolvedKeeperMarket = this.installRoleAgent(ship, role, keeperMarket);
     this.manualRoleShips.add(shipSymbol);
@@ -6133,7 +6144,7 @@ export class FleetManager {
         // is put right, so the walk through the gates carries on.
         if (this.operatorHolds.get(ship) !== market) {
           try {
-            await this.updateShipManualState(ship, { holdWaypoint: market, tourDestination: null });
+            await this.updateShipManualState(ship, { holdWaypoint: market, tourDestination: null, tourAssigned: null });
             this.log(`${ship}: delivery hold put back on ${market} (it was ${this.operatorHolds.get(ship) ?? "unset"})`);
           } catch (err) {
             this.log(`${ship}: could not put the delivery hold back: ${describeError(err)}`);
@@ -6577,6 +6588,7 @@ export class FleetManager {
         if (!shouldConsiderTourShip({
           destination: dest, sentByModule: this.queueTourSentAt.has(symbol), inTransit: sh.nav.status === "IN_TRANSIT",
           isTourRole: this.tours.has(symbol), destinationNeedsTour: destinationNeedsTour(dest, targets, policy),
+          operatorAssigned: this.tourAssignments.has(symbol),
         })) continue;
         ships.push({
           symbol, system: sh.nav.systemSymbol, fuel: sh.fuel?.current ?? 0, fuelCap: sh.fuel?.capacity ?? 0,
@@ -6590,7 +6602,7 @@ export class FleetManager {
       for (const n of d.notes) this.freshNote(`tours: ${n}`);
       for (const s of d.send) {
         try {
-          await this.dispatchTourShip(s.ship, s.system);
+          await this.dispatchTourShip(s.ship, s.system, { by: "queue" });
           this.queueTourSentAt.set(s.ship, now);
           this.freshNote(`tours: sent ${s.ship} to ${s.system} (${s.reason})`);
         } catch (err) { this.freshNote(`tours: send ${s.ship} to ${s.system} failed: ${describeError(err)}`); }
@@ -6977,7 +6989,7 @@ export class FleetManager {
       }
     }
     // init() replays a stored hold at boot and a stale pending sale would send the ship to a yard: clear them all.
-    await this.updateShipManualState(shipSymbol, { holdWaypoint: null, minePin: null, scrapAt: null, tourDestination: null });
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: null, minePin: null, scrapAt: null, tourDestination: null, tourAssigned: null });
     this.pendingRoleShips.delete(shipSymbol);
     this.clearRoleMaps(shipSymbol);
     this.forgetIntent(shipSymbol);
@@ -8369,7 +8381,7 @@ export class FleetManager {
         await this.loadKeeperDeliveries();
         this.keeperDeliveries.set(bought, targetMarket);
         await this.saveKeeperDeliveries();
-        await this.updateShipManualState(bought, { holdWaypoint: targetMarket, tourDestination: null });
+        await this.updateShipManualState(bought, { holdWaypoint: targetMarket, tourDestination: null, tourAssigned: null });
         this.dispatcher.release(bought);
         this.shipRegistry.claim(bought, "operator", this.roleOf(bought), {}, { preempt: true });
         this.log(`${bought}: bought at ${waypointSymbol} for ${targetMarket} in another system; walking the gates under a hold until it arrives`);
@@ -9279,7 +9291,7 @@ export class FleetManager {
     // An operator taking manual control of a ship is exactly the moment a
     // stale automatic "keep walking toward system X" plan should be
     // dropped, not merely outrun for one tick.
-    await this.updateShipManualState(shipSymbol, { holdWaypoint: waypointSymbol, tourDestination: null });
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: waypointSymbol, tourDestination: null, tourAssigned: null });
     this.dispatcher.release(shipSymbol);
     this.shipRegistry.claim(shipSymbol, "operator", this.roleOf(shipSymbol), {}, { preempt: true });
     this.log(`${shipSymbol}: operator hold at ${waypointSymbol}`);
@@ -9345,7 +9357,7 @@ export class FleetManager {
     // Same reasoning as sendShipTo()'s own comment: a manual hold must also
     // cancel a leftover dispatchTourShip() destination, or advanceTourDestination()
     // just walks straight past this hold on the ship's next tourScout() tick.
-    await this.updateShipManualState(shipSymbol, { holdWaypoint: here, tourDestination: null });
+    await this.updateShipManualState(shipSymbol, { holdWaypoint: here, tourDestination: null, tourAssigned: null });
     // A held ship stops trading, so it must stop reserving a good — otherwise
     // holding one trader quietly withdraws its route from the whole fleet.
     this.dispatcher.release(shipSymbol);
@@ -9519,7 +9531,7 @@ export class FleetManager {
   /** Manual hold + mining-field pin, keyed by ship, as one `fleet_flags` JSON
    *  blob — the same "small settings" mechanism `keeperMarkets` already uses.
    *  Read once at boot to replay holds/pins that would otherwise be lost. */
-  private async loadShipManualState(): Promise<Record<string, { holdWaypoint?: string; minePin?: string; scrapAt?: string; tourDestination?: string }>> {
+  private async loadShipManualState(): Promise<Record<string, { holdWaypoint?: string; minePin?: string; scrapAt?: string; tourDestination?: string; tourAssigned?: string }>> {
     const raw = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "shipManualState") : undefined;
     if (!raw) return {};
     try {
@@ -9529,7 +9541,7 @@ export class FleetManager {
     }
   }
 
-  private async updateShipManualState(shipSymbol: string, patch: { holdWaypoint?: string | null; minePin?: string | null; scrapAt?: string | null; tourDestination?: string | null }): Promise<void> {
+  private async updateShipManualState(shipSymbol: string, patch: { holdWaypoint?: string | null; minePin?: string | null; scrapAt?: string | null; tourDestination?: string | null; tourAssigned?: string | null }): Promise<void> {
     // Queue this call behind whatever's already pending, so its own
     // read-modify-write of the shared blob never interleaves with another
     // in-flight call's — see manualStateLock's own comment.
@@ -9572,6 +9584,10 @@ export class FleetManager {
       if ("tourDestination" in patch) {
         if (patch.tourDestination) { next.tourDestination = patch.tourDestination; this.tourDestinations.set(shipSymbol, patch.tourDestination); }
         else { delete next.tourDestination; this.tourDestinations.delete(shipSymbol); }
+      }
+      if ("tourAssigned" in patch) {
+        if (patch.tourAssigned) { next.tourAssigned = patch.tourAssigned; this.tourAssignments.set(shipSymbol, patch.tourAssigned); }
+        else { delete next.tourAssigned; this.tourAssignments.delete(shipSymbol); }
       }
       if (Object.keys(next).length === 0) delete all[shipSymbol];
       else all[shipSymbol] = next;
@@ -9977,7 +9993,7 @@ export class FleetManager {
    * assignment. No side effects.
    */
   opsShipDebug(shipSymbol: string): {
-    role: string; held: boolean; tourDestination?: string; keeperMarket?: string;
+    role: string; held: boolean; tourDestination?: string; tourAssigned?: string; keeperMarket?: string;
     intent?: { goal: unknown; reason: string; source: string; version: number };
     assignment?: unknown;
   } {
@@ -9986,6 +10002,7 @@ export class FleetManager {
       role: this.roleOf(shipSymbol),
       held: this.isHeld(shipSymbol),
       tourDestination: this.tourDestinations.get(shipSymbol),
+      tourAssigned: this.tourAssignments.get(shipSymbol),
       keeperMarket: this.keeperMarkets.get(shipSymbol),
       intent: i ? { goal: i.goal, reason: i.reason, source: i.source, version: i.version } : undefined,
       assignment: this.dispatcher.list().find((a) => a.shipSymbol === shipSymbol),
@@ -12717,7 +12734,9 @@ export class FleetManager {
         shipSymbol: scout.s,
         detail: `borrow idle ${scout.s} to explore ${target}`,
         timeoutMs: 2 * 60 * 60_000,
-        onTimeout: "approve",
+        // Deny, not approve, on timeout (operator 2026-11-18, issue #46): an unanswered card must not take a tour ship off the system
+        // it was assigned to. Two hours of silence used to hand the ship to the explore trip.
+        onTimeout: "deny",
       });
       if (approved === undefined) {
         this.log(`auto-explore ${target}: awaiting operator approval to borrow ${scout.s}`);
