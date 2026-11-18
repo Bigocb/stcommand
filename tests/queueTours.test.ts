@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_QUEUE_TOUR_POLICY, decideQueueTours, destinationNeedsTour, needsTour, type QueueTourPolicy, type TourShip, type TourSignals, type TourTarget } from "../src/engine/queueTours.js";
+import { DEFAULT_QUEUE_TOUR_POLICY, decideQueueTours, destinationNeedsTour, shouldConsiderTourShip, needsTour, type QueueTourPolicy, type TourShip, type TourSignals, type TourTarget } from "../src/engine/queueTours.js";
 
 const on: QueueTourPolicy = { ...DEFAULT_QUEUE_TOUR_POLICY, maxShips: 2 };
 const NOW = 10_000_000;
@@ -88,4 +88,14 @@ test("a destination that still needs a tour keeps its ship; a finished one frees
   assert.equal(destinationNeedsTour("X1-GV7", [{ ...staged, held: true }], on), false);
   assert.equal(destinationNeedsTour("X1-FT2", [staged], on), false);
   assert.equal(destinationNeedsTour(undefined, [staged], on), false);
+});
+
+test("a touring ship in flight is considered; an explorer in flight, or an operator trip to a system that still needs it, is not", () => {
+  const base = { destination: undefined, sentByModule: false, inTransit: true, isTourRole: true, destinationNeedsTour: false };
+  assert.equal(shouldConsiderTourShip(base), true);
+  assert.equal(shouldConsiderTourShip({ ...base, isTourRole: false }), false);
+  assert.equal(shouldConsiderTourShip({ ...base, inTransit: false, isTourRole: false }), true);
+  assert.equal(shouldConsiderTourShip({ ...base, destination: "X1-GV7", destinationNeedsTour: true }), false);
+  assert.equal(shouldConsiderTourShip({ ...base, destination: "X1-GV7", destinationNeedsTour: true, sentByModule: true }), true);
+  assert.equal(shouldConsiderTourShip({ ...base, destination: "X1-FT2", destinationNeedsTour: false }), true);
 });

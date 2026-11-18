@@ -32,7 +32,7 @@ import { OFF_POLICY as TRIAGE_OFF_POLICY, reviewParked, triageKeepers, type Tria
 import { Reminders } from "./reminders.js";
 import { SystemQueue } from "./systemQueue.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
-import { DEFAULT_QUEUE_TOUR_POLICY, decideQueueTours, destinationNeedsTour, type QueueTourPolicy, type TourShip, type TourTarget } from "./queueTours.js";
+import { DEFAULT_QUEUE_TOUR_POLICY, decideQueueTours, destinationNeedsTour, shouldConsiderTourShip, type QueueTourPolicy, type TourShip, type TourTarget } from "./queueTours.js";
 import { DEFAULT_ROUTE_REUSE_POLICY, decideRouteReuse } from "./routeReuse.js";
 import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, type QueueFacts, type ReleaseDecision, type ReleaseMode, type ReleasePolicy } from "./systemRelease.js";
 import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
@@ -6540,9 +6540,11 @@ export class FleetManager {
         // A destination this module did not set belongs to the operator (or the charting flow): never override it while that system still
         // needs a tour. Once it does not (live, or enough priced), the job is done and the ship is free (also after a restart, which
         // forgets queueTourSentAt: 2026-11-17 every tour ship was locked out that way for 10 hours).
-        if (dest !== undefined && !this.queueTourSentAt.has(symbol) && destinationNeedsTour(dest, targets, policy)) continue;
         const sh = agent.getShip();
-        if (sh.nav.status === "IN_TRANSIT" && dest === undefined) continue;
+        if (!shouldConsiderTourShip({
+          destination: dest, sentByModule: this.queueTourSentAt.has(symbol), inTransit: sh.nav.status === "IN_TRANSIT",
+          isTourRole: this.tours.has(symbol), destinationNeedsTour: destinationNeedsTour(dest, targets, policy),
+        })) continue;
         ships.push({
           symbol, system: sh.nav.systemSymbol, fuel: sh.fuel?.current ?? 0, fuelCap: sh.fuel?.capacity ?? 0,
           ...(dest !== undefined ? { heading: dest } : {}), held: this.isHeld(symbol), sentAt: this.queueTourSentAt.get(symbol),
