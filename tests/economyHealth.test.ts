@@ -140,6 +140,17 @@ describe("economyHealth: the 2026-11-18 night", () => {
     assert.equal(f.level, "bad");
   });
 
+  it("says how much of the money is in cargo (2026-11-18: the card read 'Wallet 84k' with 1.35M in holds)", () => {
+    const now = T("2026-11-18T04:42:00Z");
+    const f = economyHealth(input({ now, buckets: nightBuckets(now), floor: 1_800_000, walletNow: 84_000,
+      worth: [{ at: now, worth: 84_000 + 1_350_000 }],
+      wallet: [{ at: T("2026-11-18T04:00:00Z"), wallet: 411_000 }, { at: T("2026-11-18T04:40:00Z"), wallet: 103_000 }],
+    })).find((x) => x.id === "cashStarved");
+    assert.ok(f);
+    assert.equal(f.line, "Wallet 84k (1.35M in cargo), floor 1.8M: traders can't load fully.");
+    assert.equal(f.numbers.holds, 1_350_000);
+  });
+
   it("does not call cash starved when the wallet was over the floor inside the window", () => {
     const now = T("2026-11-18T01:45:00Z");
     const f = economyHealth(input({ now, buckets: nightBuckets(now), floor: 1_800_000, walletNow: 950_000, wallet: [

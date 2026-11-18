@@ -539,6 +539,17 @@ export class TenantRegistry {
       onActivity: recordActivity,
       minCashReserve: 20_000,
     });
+    // Every trade and purchase response carries the new balance (api.onCredits). The dashboard's tile already moved with it;
+    // the engine's own copy (FleetManager.walletCredits(), read by the Economy card, buy advice and get_cargo_value) waited
+    // for its next 30 s agent read, so on 2026-11-18 the card said "Wallet 84k" while a 308k sale had already landed.
+    if (api) {
+      const hooks = api as { onCredits?: (c: number) => void };
+      const showCredits = hooks.onCredits;
+      hooks.onCredits = (c) => {
+        showCredits?.(c);
+        fleet.noteCredits(c);
+      };
+    }
     // The SpaceTraders API occasionally returns transient 500s during the burst
     // of init requests — retry indefinitely (capped backoff) so a boot self-heals
     // when the API recovers instead of leaving a tenant permanently un-started.

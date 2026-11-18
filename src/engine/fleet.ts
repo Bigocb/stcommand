@@ -1360,6 +1360,13 @@ export class FleetManager {
     return this.credits;
   }
 
+  /** The balance a trade or purchase response just reported (SpaceTradersAPI.onCredits). Keeps walletCredits() current
+   *  between the 30 s agent reads; the periodic read still runs, so costs that come back without a balance (jumps, refuels)
+   *  are picked up within the TTL as before. */
+  noteCredits(credits: number): void {
+    if (typeof credits === "number" && Number.isFinite(credits)) this.credits = credits;
+  }
+
   spendableCredits(credits = this.credits): number {
     return Math.max(0, credits - this.minCashReserve());
   }

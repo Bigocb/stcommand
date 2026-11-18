@@ -8,6 +8,17 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-18: the engine's wallet follows every trade; the cash warning says what is in cargo
+
+Operator, looking at Tower at 04:42 UTC: "the Wallet isn't 84,000. It's 400,000." Right. THEO-38 had just sold 80 ASSAULT_RIFLES
+(wallet 103k -> 411k at 04:42:31), and the Credits tile showed it, because the dashboard takes the balance every trade response
+carries (`SpaceTradersAPI.onCredits`). The engine's own copy (`FleetManager.walletCredits()`, read by the Economy card, the buy
+warning, `get_cargo_value` and mission cash checks) only changed on its next agent read, at most every 30 s and only when the
+maintenance tick ran, so the card said "Wallet 84k". Now the registry passes every trade balance to `FleetManager.noteCredits()`
+as well; the periodic agent read still runs, so jump and refuel costs (which return no balance) are still picked up. The cash
+warning also says how much is held in cargo: "Wallet 84k (1.35M in cargo), floor 1.8M: traders can't load fully." Tests:
+`tests/walletCredits.test.ts`, one more in `tests/economyHealth.test.ts`.
+
 ## 2026-11-18: route refusals are recorded (`route_refused`, ops `route_refusals`)
 
 Overnight on 11-17/18 THEO-1, a 40-unit shuttle, made 32 gate jumps (about 191k) between two buys, turning back on itself

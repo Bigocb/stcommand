@@ -296,6 +296,12 @@ function smallHullJumping(input: EconomyHealthInput, p: EconomyPolicy): EconomyF
     }));
 }
 
+/** Cargo value now: the newest wallet-plus-holds sample less the wallet. 0 when unknown. */
+function holdsNow(input: EconomyHealthInput): number {
+  const last = input.worth[input.worth.length - 1];
+  return last ? Math.max(0, last.worth - input.walletNow) : 0;
+}
+
 function cashStarved(input: EconomyHealthInput, p: EconomyPolicy): EconomyFinding | undefined {
   if (!(input.floor > 0) || !(input.walletNow < input.floor)) return undefined;
   const since = input.now - p.cashStarvedMin * 60_000;
@@ -306,8 +312,8 @@ function cashStarved(input: EconomyHealthInput, p: EconomyPolicy): EconomyFindin
   return {
     id: "cashStarved",
     level: input.walletNow < input.floor * 0.25 ? "bad" : "warn",
-    line: `Wallet ${fmtCredits(input.walletNow)}, floor ${fmtCredits(input.floor)}: traders can't load fully.`,
-    numbers: { wallet: Math.round(input.walletNow), floor: Math.round(input.floor), minutes: p.cashStarvedMin },
+    line: `Wallet ${fmtCredits(input.walletNow)}${holdsNow(input) > 0 ? ` (${fmtCredits(holdsNow(input))} in cargo)` : ""}, floor ${fmtCredits(input.floor)}: traders can't load fully.`,
+    numbers: { wallet: Math.round(input.walletNow), holds: Math.round(holdsNow(input)), floor: Math.round(input.floor), minutes: p.cashStarvedMin },
   };
 }
 
