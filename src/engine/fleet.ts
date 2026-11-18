@@ -6690,6 +6690,17 @@ export class FleetManager {
     if (changed) await this.saveFreshGate();
   }
 
+  /** What the economy alerts need from the fresh-system queue and the tour ships (src/ops/economy.ts). In-memory only. */
+  economyQueueFacts(): { lastReleaseAt?: number; staged: string[]; tourShips: number; tourShipsFree: number } {
+    const queue = this.systemQueue.list();
+    const lastQueueRelease = queue.reduce((m, q) => Math.max(m, q.releasedAt ?? 0), 0);
+    const last = Math.max(this.lastFreshReleaseAt ?? 0, lastQueueRelease);
+    const staged = queue.filter((q) => q.state === "staged" && !q.held).sort((a, b) => (a.stagedAt ?? 0) - (b.stagedAt ?? 0)).map((q) => q.system);
+    const tourShips = this.tours.size;
+    const tourShipsFree = [...this.tours.keys()].filter((s) => !this.tourDestinations.has(s)).length;
+    return { ...(last > 0 ? { lastReleaseAt: last } : {}), staged, tourShips, tourShipsFree };
+  }
+
   /** For the ops tool: the queue, readiness, live premiums, what the rule says now and the last notes. */
   freshGateState(): Record<string, unknown> {
     const ready = this.keepersInPlaceMarkets();

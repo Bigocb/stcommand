@@ -6,6 +6,7 @@ import type { TenantWorker } from "../engine/tenantRegistry.js";
 import type { ShipType } from "../engine/fleet.js";
 import { normalizeShipLotPolicy, effectiveMaxLots, SHIP_LOT_LIMITS } from "../engine/shipLotPolicy.js";
 import { runAnalysis } from "../ops/analysis.js";
+import { buyPreflight } from "../ops/economy.js";
 import { approvalsView } from "../engine/approvalsView.js";
 import { closeSeasonWeekNow, seasonSummary } from "../http/season.js";
 import { API_BASE } from "../core/client.js";
@@ -1573,7 +1574,7 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   server.registerTool(
     "stcommand_buy_ship",
     {
-      description: "Buy a new ship of the given type at a shipyard waypoint the fleet already knows stocks it. Spends real credits — check stcommand_get_state's credits first.",
+      description: "Buy a new ship of the given type at a shipyard waypoint the fleet already knows stocks it. Spends real credits — check stcommand_get_state's credits first, and read stcommand_ops_buy_preflight with the same arguments before buying. The reply carries `warnings` (and `notes`) from the buy-advice check: wallet after the buy under the working-capital floor, wallet under the 3M line (any hull) or 10M (a hull over 80 cargo), the last big hull not yet paid back, a bad economy finding. They never block the purchase; read them and tell the operator what they say.",
       inputSchema: {
         shipType: z.string().describe("e.g. SHIP_PROBE, SHIP_LIGHT_HAULER"),
         yardSymbol: z.string().describe("Shipyard waypoint symbol"),
@@ -1582,9 +1583,11 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     },
     async ({ shipType, yardSymbol }) => {
       try {
+        // The buy-advice check runs on the state before the purchase; it warns only and never stops the buy (a failed check is skipped).
+        const advice = await buyPreflight(w, shipType, yardSymbol).catch(() => undefined);
         const ship = await w.fleet.buyShip(shipType as ShipType, yardSymbol);
         await recordMcpAction(w, "buy", ship.symbol, `bought ${shipType} at ${yardSymbol}`, { shipType, yardSymbol });
-        return textResult({ ok: true, shipSymbol: ship.symbol, shipType, yardSymbol });
+        return textResult({ ok: true, shipSymbol: ship.symbol, shipType, yardSymbol, warnings: advice?.warnings ?? [], notes: advice?.notes ?? [] });
       } catch (err) {
         return errorResult(err);
       }

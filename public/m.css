@@ -1120,3 +1120,27 @@ input, select, textarea { font-size: 16px; }
 .sys-chip b { color: var(--amber); margin-left: 4px; }
 .sys-chip.on { background: var(--amber); color: var(--on-accent); border-color: var(--amber); }
 .sys-chip.on b { color: var(--on-accent); }
+
+/* ── Economy card and the buy-ship warning sheet (shared/economy.js) ── */
+.econ-card { gap: 10px; }
+.econ-empty { font-family: var(--mono); font-size: 16px; color: var(--dim); }
+.econ-ok { display: flex; align-items: center; gap: 10px; font-family: var(--chrome); font-weight: 600; font-size: 17px; color: var(--green); }
+.econ-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--green); flex: 0 0 auto; }
+.econ-item { border-left: 3px solid var(--amber); padding: 2px 0 2px 10px; display: flex; flex-direction: column; gap: 4px; }
+.econ-item.bad { border-left-color: var(--red); }
+.econ-sev { font-family: var(--chrome); font-weight: 700; font-size: 14px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--amber); }
+.econ-item.bad .econ-sev { color: var(--red-text); }
+.econ-line { font-family: var(--mono); font-size: 16px; color: var(--bone); line-height: 1.45; }
+.econ-sugg { font-family: var(--mono); font-size: 14px; color: var(--dim); }
+.econ-sugg code { color: var(--ice); word-break: break-word; }
+.econ-confirm { position: fixed; inset: 0; z-index: 1000; background: rgba(0, 0, 0, 0.55); display: flex; align-items: flex-end; justify-content: center; }
+.econ-confirm-box {
+  width: 100%; max-width: 560px; max-height: 80vh; overflow-y: auto; background: var(--raised); border-top: 2px solid var(--hair-hi);
+  border-radius: 16px 16px 0 0; padding: 18px 16px calc(18px + env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 10px;
+}
+.econ-confirm-h { font-family: var(--chrome); font-weight: 700; font-size: 20px; color: var(--bone); }
+.econ-confirm-sub { font-size: 16px; color: var(--dim); }
+.econ-confirm-list { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-family: var(--mono); font-size: 16px; color: var(--amber); line-height: 1.45; }
+.econ-confirm-notes { font-size: 15px; color: var(--ice); line-height: 1.45; }
+.econ-confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
+.econ-confirm-actions .btn { min-height: 52px; font-size: 17px; }

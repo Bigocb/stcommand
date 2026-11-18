@@ -27,6 +27,7 @@ import { startLive, liveConnected } from "/shared/live.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { seasonCardHtml } from "/shared/season.js";
+import { economyCardHtml, economyCount, preflightBuy } from "/shared/economy.js";
 import { mountCompare } from "/shared/compare.js";
 import { mountQueue } from "/shared/queue.js";
 import { hourlyRows, hourlyAverage } from "/shared/hourly.js";
@@ -445,12 +446,13 @@ async function loadStatusExtras(force = false) {
   if (!force && Date.now() - statusExtrasAt < 60_000) { renderChecks(); renderHomeHourly(); return; }
   statusExtrasAt = Date.now();
   const get = (path) => api("GET", path).catch(() => null);
-  const [queue, keepers, stuck, metrics] = await Promise.all([get("/api/ops/system_queue"), get("/api/ops/keepers"), get("/api/ops/stuck"), get("/api/metrics?hours=6")]);
-  statusExtras = { queue, keepers, stuck, hourly: metrics?.buckets ? hourlyRows(metrics.buckets, metrics.bucketMinutes, Date.now()) : null };
+  const [queue, keepers, stuck, metrics, economy] = await Promise.all([get("/api/ops/system_queue"), get("/api/ops/keepers"), get("/api/ops/stuck"), get("/api/metrics?hours=6"), get("/api/ops/economy_health")]);
+  statusExtras = { queue, keepers, stuck, hourly: metrics?.buckets ? hourlyRows(metrics.buckets, metrics.bucketMinutes, Date.now()) : null, economy };
   matchedCum = typeof metrics?.matchedSinceReset === "number" ? metrics.matchedSinceReset : matchedCum;
   renderTiles();
   renderChecks();
   renderHomeHourly();
+  renderHomeEconomy();
 }
 const hourLabel = (ms) => new Date(ms).toLocaleTimeString([], { hour: "numeric" });
 /** +1.58M / -420k: table cells at 18 px must fit four columns in 390 px; the headline tiles keep the exact figures. */
@@ -473,6 +475,14 @@ function hourlyTableHtml(rows, count) {
 function renderHomeHourly() {
   const el = $("home-hourly");
   if (el) setHtml(el, hourlyTableHtml(statusExtras.hourly, 3));
+}
+/* Now › Status: the Economy card (shared/economy.js, ops economy_health), findings worst first or a green "nothing to flag". */
+function renderHomeEconomy() {
+  const el = $("home-economy");
+  if (!el) return;
+  setHtml(el, statusExtras.economy === undefined ? economyCardHtml(null) : statusExtras.economy === null ? `<div class="econ-empty">Economy figures are not available.</div>` : economyCardHtml(statusExtras.economy));
+  const c = economyCount(statusExtras.economy), badge = $("economy-count");
+  if (badge) { badge.hidden = c.n === 0; badge.textContent = c.n; }
 }
 function renderChecks() {
   const el = $("home-checks");
@@ -2021,6 +2031,8 @@ $("mkt-yards").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-buy-ship]");
   if (!b) return;
   b.disabled = true;
+  // The buy-ship warning (shared/economy.js): warnings, if any, in a sheet with Buy anyway / Cancel. It never blocks on its own.
+  if (!(await preflightBuy(api, b.dataset.buyShip, b.dataset.yard))) { b.disabled = false; return; }
   try {
     await api("POST", "/api/fleet/buy", { shipType: b.dataset.buyShip, yardSymbol: b.dataset.yard });
     openYardGroup = null;

@@ -717,3 +717,24 @@ table.mf .dim{color:var(--dim)}
 @media (min-width:900px){.cmp:not(.cmp-tower) .cmp-charts{grid-template-columns:1fr 1fr}.cmp:not(.cmp-tower) .cmp-kpis{grid-template-columns:repeat(6,1fr)}}
 
 .cmp .cmp-scroll{overflow-x:auto;max-width:100%}
+
+/* Economy card on Overview and the buy-ship warning sheet (shared/economy.js) */
+.econ-panel{margin-bottom:12px}
+.econ-panel .panel-b{display:flex;flex-direction:column;gap:8px}
+.econ-empty{color:var(--dim);font-size:11px;padding:4px 0}
+.econ-ok{display:flex;align-items:center;gap:8px;font-family:var(--chrome);font-size:12px;letter-spacing:.06em;color:var(--green)}
+.econ-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 5px var(--green)}
+.econ-item{border-left:2px solid var(--amber);padding:2px 0 2px 10px;display:flex;flex-direction:column;gap:3px}
+.econ-item.bad{border-left-color:var(--red)}
+.econ-sev{font-family:var(--chrome);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber)}
+.econ-item.bad .econ-sev{color:var(--red)}
+.econ-line{font-family:var(--mono);font-size:12px;color:var(--bone)}
+.econ-sugg{font-family:var(--mono);font-size:10.5px;color:var(--dim)}
+.econ-sugg code{color:var(--ice)}
+.econ-confirm{position:fixed;inset:0;z-index:1000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center}
+.econ-confirm-box{width:min(560px,calc(100vw - 32px));max-height:80vh;overflow:auto;background:var(--panel);border:1px solid var(--hair-hi);border-radius:6px;padding:18px;display:flex;flex-direction:column;gap:10px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.econ-confirm-h{font-family:var(--chrome);font-size:14px;letter-spacing:.06em;text-transform:uppercase;color:var(--bone)}
+.econ-confirm-sub{font-size:12px;color:var(--dim)}
+.econ-confirm-list{margin:0;padding-left:18px;display:flex;flex-direction:column;gap:6px;font-family:var(--mono);font-size:12px;color:var(--amber)}
+.econ-confirm-notes{font-size:11.5px;color:var(--ice)}
+.econ-confirm-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}

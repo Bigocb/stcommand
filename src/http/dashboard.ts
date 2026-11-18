@@ -33,6 +33,7 @@ import { startSurveyTour } from "../engine/surveyTourControl.js";
 import { parseRouteTag } from "../engine/routeTag.js";
 import { contractsOverview } from "./contractsOverview.js";
 import { routeUnreachableReason } from "../engine/routeReach.js";
+import { buyPreflight } from "../ops/economy.js";
 
 /**
  * The command-center dashboard's JSON API — a tenant-scoped port of
@@ -2317,19 +2318,36 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  // The buy-ship warning (src/engine/buyAdvice.ts, docs/economy-alerts-plan.md §2): what buying this hull at this yard would break.
+  // Deck and Tower call it before every buy and show the warnings in a confirm sheet. Warn only: nothing here blocks a purchase.
+  router.get("/fleet/buy/preflight", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const shipType = typeof req.query.shipType === "string" ? req.query.shipType : "";
+    const yardSymbol = typeof req.query.yardSymbol === "string" ? req.query.yardSymbol : "";
+    if (!shipType || !yardSymbol) return res.status(400).json({ error: "shipType and yardSymbol required" });
+    try {
+      res.json(await buyPreflight(w, shipType, yardSymbol));
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
   router.post("/fleet/buy", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
     const { shipType, yardSymbol } = req.body ?? {};
     if (typeof shipType !== "string" || typeof yardSymbol !== "string") return res.status(400).json({ error: "shipType and yardSymbol required" });
     try {
+      // Judged on the state before the purchase, and only reported: a failed check never stops the buy.
+      const advice = await buyPreflight(w, shipType, yardSymbol).catch(() => undefined);
       const ship = await w.fleet.buyShip(shipType as never, yardSymbol);
       // Play-style tracking: a manual buy through this route is the
       // operator spending on their own initiative — the engine's own
       // maybeBuyShip()/maybeBuyScout()/maybeBuySiphoner() call
       // fleet.buyShip() directly, never through here.
       await w.store.recordOperatorAction(w.tenantId, "manual_buy", ship.symbol, `bought ${shipType} at ${yardSymbol}`, { shipType, yardSymbol });
-      res.json({ ok: true, shipSymbol: ship.symbol });
+      res.json({ ok: true, shipSymbol: ship.symbol, warnings: advice?.warnings ?? [], notes: advice?.notes ?? [] });
     } catch (err) {
       console.error("[dashboard] buy error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

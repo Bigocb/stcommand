@@ -25,6 +25,7 @@ import { startLive, liveConnected } from "/shared/live.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { mountSeason } from "/shared/season.js";
+import { mountEconomy, economyCount, preflightBuy } from "/shared/economy.js";
 import { mountWeeks } from "/shared/weeks.js";
 import { mountCompare } from "/shared/compare.js";
 import { mountSystems } from "/shared/systems.js";
@@ -2492,7 +2493,8 @@ $("mk-yards").addEventListener("click", async (e) => {
   const b = e.target.closest("button[data-buy-ship]");
   if (!b) return;
   const label = b.textContent;
-  if (!confirm(`Buy ${b.dataset.buyShip.replace(/^SHIP_/, "").replace(/_/g, " ").toLowerCase()} at ${b.dataset.yard}?`)) return;
+  // The buy-ship warning (shared/economy.js): with warnings, a sheet with Buy anyway / Cancel; without, the usual confirm.
+  if (!(await preflightBuy(api, b.dataset.buyShip, b.dataset.yard, { confirmPlain: (q) => confirm(q) }))) return;
   b.disabled = true; b.textContent = "Buying…";
   try {
     await api("POST", "/api/fleet/buy", { shipType: b.dataset.buyShip, yardSymbol: b.dataset.yard });
@@ -2867,7 +2869,13 @@ function boot() {
   renderMarkets();
   renderApprovals();
   renderActivity();
+  // Overview's Economy card (shared/economy.js): read once a minute while Overview is open.
+  economyReload ??= mountEconomy($("ov-economy"), api, {
+    visible: () => !$("view-overview").hidden,
+    onReport: (r) => { const c = economyCount(r); $("ov-economy-count").textContent = c.n ? `${c.n} to look at` : ""; },
+  });
 }
+let economyReload = null;
 
 let pollCount = 0;
 function pollTick() {

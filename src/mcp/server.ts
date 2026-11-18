@@ -72,7 +72,8 @@ These answer "what should we be trading" or "why did this route stop paying" —
 ## Ships and shipyards
 
 - **stcommand_get_shipyard_inventory** — every ship type and price this fleet has observed for sale, at every charted shipyard.
-- **stcommand_buy_ship** — purchase one at a shipyard waypoint the fleet already knows stocks it. Spends real credits — check stcommand_get_state's credits field first.
+- **stcommand_buy_ship** — purchase one at a shipyard waypoint the fleet already knows stocks it. Spends real credits — check stcommand_get_state's credits field first, and read **stcommand_ops_buy_preflight** (same shipType and yardSymbol) before buying: it warns when the buy would leave the wallet under the working-capital floor, is under the 3M (any hull) or 10M (big hull) cash line, comes before the last big hull has paid back, or lands on a bad economy finding. The buy reply carries the same warnings. They never block; tell the operator what they say.
+- **stcommand_ops_economy_health** — advisory findings on the fleet's economy, worst first: jump fees over profit, losing money after jumps and fuel, wallet plus holds falling, no fresh system opened while staged ones wait, profit per sale falling, small hulls making many jumps, wallet under the floor. Each has a plain line and, where useful, the exact tool call that would help. Nothing is changed by reading it.
 
 ## Approvals
 

@@ -553,3 +553,31 @@ describe("GET /api/markets route payload keeps both rankings", () => {
     }
   });
 });
+
+describe("dashboard router: buy preflight (the buy-ship warning)", () => {
+  it("400s without shipType and yardSymbol", async () => {
+    const res = await get("/api/fleet/buy/preflight?shipType=SHIP_LIGHT_HAULER");
+    assert.equal(res.status, 400);
+  });
+
+  it("answers with ok, warnings, notes, floor and walletAfter; an unknown yard price is itself a warning", async () => {
+    const res = await get("/api/fleet/buy/preflight?shipType=SHIP_NOPE&yardSymbol=X1-TEST-NOWHERE");
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.shipType, "SHIP_NOPE");
+    assert.equal(body.price, null);
+    assert.equal(body.ok, false);
+    assert.ok(Array.isArray(body.warnings) && Array.isArray(body.notes));
+    assert.match(body.warnings[0], /^No price on file for SHIP_NOPE at X1-TEST-NOWHERE/);
+    assert.equal(typeof body.floor, "number");
+    assert.equal(typeof body.walletAfter, "number");
+  });
+
+  it("ops economy_health answers through the same router", async () => {
+    const res = await get("/api/ops/economy_health");
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.equal(body.on, true);
+    assert.ok(Array.isArray(body.findings));
+  });
+});

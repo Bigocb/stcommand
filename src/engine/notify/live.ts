@@ -4,6 +4,7 @@ import { paceFromBuckets } from "../pace.js";
 import { resetWatcherStatus } from "../resetWatcher.js";
 import type { NotifySnapshot } from "./types.js";
 import { stallAlerts } from "../stallAlerts.js";
+import { economyFindings } from "../../ops/economy.js";
 
 /**
  * Reads the live fleet into the small snapshot the detectors work from. The only part of the notification system that
@@ -18,6 +19,8 @@ export function liveSnapshotProvider(deps: { tenantId: string; store: Store; fle
   const now = deps.now ?? Date.now;
   let rate: NotifySnapshot["rate"];
   let rateAt = 0;
+  let economy: NotifySnapshot["economy"];
+  let economyAt = 0;
   return async () => {
     const t = now();
     const approvals = (await deps.store.listOpenApprovals(deps.tenantId)).map((a) => ({ id: a.id, kind: a.kind, shipSymbol: a.shipSymbol, expiresAt: a.expiresAt }));
@@ -28,6 +31,14 @@ export function liveSnapshotProvider(deps: { tenantId: string; store: Store; fle
         rate = { perHour1h: pace.perHour1h, perHour3h: pace.perHour3h };
       } catch {
         rate = undefined; // a failed read says nothing about the rate; the detector stays quiet
+      }
+    }
+    if (t - economyAt >= RATE_REFRESH_MS) {
+      economyAt = t;
+      try {
+        economy = (await economyFindings({ tenantId: deps.tenantId, store: deps.store, fleet: deps.fleet }, t)).map((f) => ({ id: f.id, level: f.level, ...(f.ship ? { ship: f.ship } : {}) }));
+      } catch {
+        economy = undefined; // a failed read says nothing about the economy; the detector stays quiet
       }
     }
     const nextReset = Date.parse(resetWatcherStatus()?.nextReset ?? "");
@@ -41,6 +52,7 @@ export function liveSnapshotProvider(deps: { tenantId: string; store: Store; fle
       rate,
       status: { ships: deps.fleet.getShipStatuses().length, credits: deps.fleet.walletCredits() },
       health: stallAlerts.get(deps.tenantId),
+      economy,
     };
   };
 }

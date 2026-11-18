@@ -7,12 +7,13 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
-**Economy alerts and buy-ship warning (raised 2026-11-18, operator; plan written, not built).** After the "domino week"
-(`docs/lessons-learned.md`): a pure `economyHealth` module (jump fees over profit, net negative, wallet plus holds falling, release
-drought, margin decay, small hulls jumping, cash-starved) feeding a Tower/Deck card and a new `economy` push category, and a pure
-`buyAdvice` module behind a buy preflight that warns (never blocks) when the wallet after a buy would fall under the
-working-capital floor or margins are falling. Spec: `docs/economy-alerts-plan.md`. (The dispatcher already nets jump fees per ship;
-open instead: why route estimates and realized trips diverged on the night of 11-17/18.)
+**Economy alerts and buy-ship warning (raised 2026-11-18, operator): BUILT 2026-11-18, on the feature branch, not yet deployed.**
+`src/engine/economyHealth.ts`, `src/engine/buyAdvice.ts`, ops `economy_health` / `buy_preflight`, the Economy card in Tower and
+Deck, the "Economy warning" push and the buy confirm sheet; see the CHANGELOG entry of 2026-11-18 and
+`docs/economy-alerts-plan.md` ("What was built"). Left open: the dispatcher jump-fee question was dropped from this change (the
+dispatcher already nets each ship's positioning jumps, routeHoldAware scores each ship on its own hold, and route building drops
+legs that cannot pay their jumps); the overnight loss turned out to be route churn while empty (journal 2026-11-18 ~03:55: estimates
+realized 84%, but positioning 908k against 442k net; THEO-1 32 jumps back and forth); open: record trader route refusals, then fix the cause. The old UI variants (v2-v6) still buy without the preflight.
 
 
 **Priority order (triaged 2026-10-31, before the reset around 11-01).** Rank = damage to a week of play, then effort. Do 1-6 before the reset; 7-9 early next week; the rest when the engine settles.

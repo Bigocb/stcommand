@@ -8,6 +8,39 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-18: Economy alerts and the buy-ship warning
+
+On the night of 2026-11-17/18 the fleet lost money for hours while matched profit stayed positive: fresh systems stopped opening,
+margins thinned, a second heavy freighter was bought on a 2.93M wallet (leaving 625k, then 95k), and once systems opened again
+traders crossed 5-10 gates: 80 jumps and about 486k in fees against 232k profit in one hour (`docs/lessons-learned.md`, "the
+domino week"). Every one of those signs was in numbers the engine already had; nothing said so. The operator asked for an alert
+in the app and a warning on the buy button (`docs/economy-alerts-plan.md`). This change adds both. Both are advisory: nothing
+is changed automatically and no purchase is ever blocked.
+
+- **Economy health** (`src/engine/economyHealth.ts`, pure): seven findings, each one plain line with its numbers and, where it
+  helps, the exact tool call: jump fees over matched profit in the last hour (and the half hour before), losing money after jumps
+  and fuel for 2 hours, wallet plus holds down 2 hours running with hulls bought added back, no fresh system released for 3 hours
+  while staged ones wait, profit per sale under half its 6-hour average, a 40-cargo-or-smaller trader making more than 6 jumps an
+  hour (suggests `stcommand_set_ship_reach <ship> system`), and the wallet under the working-capital floor for 30 minutes.
+  Read it with ops `economy_health` (`stcommand_ops_economy_health`). The 11-17/18 numbers are the test fixtures.
+- **Where it shows:** an Economy card on Tower's home (under Hourly) and Deck's Overview, worst first, or a green "Nothing to
+  flag" (`public/shared/economy.js`); and a new push kind, "Economy warning" (on by default, at most once an hour per finding,
+  under quiet hours and the hourly cap like the others). The push says what is wrong in words and carries no credit figures.
+- **Buy-ship warning** (`src/engine/buyAdvice.ts`, pure): before a buy, `GET /api/fleet/buy/preflight?shipType=&yardSymbol=`
+  (and ops `buy_preflight`) checks the yard's last known price against the cash rules: wallet after the buy under the
+  working-capital floor (big hulls after the buy x 400k plus other traders x 100k, 1.8M for 2 heavies and 10 others), wallet under
+  3M for any hull or 10M for a hull over 80 cargo, the last big hull bought under 6 hours ago and not yet paid back in matched
+  profit, and any bad economy finding. The operator's escape clause (cash flat or falling for 2 hours with traders idle) shows as
+  a note. Deck's and Tower's yard buy buttons ask it first and, when it warns, show the warnings with "Buy anyway" and "Cancel".
+  `POST /api/fleet/buy` and the MCP `buy_ship` tool return the same warnings in their reply, and the tool's description tells a
+  connected agent to read them. The 22:11 heavy buy would have warned on the floor, the 10M line and payback.
+- **Doctrine:** `economyAlerts` (on) with `economyDroughtHours` 3, `economySmallHullJumps` 6, `economySmallHullCargo` 40,
+  `economyMarginDecayPct` 50, `economyNetNegativeHours` 2, `economyCashStarvedMin` 30 (ops); `buyAdvice` (on) with
+  `buyAdviceBigHullLoad` 400k, `buyAdviceTraderReserve` 100k, `buyAdviceAnyHullLine` 3M, `buyAdviceBigHullLine` 10M,
+  `buyAdviceBigHullCargo` 80, `buyAdvicePaybackHours` 6 (risk). Turning either master clause off gives no findings or no warnings.
+- Not in this change: the dispatcher already nets each ship's jumps (positioning credits in full, routeHoldAware, legs dropped
+  when they cannot pay their jumps); why its estimates and the realized trips diverged overnight is being looked at separately.
+
 ## 2026-11-18: Deck: an Expand group, like Tower's
 
 Operator request: "I need an explore view in deck like I have in tower." Tower's tab bar has an Expand group (Queue,

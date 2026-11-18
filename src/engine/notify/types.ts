@@ -51,6 +51,8 @@ export interface NotifySnapshot {
   status?: { ships: number; credits: number };
   /** The engine-stall alert the health recorder has raised and not yet cleared (src/engine/healthRecorder.ts); its key is new for each stall. */
   health?: { key: string; title: string; body: string };
+  /** Economy findings (src/engine/economyHealth.ts), by id; `ship` on a per-ship one. No credit figures are carried. */
+  economy?: { id: string; level: "warn" | "bad"; ship?: string }[];
 }
 
 export interface Detector {

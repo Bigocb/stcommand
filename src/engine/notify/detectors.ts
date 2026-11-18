@@ -129,7 +129,32 @@ export const healthDetector: Detector = {
   detect: (s) => (s.health ? [{ key: s.health.key, category: "health", severity: "critical", title: s.health.title, body: s.health.body, url: "/m#home" }] : []),
 };
 
-export const DETECTORS: readonly Detector[] = [approvalsDetector, strandedDetector, idleDetector, statusDetector, attentionDetector, resetDetector, rateDetector, healthDetector];
+/** Push text for each economy finding: what is wrong in words, no credit figures (the Economy card shows those). */
+const ECONOMY_TEXT: Record<string, (ship?: string) => { title: string; body: string }> = {
+  jumpsOverProfit: () => ({ title: "Economy: jump fees over profit", body: "Gate jump fees are higher than trading profit over the last hour." }),
+  netNegative: () => ({ title: "Economy: losing money", body: "The fleet is losing money after jumps and fuel." }),
+  worthFalling: () => ({ title: "Economy: worth falling", body: "Wallet plus holds has fallen two hours running, ships bought added back." }),
+  releaseDrought: () => ({ title: "Economy: no fresh system", body: "No fresh system has opened for hours while staged systems wait." }),
+  marginDecay: () => ({ title: "Economy: margins falling", body: "Profit per sale is well under its 6-hour average." }),
+  smallHullJumping: (ship) => ({ title: `Economy: ${ship ?? "a small hull"} jumping`, body: `${ship ?? "A small hull"} is making many gate jumps for what its hold earns.` }),
+  cashStarved: () => ({ title: "Economy: wallet under the floor", body: "The wallet is under the working-capital floor: traders cannot load fully." }),
+};
+
+/** One push per economy finding (a key per finding, and per ship for a per-ship one), so each is told at most once an hour. */
+export const economyDetector: Detector = {
+  id: "economy",
+  category: "economy",
+  detect: (s) =>
+    (s.economy ?? []).map((f) => ({
+      key: `economy:${f.id}${f.ship ? `:${f.ship}` : ""}`,
+      category: "economy",
+      severity: "warning" as const,
+      ...(ECONOMY_TEXT[f.id] ?? (() => ({ title: "Economy warning", body: "Open the Economy card for details." })))(f.ship),
+      url: "/m#home",
+    })),
+};
+
+export const DETECTORS: readonly Detector[] = [approvalsDetector, strandedDetector, idleDetector, statusDetector, attentionDetector, resetDetector, rateDetector, healthDetector, economyDetector];
 
 /** Run every detector. One that throws is skipped, so a bad detector never silences the others. */
 export function detectAll(snapshot: NotifySnapshot, detectors: readonly Detector[] = DETECTORS): NotifyEvent[] {

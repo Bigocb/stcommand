@@ -30,6 +30,7 @@ import { contractsOverview } from "../http/contractsOverview.js";
 import { runAnalysis } from "./analysis.js";
 import { DEFAULT_YARD_POLICY, yardReport } from "../engine/yardScan.js";
 import { summarizeDirectory } from "../engine/marketDirectory.js";
+import { buyPreflight, economyReport } from "./economy.js";
 
 /** Query-string friendly booleans ("true"/"false") as well as real ones. */
 const bool = z.union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")]).optional();
@@ -627,6 +628,26 @@ export const OPS_TOOLS: OpsTool[] = [
     input: {},
     async run(ctx) {
       return ctx.w.fleet.freshGateState();
+    },
+  },
+
+  {
+    name: "economy_health",
+    title: "Economy health: is the fleet making money after jumps and fuel?",
+    description: "Advisory findings, worst first (level bad or warn), each one plain line with its numbers and, where useful, the exact tool call to fix it: jumpsOverProfit (jump fees over matched profit in the last hour and the half hour before), netNegative (matched profit less jumps and fuel negative for 2 h), worthFalling (wallet plus holds down 2 h running with hulls bought added back), releaseDrought (no fresh system released for 3 h while staged ones wait), marginDecay (profit per sale under half its 6 h average), smallHullJumping (a 40-cargo-or-smaller trader making over 6 jumps an hour, per ship), cashStarved (wallet under the working-capital floor for 30 min). Thresholds are doctrine (economyAlerts and the economy* clauses); clause off = no findings. Also `summary`: wallet, holds, floor, traders, big hulls, last hour's profit, jumps, fees, fuel and net, and the fresh-system queue. Nothing is changed. Read it in the hourly report. Built after the 2026-11-17/18 domino week (docs/lessons-learned.md).",
+    input: {},
+    async run(ctx) {
+      return economyReport(ctx.w, ctx.now());
+    },
+  },
+
+  {
+    name: "buy_preflight",
+    title: "Buy-ship warning: what buying this hull here would break",
+    description: "The same check Deck and Tower run before a buy: the yard's last known price and cargo for shipType at yardSymbol against the cash rules (doctrine buyAdvice*): wallet after the buy under the working-capital floor (big hulls x 400k + other traders x 100k), wallet under 3M (any hull) or 10M (a hull over 80 cargo), the last big hull bought under 6 h ago and not yet paid back in matched profit, and any bad economy finding. Returns ok, warnings, notes (the escape clause: cash flat or falling for 2 h with traders idle), floor and walletAfter. Warn only: it never blocks, and stcommand_buy_ship returns the same warnings. Read it before every manual buy and tell the operator what it says.",
+    input: { shipType: z.string(), yardSymbol: z.string() },
+    async run(ctx, a) {
+      return buyPreflight(ctx.w, a.shipType, a.yardSymbol, ctx.now());
     },
   },
 

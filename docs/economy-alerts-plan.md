@@ -1,4 +1,4 @@
-# Economy alerts and the buy-ship warning (plan, not built)
+# Economy alerts and the buy-ship warning (plan; built 2026-11-18, see "What was built" at the end)
 
 Note (2026-11-18): the dispatcher already nets jump fees per ship and per hold (`scoreItem()` in `src/engine/dispatcher.ts`, `routeHoldAware`); no dispatcher change is part of this plan.
 
@@ -57,3 +57,37 @@ description tells a connected agent to read them).
   `releaseDrought`, `smallHullJumping`, and the 22:11 heavy buy must warn on the floor and payback rules).
 - One test at each seam: the notify detector, the preflight route.
 - Doctrine clauses `economyAlerts` (on, advisory) and `buyAdvice` (on, warn only); off reproduces today's behaviour.
+
+## What was built (2026-11-18) and what was not
+
+Built, on the feature branch (CHANGELOG 2026-11-18, "Economy alerts and the buy-ship warning"):
+
+- `src/engine/economyHealth.ts`: the seven findings above, pure, with `bucketsFromLedger`/`shipStatsFromLedger` to build the input
+  from ledger rows. Windows are 30-minute buckets over 6 h. `jumpsOverProfit` needs the last hour and the half hour before it
+  (a quiet half hour with no trades or jumps does not block it); `netNegative` needs every one of the last N hours negative and
+  reports their average; `worthFalling` reads the wealth samples (credits plus holds, every few minutes) with hull spend from the
+  SHIP rows added back; `cashStarved` reads the ledger's `wallet_after` readings. Each finding carries `numbers` and, where
+  useful, `suggestion: { action, tool, args, why }` (`stcommand_set_ship_reach <ship> system`, `stcommand_set_doctrine
+  positioningHops 3` when it is above 3, `stcommand_release_system <first staged>`, `stcommand_ops_system_queue`).
+- `src/engine/buyAdvice.ts`: `buyAdvice()` and `workingCapitalFloor()`, warn only. A hull with no cargo (a probe) does not add a
+  trader to the floor. The payback rule needs the last big hull's SHIP row in the last `max(6, paybackHours)` hours.
+- `src/ops/economy.ts` (the thin source), ops tools `economy_health` and `buy_preflight` (MCP `stcommand_ops_economy_health`,
+  `stcommand_ops_buy_preflight`, HTTP `/api/ops/...`), `GET /api/fleet/buy/preflight`, warnings in the `POST /api/fleet/buy` and
+  MCP `buy_ship` replies, `FleetManager.economyQueueFacts()`.
+- Notify category `economy` ("Economy warning", on, 60 min), `economyDetector`, read by `notify/live.ts` every 5 minutes.
+- `public/shared/economy.js`: the Economy card (Tower home under Hourly, Deck Overview under the KPIs) and the buy confirm sheet
+  ("Buy anyway" / "Cancel") used by Deck's and Tower's yard buy buttons.
+- Doctrine: `economyAlerts` (on) with `economyDroughtHours` 3, `economySmallHullJumps` 6, `economySmallHullCargo` 40,
+  `economyMarginDecayPct` 50, `economyNetNegativeHours` 2, `economyCashStarvedMin` 30; `buyAdvice` (on) with
+  `buyAdviceBigHullLoad` 400k, `buyAdviceTraderReserve` 100k, `buyAdviceAnyHullLine` 3M, `buyAdviceBigHullLine` 10M,
+  `buyAdviceBigHullCargo` 80, `buyAdvicePaybackHours` 6. Both ship on (advisory); off = no findings / no warnings.
+
+Not built or deferred:
+
+- **No dispatcher change.** A "score routes net of jump fees" fix was considered and dropped: the dispatcher already nets jumps
+  (`scoreItem()` subtracts each ship's positioning jumps in full, `routeHoldAware` scores each ship on its own hold, and route
+  building drops legs "not profitable after fuel, slippage and jump costs"). The open question, why the dispatcher's estimates
+  and the realized trips diverged overnight on 2026-11-17/18, is being investigated separately.
+- The hourly report does not quote the findings yet; it can read ops `economy_health`.
+- The old UI variants (v2-v6) still buy without the preflight; only Deck and Tower call it.
+- The `jumpsOverProfit` threshold ratio, `worthFallingHours` and the margin minimum sales are code defaults, not doctrine.
