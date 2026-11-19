@@ -55,6 +55,9 @@ export let intel = { shipyards: [], modules: [] };
 
 export let doctrineRules = [];
 export let doctrineCatalog = [];
+/** Grouped clauses and the group order from /api/doctrine (docs/doctrine-organization.md); empty on an older server. */
+export let doctrineClauses = [];
+export let doctrineGroupOrder = [];
 export let doctrineFires = new Map();
 export let doctrineFireShips = new Map();
 
@@ -438,6 +441,8 @@ export async function loadDoctrine() {
     const data = await res.json();
     doctrineRules = data.rules ?? [];
     doctrineCatalog = data.catalog ?? [];
+    doctrineClauses = data.clauses ?? [];
+    doctrineGroupOrder = data.groupOrder ?? [];
     await loadDoctrineFires();
     notify("doctrine");
   } catch (e) { console.error(e); }

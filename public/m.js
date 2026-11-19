@@ -15,7 +15,7 @@ import { login, logout, probeSession, register as registerAgent, fetchOnboarding
 import { enableAdmin, openAdmin, closeAdmin } from "/shared/admin.js";
 import {
   state, bridge, fleetStatus, approvals, upcomingApprovals, decidedApprovals, dispatchAssignments, contractDutyShips, dispatchRoutes, minerPreferences, intel,
-  marketRoutes, traderExclusions, marketSnapshots, contracts, missions, feeds, feedChains, chainHealth, doctrineRules, activity,
+  marketRoutes, traderExclusions, marketSnapshots, contracts, missions, feeds, feedChains, chainHealth, doctrineRules, doctrineClauses, doctrineGroupOrder, activity,
   priceGoods, priceWaypointsByGood, pricePoints,
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
@@ -24,6 +24,8 @@ import {
   attention as storeAttention,
 } from "/shared/store.js";
 import { startLive, liveConnected } from "/shared/live.js";
+import { mountDoctrineScreen } from "/shared/doctrineScreen.js";
+import { clausesFrom } from "/shared/doctrineView.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { seasonCardHtml } from "/shared/season.js";
@@ -2259,23 +2261,17 @@ $("mcp-key-mint").addEventListener("click", async () => {
   } catch (err) { mcpKeyMsg(err.message, false); }
 });
 
+let moreDoctrineScreen = null;
 function renderMoreDoctrine() {
   $("more-doctrine-count").textContent = `${doctrineRules.filter((r) => r.enabled).length} / ${doctrineRules.length} on`;
-  const el = $("more-doctrine");
-  if (!doctrineRules.length) { el.innerHTML = '<div class="empty">Doctrine unavailable — the fleet is still starting.</div>'; return; }
-  // Don't clobber a number being typed.
-  if (el.contains(document.activeElement) && document.activeElement.classList.contains("dv")) return;
-  el.innerHTML = doctrineRules.map((r) => {
-    // A numeric rule (a limit or a share) gets a value box; a plain on/off rule does not.
-    const numeric = typeof r.value === "number" && typeof r.max === "number" && r.max > 1;
-    return `
-    <div class="doc-row" data-key="${escapeHtml(r.key)}">
-      <span class="dn">${escapeHtml(r.name)}</span>
-      <span class="tag ${r.enforced ? "live" : ""}">${r.enforced ? "applied" : "not wired"}</span>
-      ${numeric ? `<input class="dv" type="number" inputmode="decimal" min="${r.min}" max="${r.max}" step="${r.step ?? 1}" value="${r.value}" aria-label="${escapeHtml(r.name)} value">${r.unit ? `<span class="du">${escapeHtml(r.unit.trim())}</span>` : ""}` : ""}
-      <button class="sw" aria-pressed="${r.enabled}" aria-label="Toggle ${escapeHtml(r.name)}"><i></i></button>
-    </div>`;
-  }).join("");
+  // The grouped, searchable screen shared with Deck (docs/doctrine-organization.md).
+  if (!moreDoctrineScreen) {
+    moreDoctrineScreen = mountDoctrineScreen($("more-doctrine"), {
+      api,
+      getData: () => ({ clauses: clausesFrom({ clauses: doctrineClauses, rules: doctrineRules }), groupOrder: doctrineClauses.length ? doctrineGroupOrder : [] }),
+      reload: () => loadDoctrine(),
+    });
+  } else moreDoctrineScreen.refresh();
 }
 
 /**
@@ -2626,33 +2622,7 @@ $("more-contracts").addEventListener("click", async (e) => {
   renderMoreContracts();
 });
 
-$("more-doctrine").addEventListener("click", async (e) => {
-  const sw = e.target.closest("button.sw");
-  if (!sw) return;
-  const key = sw.closest(".doc-row").dataset.key;
-  const enabled = sw.getAttribute("aria-pressed") !== "true";
-  sw.disabled = true;
-  try {
-    const res = await api("POST", "/api/doctrine", { key, enabled });
-    setDoctrine(res.rules, undefined);
-  } catch (err) { alert(err.message); loadDoctrine(); }
-  renderMoreDoctrine();
-});
 subscribe("programme", () => { if (moreTabActive()) { renderMoreContracts(); renderMoreMissions(); renderMoreChains(); renderMoreFeeds(); } });
-// A numeric rule's value box: save on change, reject out-of-range values server-side and reload the real value.
-$("more-doctrine").addEventListener("change", async (e) => {
-  const input = e.target.closest("input.dv");
-  if (!input) return;
-  const key = input.closest(".doc-row").dataset.key;
-  const value = Number(input.value);
-  input.disabled = true;
-  try {
-    const res = await api("POST", "/api/doctrine", { key, value });
-    setDoctrine(res.rules, undefined);
-  } catch (err) { alert(err.message); loadDoctrine(); }
-  input.disabled = false;
-  renderMoreDoctrine();
-});
 subscribe("doctrine", () => { if (moreTabActive()) renderMoreDoctrine(); });
 subscribe("activity", () => renderHomeActivity());
 

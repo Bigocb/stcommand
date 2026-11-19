@@ -1,6 +1,6 @@
 # Doctrine organization: inventory, taxonomy, UI and migration proposal
 
-Status: PROPOSAL, written 2026-11-17 for the operator. Nothing in this document is built. No source file was changed, nothing was committed or pushed, and the live fleet and the Tailwinds/stcommand tools were not touched (the stcommand MCP server also failed to connect with a 401 during this investigation, so no live value was read). All counts below come from the code in this checkout, not from the running box.
+Status: steps 1-6 BUILT 2026-11-19 on the feature branch (see the CHANGELOG entry of that date); the keeper spend cap (section 10) is not built. Original status: PROPOSAL, written 2026-11-17 for the operator. Nothing in this document was built then. No source file was changed, nothing was committed or pushed, and the live fleet and the Tailwinds/stcommand tools were not touched (the stcommand MCP server also failed to connect with a 401 during this investigation, so no live value was read). All counts below come from the code in this checkout, not from the running box.
 
 Scope (operator correction, 2026-11-17): the UI part of this proposal covers ONLY the doctrine settings screen (how clauses are listed, grouped, searched, filtered and edited) plus the MCP `get_doctrine` / `set_doctrine` arguments. It does not propose any change to other screens, navigation or visual identity. Where the doctrine screen lives inside a larger page, only that part is named.
 

@@ -14,7 +14,7 @@ import {
   systems, marketSnapshots, leaderboard, factions, systemAgents, systemAgentsHistory,
   contracts, missions, feeds, feedChains, chainHealth, minerPreferences, notes,
   priceGoods, priceWaypointsByGood, pricePoints, marketTransactions, marketTransactionsAgent,
-  doctrineRules, doctrineFires, doctrineFireShips,
+  doctrineRules, doctrineFires, doctrineFireShips, doctrineClauses, doctrineGroupOrder,
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   connectionStatus,
   subscribe, subscribeConnection, loadState, loadBridge, loadApprovals, loadDispatch, loadActivity,
@@ -22,6 +22,8 @@ import {
   loadDoctrine, loadDoctrineFireShips, loadKeepers, loadNotes, jumpConnections,
 } from "/shared/store.js";
 import { startLive, liveConnected } from "/shared/live.js";
+import { mountDoctrineScreen } from "/shared/doctrineScreen.js";
+import { clausesFrom } from "/shared/doctrineView.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { mountSeason } from "/shared/season.js";
@@ -2424,36 +2426,19 @@ $("feed-start").addEventListener("click", feedStart);
  * toggle on each standing order — ported from Tower's renderMoreDoctrine()
  * + its click handler (m.js): POST /api/doctrine { key, enabled }.
  */
+let doctrineScreen = null;
 function renderDoctrine() {
-  // Standing Orders panel
-  const standingOrdersHtml = (() => {
-    if (!doctrineRules.length) {
-      return '<div class="empty">No standing orders configured.</div>';
-    }
-    const applied = doctrineRules.filter(r => r.enabled).length;
-    const headerHtml = `<div style="padding:10px 14px;border-bottom:1px solid var(--hair);display:flex;gap:8px;align-items:center">
-      <span style="flex:1;font-weight:600;font-size:12px">Standing Orders</span>
-      <span style="font-size:10px;color:var(--dim2)">${applied} / ${doctrineRules.length} applied</span>
-    </div>`;
-    const rulesHtml = doctrineRules.map((r) => {
-      const enabledStatus = r.enabled ? "on" : "off";
-      return `
-        <div class="doc-row" data-key="${escapeAttr(r.key)}" style="display:flex;gap:8px;align-items:center;margin-bottom:12px;padding:10px 14px;border-bottom:1px solid var(--hair)">
-          <span style="flex:1">
-            <span style="font-weight:600;font-size:12px">${escapeHtml(r.name)}</span>
-            <span class="chip" style="font-size:9px;padding:2px 6px;margin-left:8px">${enabledStatus}</span>
-            <div style="font-size:11px;color:var(--dim2);margin-top:4px">${r.max > 1
-              ? `<input class="field-input doc-val" type="number" min="${r.min}" max="${r.max}" step="${r.step}" value="${escapeAttr(String(r.value))}" style="width:110px;padding:4px 6px" aria-label="${escapeAttr(r.name)} value" /> ${escapeHtml(r.unit ?? "")}`
-              : escapeHtml(String(r.value))}</div>
-          </span>
-          <button class="sw" aria-pressed="${r.enabled}" aria-label="Toggle ${escapeAttr(r.name)}"><i></i></button>
-        </div>
-      `;
-    }).join('');
-    return headerHtml + rulesHtml;
-  })();
+  // Standing orders: the grouped, searchable screen shared with Tower (docs/doctrine-organization.md).
   const standingOrdersEl = $("doctrine-standing-orders");
-  if (standingOrdersEl) standingOrdersEl.innerHTML = standingOrdersHtml;
+  if (standingOrdersEl) {
+    if (!doctrineScreen) {
+      doctrineScreen = mountDoctrineScreen(standingOrdersEl, {
+        api,
+        getData: () => ({ clauses: clausesFrom({ clauses: doctrineClauses, rules: doctrineRules }), groupOrder: doctrineClauses.length ? doctrineGroupOrder : [] }),
+        reload: () => loadDoctrine(),
+      });
+    } else doctrineScreen.refresh();
+  }
 
   // Recent Activity panel
   const recentActivityHtml = (() => {
@@ -2503,32 +2488,7 @@ $("mk-yards").addEventListener("click", async (e) => {
   b.disabled = false; b.textContent = label;
 });
 
-$("doctrine-standing-orders").addEventListener("change", async (e) => {
-  const inp = e.target.closest("input.doc-val");
-  if (!inp) return;
-  const key = inp.closest(".doc-row").dataset.key;
-  const value = Number(inp.value);
-  if (!Number.isFinite(value)) return;
-  inp.disabled = true;
-  try {
-    await api("POST", "/api/doctrine", { key, value });
-    await loadDoctrine();
-  } catch (err) { alert(err.message); await loadDoctrine(); }
-  renderDoctrine();
-});
 
-$("doctrine-standing-orders").addEventListener("click", async (e) => {
-  const sw = e.target.closest("button.sw");
-  if (!sw) return;
-  const key = sw.closest(".doc-row").dataset.key;
-  const enabled = sw.getAttribute("aria-pressed") !== "true";
-  sw.disabled = true;
-  try {
-    await api("POST", "/api/doctrine", { key, enabled });
-    await loadDoctrine();
-  } catch (err) { alert(err.message); await loadDoctrine(); }
-  renderDoctrine();
-});
 
 /* ── Map screen (pass 4) ────────────────────
  * System chips, 2D waypoint scatter, market detail panel, leaderboard.

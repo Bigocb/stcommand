@@ -1,3 +1,4 @@
+import { briefClause, summarizeGroups, DOCTRINE_GROUPS, doctrineClauseInputs } from "../engine/doctrineGroups.js";
 import { Router, type Request as ExpressRequest } from "express";
 import { Store } from "../db/store.js";
 import { isOperator } from "./operatorFlag.js";
@@ -912,7 +913,13 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     // catalog: every known policy tagged with this tenant's adopted state —
     // Book mode's library reads it to know what's left to offer; rules is
     // unchanged, just this tenant's currently-adopted set.
-    res.json({ rules: w.fleet.doctrine.list(), catalog: w.fleet.doctrine.catalog() });
+    // clauses/groups (additive, docs/doctrine-organization.md): every adopted clause with its group, sub-group, kind,
+    // summary, catalog default and the clauses it needs, plus per-group counts. Old clients ignore them.
+    const rules = w.fleet.doctrine.list();
+    const catalog = w.fleet.doctrine.catalog();
+    const adoptedKeys = new Set(rules.map((r) => r.key));
+    const inputs = doctrineClauseInputs(catalog.filter((c) => adoptedKeys.has(c.key)));
+    res.json({ rules, catalog, clauses: inputs.map((c) => briefClause(c, true)), groups: summarizeGroups(inputs), groupOrder: DOCTRINE_GROUPS.map((g) => ({ id: g.id, name: g.name, blurb: g.blurb })) });
   });
 
   router.post("/doctrine", async (req, res) => {

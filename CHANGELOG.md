@@ -8,6 +8,34 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19: doctrine screen grouped and searchable; get_doctrine small by default (docs/doctrine-organization.md)
+
+The operator said the doctrine was "impossible to use": 140 clauses in four coarse categories, a flat unsearchable list on Deck
+and Tower, and a `stcommand_get_doctrine` reply of about 180 KB. This builds steps 1-6 of the 2026-11-17 proposal
+(`docs/doctrine-organization.md`); the keeper spend cap (its section 10) is left out.
+
+- **Groups as code metadata** (`src/engine/doctrineGroups.ts`, pure): 14 groups plus a hidden Retired group (the proposal's 13
+  plus `alerts` for the economy and stall alerts added since), sub-groups, `needs` (master switches), the pinned common knobs and
+  a clause kind. Nothing is stored and no key is renamed; `category` still works. `tests/doctrineGroups.test.ts` fails if a
+  catalog clause has no group, so a new clause cannot ship ungrouped.
+- **MCP `stcommand_get_doctrine`**: no arguments now returns the groups and the common knobs (about 7 KB). Drill down with
+  `group` (id or name prefix), `search` ("top up" finds keeperTopUpPerHour), `keys`, `enabled`, `adopted`, `changed="default"`,
+  paged with `limit`/`offset`; `detail="full"` adds descriptions and `detail="legacy"` returns the old `{rules, catalog}`.
+  **The no-argument shape changed:** a script that read `.rules` must pass `detail="legacy"`.
+- **MCP `stcommand_set_doctrine`**: `reset=true` restores the default, `changes=[...]` sets up to 10 at once (nothing applied if
+  any key is unknown), and the reply gives before, requested, applied, clamped and default.
+- **`GET /api/doctrine`** adds `clauses` (grouped rows with default, summary, needs) and `groupOrder`; `rules` and `catalog` are
+  unchanged.
+- **Deck and Tower doctrine screens** share one module (`public/shared/doctrineScreen.js`, helpers in `doctrineView.js`): a
+  search box, a show filter (All, Common knobs, Changed from default, On, Off), a group picker, group and sub-group headers,
+  the key under each name, the range, "default X / reset" when a clause differs, "Needs X (off) / turn on" when its master is
+  off, the first sentence of the description with "More" for the rest, and a note when a value was clamped. The view choice is
+  remembered per browser. An older server (rules only) still shows one flat list.
+
+Tests: `tests/doctrineGroups.test.ts` (15) and `tests/doctrineView.test.ts` (5) pass; the failing subtests in the doctrine,
+contract, MCP and dashboard suites are the same 44 before and after. Checked in Chromium at 1100 px and 390 px with the real
+catalog: no page errors, no horizontal scroll.
+
 ## 2026-11-19: contract goods bought where they land cheapest, not only in the home system (doctrine contractSourceAnySystem, issue #54)
 
 Contract buying looked only at markets in the agent's home system (`materialBuyers(good, homeSystem)`). On 2026-11-18 a FOOD

@@ -93,6 +93,7 @@ here so they don't get lost between sessions:
   interrupt a flight that was already progressing correctly (see the
   drift-vs-stuck section above — this is exactly the trap that led to
   misdiagnosing THEO-1C as stuck).
+- **Doctrine reads:** `stcommand_get_doctrine` with no arguments gives the groups and the common knobs; then use `group=`, `search=` or `keys=[...]`. `detail="legacy"` returns the old 180 KB `{rules, catalog}` (from the 2026-11-19 deploy on). Groups live in `src/engine/doctrineGroups.ts`; a new clause must be added there or `tests/doctrineGroups.test.ts` fails.
 - **Every tool call acts immediately at operator trust level.** There's no
   confirm step except `stcommand_decide_approval`'s own gate.
 - **Check the fleet before acting, and again before retrying.** Before any

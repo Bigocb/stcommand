@@ -1,5 +1,7 @@
 import { startSurveyTour } from "../engine/surveyTourControl.js";
 import * as z from "zod";
+import { DOCTRINE_CATALOG } from "../engine/doctrine.js";
+import { queryDoctrine, doctrineClauseInputs } from "../engine/doctrineGroups.js";
 import { registerOpsTools } from "../ops/mcp.js";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { TenantWorker } from "../engine/tenantRegistry.js";
@@ -212,10 +214,28 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   server.registerTool(
     "stcommand_get_doctrine",
     {
-      description: "This tenant's adopted doctrine rules plus the full catalog of every known policy (adopted or not).",
+      description: "The doctrine (standing-order) clauses, grouped. With no arguments: the groups with their counts and the common knobs, a few KB; then drill down with group (an id such as fresh, keeper-buy, reach, cash, or a name prefix), search (words; \"top up\" finds keeperTopUpPerHour), keys, enabled, adopted or changed=\"default\" (only clauses that differ from their default). Rows are brief (key, name, group, value, range, on/off, default when changed, a one-line summary); detail=\"full\" adds the full description. detail=\"legacy\" returns the old {rules, catalog} shape (about 180 KB).",
+      inputSchema: {
+        group: z.string().optional(),
+        search: z.string().optional(),
+        keys: z.array(z.string()).optional(),
+        enabled: z.boolean().optional(),
+        adopted: z.boolean().optional(),
+        changed: z.enum(["default"]).optional(),
+        detail: z.enum(["brief", "full", "legacy"]).optional(),
+        limit: z.number().int().min(1).max(200).optional(),
+        offset: z.number().int().min(0).optional(),
+      },
       annotations: { readOnlyHint: true, idempotentHint: true },
     },
-    async () => textResult({ rules: w.fleet.doctrine.list(), catalog: w.fleet.doctrine.catalog() }),
+    async (args) => {
+      if (args.detail === "legacy") return textResult({ rules: w.fleet.doctrine.list(), catalog: w.fleet.doctrine.catalog() });
+      try {
+        return textResult(queryDoctrine(doctrineClauseInputs(w.fleet.doctrine.catalog()), { ...args, detail: args.detail === "full" ? "full" : "brief" }));
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
   );
 
   server.registerTool(
@@ -1473,15 +1493,40 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     "stcommand_set_doctrine",
     {
       title: "Change a standing-order (doctrine) rule",
-      description: "Set a doctrine rule's value and/or enabled flag by key (see stcommand_get_doctrine for keys), e.g. autoKeeperProbes enabled=false to stop automatic keeper-probe purchases, or fieldSpreadEnabled enabled=false. Same as the dashboard's Doctrine edit. Takes effect on the next tick.",
-      inputSchema: { key: z.string(), value: z.number().optional(), enabled: z.boolean().optional() },
+      description: "Set a doctrine rule's value and/or enabled flag by key (see stcommand_get_doctrine for keys), e.g. autoKeeperProbes enabled=false to stop automatic keeper-probe purchases, or fieldSpreadEnabled enabled=false. Same as the dashboard's Doctrine edit. reset=true restores the catalog default value and on/off. changes=[{key, value?, enabled?, reset?}] sets up to 10 at once: every key is checked first and nothing is applied if any is unknown. The reply gives before, requested, applied, whether the value was clamped to the clause's range, and the default. Takes effect on the next tick.",
+      inputSchema: {
+        key: z.string().optional(),
+        value: z.number().optional(),
+        enabled: z.boolean().optional(),
+        reset: z.boolean().optional(),
+        changes: z.array(z.object({ key: z.string(), value: z.number().optional(), enabled: z.boolean().optional(), reset: z.boolean().optional() })).max(10).optional(),
+      },
       annotations: { destructiveHint: false, idempotentHint: true },
     },
-    async ({ key, value, enabled }) => {
+    async ({ key, value, enabled, reset, changes }) => {
       try {
-        const rule = await w.fleet.doctrine.set(key, { value, enabled });
-        await recordMcpAction(w, "doctrine", undefined, `doctrine ${key}: ${value !== undefined ? `value=${value} ` : ""}${enabled !== undefined ? `enabled=${enabled}` : ""}`.trim(), { key, value, enabled });
-        return textResult({ ok: true, rule });
+        const list = changes?.length ? changes : key ? [{ key, value, enabled, reset }] : [];
+        if (!list.length) return errorResult(new Error("give key (with value, enabled or reset=true) or changes=[...]"));
+        const current = new Map(w.fleet.doctrine.catalog().map((c) => [c.key, c]));
+        const unknown = list.filter((c) => !current.has(c.key) && !c.key.startsWith("shipCap:")).map((c) => c.key);
+        if (unknown.length) return errorResult(new Error(`unknown doctrine key(s): ${unknown.join(", ")}; nothing was changed`));
+        const results = [];
+        for (const c of list) {
+          const before = current.get(c.key);
+          const def = DOCTRINE_CATALOG.find((d) => d.key === c.key);
+          const patch = c.reset && def ? { value: def.value, enabled: def.enabled } : { value: c.value, enabled: c.enabled };
+          const rule = await w.fleet.doctrine.set(c.key, patch);
+          await recordMcpAction(w, "doctrine", undefined, `doctrine ${c.key}: ${c.reset ? "reset to default " : ""}${patch.value !== undefined ? `value=${patch.value} ` : ""}${patch.enabled !== undefined ? `enabled=${patch.enabled}` : ""}`.trim(), { key: c.key, value: patch.value, enabled: patch.enabled, reset: c.reset });
+          results.push({
+            key: c.key,
+            before: before ? { value: before.value, enabled: before.enabled } : undefined,
+            requested: patch,
+            applied: { value: rule.value, enabled: rule.enabled },
+            clamped: patch.value !== undefined && rule.value !== patch.value,
+            default: def ? { value: def.value, enabled: def.enabled } : undefined,
+          });
+        }
+        return textResult(changes?.length ? { ok: true, results } : { ok: true, rule: w.fleet.doctrine.list().find((r) => r.key === list[0]!.key), ...results[0] });
       } catch (err) {
         return errorResult(err);
       }
