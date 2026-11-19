@@ -34,6 +34,7 @@ import { Reminders } from "./reminders.js";
 import { SystemQueue } from "./systemQueue.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
 import { DEFAULT_QUEUE_TOUR_POLICY, decideQueueTours, destinationNeedsTour, needsTour, shouldConsiderTourShip, type QueueTourPolicy, type TourShip, type TourTarget } from "./queueTours.js";
+import { overProbeCap, withinProbeCap } from "./keeperPriceCap.js";
 import { DEFAULT_SCOUT_PROBE_POLICY, decideScoutProbe, pickScoutProbeKeeperMarket, packScoutProbes, unpackScoutProbes, type KeeperSpot, type ProbeYard, type ScoutNeed } from "./stagedScoutProbe.js";
 import { DEFAULT_ROUTE_REUSE_POLICY, decideRouteReuse } from "./routeReuse.js";
 import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, type QueueFacts, type ReleaseDecision, type ReleaseMode, type ReleasePolicy } from "./systemRelease.js";
@@ -8137,6 +8138,8 @@ export class FleetManager {
     if (!target) { this.keeperNote(`notarget:${waypointSymbol}`, `no keeper request from yard ${waypointSymbol}: it and every priority market in its system already have a keeper`); return; } // nothing on the priority list needs covering from here
     const probe = pickKeeperHull(ships.map((s) => ({ type: s.type, price: s.purchasePrice })));
     if (!probe) { this.keeperNote(`nohull:${waypointSymbol}`, `no keeper request from yard ${waypointSymbol} for ${target}: it stocks no ${KEEPER_HULL_PREFERENCE.join("/")} (stock: ${ships.map((s) => s.type).join(", ") || "nothing listed"})`); return; } // this yard stocks no usable keeper hull right now
+    const probeCap = this.doctrine.isEnabledOr("keeperMaxProbePrice", false) ? this.doctrine.value("keeperMaxProbePrice") : 0;
+    if (overProbeCap(probe.price, probeCap)) { this.keeperNote(`cap:${waypointSymbol}`, `no keeper request from yard ${waypointSymbol} for ${target}: ${keeperHullLabel(probe.type)} costs ${probe.price}c, over the ${probeCap}c keeper probe cap (keeperMaxProbePrice); the keeper queue can deliver one from a cheaper yard`); return; }
     if (!this.canAfford(probe.price)) { this.keeperNote(`afford:${waypointSymbol}`, `no keeper request from yard ${waypointSymbol} for ${target}: ${keeperHullLabel(probe.type)} costs ${probe.price}c, more than the spendable credits`); return; }
 
     // One request at a time fleet-wide (kind is a single fixed string), same
@@ -8279,6 +8282,14 @@ export class FleetManager {
         const yard = preferYardWithShip({ waypointSymbol: best.waypointSymbol, price: best.price, hull: best.hull }, { waypointSymbol: localWithShip.waypointSymbol, price: localWithShip.purchasePrice, hull: localWithShip.shipType }, present(best.waypointSymbol));
         best = yard;
       }
+    }
+    // Clause keeperMaxProbePrice: a yard asking more than the cap is not used; deliver one from a yard under it instead (keeperPriceCap.ts).
+    const marketCap = this.doctrine.isEnabledOr("keeperMaxProbePrice", false) ? this.doctrine.value("keeperMaxProbePrice") : 0;
+    if (best && overProbeCap(best.price, marketCap)) {
+      const over = best;
+      const d = this.pickKeeperDelivery(marketSystem, withinProbeCap(yards, marketCap, KEEPER_HULL_PREFERENCE));
+      if (d && !overProbeCap(d.price, marketCap)) { delivery = d; best = { waypointSymbol: d.yard, price: d.price, hull: d.hull }; this.keeperNote(`mcap:${marketWaypoint}`, `keeper for ${marketWaypoint}: ${over.waypointSymbol} asks ${over.price}c, over the ${marketCap}c cap; delivering from ${d.yard} for ${d.price}c instead`); }
+      else { await this.coolKeeperMarket(marketWaypoint, 15); this.keeperNote(`mcap:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: ${over.waypointSymbol} asks ${over.price}c, over the ${marketCap}c cap (keeperMaxProbePrice), and no yard under the cap can deliver`); return false; }
     }
     if (!best) { await this.coolKeeperMarket(marketWaypoint, 15); this.keeperNote(`mnohull:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: no yard in ${marketSystem} has a stored ${KEEPER_HULL_PREFERENCE.join("/")} (${yards.filter((y) => y.systemSymbol === marketSystem).length} stored yard rows in that system; a yard is stored only when one of our ships reads it)`); return false; } // no shipyard in this system has a cached keeper hull in stock right now
     if (!this.canAfford(best.price)) { this.keeperNote(`mafford:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: ${keeperHullLabel(best.hull)} at ${best.waypointSymbol} costs ${best.price}c, more than the spendable credits`); return false; }

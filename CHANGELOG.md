@@ -8,6 +8,19 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — Keeper probes: no buying at overpriced yards (clause `keeperMaxProbePrice`)
+
+Operator decision. THEO-BA cost 161,774 at X1-TU72-C40, where TU72's yards ask 161-280k for a probe, when one delivered from another yard
+would have cost about 40k. Probes usually cost 20-35k.
+
+With the clause on (value 60,000):
+- **The keeper queue** does not use a yard asking more than the cap; it delivers a probe from a yard under the cap instead, or waits 15
+  minutes if none can deliver.
+- **A ship visiting such a yard** raises no card there.
+
+Pure helpers: `src/engine/keeperPriceCap.ts`. Ships **off**; off means any price is used, as before. Tests:
+`tests/keeperPriceCap.test.ts`.
+
 ## 2026-11-19 — Keeping a new system's shipyard covered: scout probes settle as yard keepers; yards that unlock a system go first
 
 The operator asked that we never price a system and then leave its shipyard without a keeper. Two gaps, two clauses, both shipped **off**.

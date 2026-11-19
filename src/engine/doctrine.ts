@@ -696,6 +696,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperMaxProbePrice",
+    name: "Keepers: most a keeper probe may cost at a yard",
+    description: "On = a yard asking more than this for a keeper probe is not used: the keeper queue delivers one from a yard under the cap instead (keeperDeliveryHops), and a ship visiting such a yard raises no card there. Added 2026-11-19 (operator) after THEO-BA cost 161,774 at X1-TU72-C40, where TU72's yards ask 161-280k for a probe, when one delivered from another yard would have cost about 40k. Probes usually cost 20-35k. Off (the default) = any price is used, as before.",
+    value: 60000, min: 20000, max: 500000, step: 5000, unit: "c",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "stagedScoutProbeKeeps",
     name: "Fresh systems: a scout probe becomes the system's yard keeper on release",
     description: "On = once the staged system a scout probe (stagedScoutProbe) was bought for is released, the probe settles as a keeper with no approval card (the hull is already ours): on an uncovered shipyard that sells probes first, so the rest of the system's keepers can be bought there with no jumps; else any uncovered shipyard, so its stock and prices stay fresh; else the best listed market without a keeper. Which probes are scout probes is saved (fleet flag scoutProbes), so a restart keeps them. Added 2026-11-19 (operator: do not price a system and then leave its shipyard without a keeper). Off (the default) = a scout probe keeps touring after the release, as before.",

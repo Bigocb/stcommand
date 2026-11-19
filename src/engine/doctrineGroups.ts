@@ -106,6 +106,7 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   keeperYardWaitMin: ["keeper-buy", "Yard & delivery"],
   keeperDeliveryHops: ["keeper-buy", "Yard & delivery"],
   keeperYardsUnlockFirst: ["keeper-buy", "Yard & delivery"],
+  keeperMaxProbePrice: ["keeper-buy", "Yard & delivery"],
   keeperYardGapRatio: ["keeper-buy", "Yard & delivery"],
   autoKeeperGoodSystems: ["keeper-cover", "Intake"],
   keeperMinGoods: ["keeper-cover", "Intake"],
