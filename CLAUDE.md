@@ -110,6 +110,13 @@ are not limited to two ships (`freshTours`, now 8). What can still hold a keeper
 - The maintenance tick can run 15-25 s when `maybeRemoteSurvey` is busy, so a card is resolved up to ~25 s after the tap.
 - Staged systems' keepers are parked until the system is released (that is the design, not a stall).
 
+## Keeper parking: off, add proxies instead (operator, 2026-11-19)
+
+Idle parking (`freshIdleParkHours`) parked up to 121 keepers during the 11-17/18 crash, because it judged systems by our own sales, and
+the stale prices that followed made the crash worse. It stays **off**. When keeper polling grows, add proxy lanes (`apiLaneCount`; 10 of
+20 configured were active on 2026-11-19) instead of parking keepers. A redesign that judges systems on something other than sales is
+issue #61. Triage parking of low-value markets is a separate rule.
+
 ## Operating the fleet via the stcommand MCP server
 
 **Always use the Tailwinds MCP server** (tools named `mcp__Tailwinds__stcommand_*`) for every fleet read and write.
