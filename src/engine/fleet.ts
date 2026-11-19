@@ -7110,6 +7110,13 @@ export class FleetManager {
     return new Set([...this.keeperMarkets.values(), ...this.parkedKeeperMarkets.values()]);
   }
 
+  /** Who covers a market, for log lines: the keeper pinned to it, or the parked keeper that still covers it. Never guesses. */
+  private keeperCoveringMarket(market: string): string {
+    for (const [ship, m] of this.keeperMarkets) if (m === market) return `keeper ${ship}`;
+    for (const [ship, m] of this.parkedKeeperMarkets) if (m === market) return `parked keeper ${ship}`;
+    return "a keeper pin";
+  }
+
   /** Which kind of ship a scheduler task belongs to, for the limiter's per-role call counts (stats only). */
   apiRoleOf(shipSymbol: string): string {
     if (this.keepers.has(shipSymbol)) return "keeper";
@@ -8234,7 +8241,7 @@ export class FleetManager {
    */
   private async maybeRequestKeeperProbeForMarket(marketWaypoint: string): Promise<boolean> {
     if (!this.doctrine.isEnabledOr("autoKeeperProbes", true)) return false;
-    if (this.coveredKeeperMarkets().has(marketWaypoint)) { this.keeperNote(`mcovered:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: the engine counts it covered (a keeper, or a parked one, is pinned to it) though the keepers report shows nobody there`); return false; } // already covered (a parked keeper still covers it)
+    if (this.coveredKeeperMarkets().has(marketWaypoint)) { this.keeperNote(`mcovered:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: already covered by ${this.keeperCoveringMarket(marketWaypoint)}`); return false; } // already covered (a parked keeper still covers it)
     if (inCooldown(this.keeperQueueCooldown.get(marketWaypoint), Date.now())) { this.keeperNote(`mcool:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: it is in a cooldown after a failed buy or a release for want of a ship`); return false; } // left alone for a while
     const priority = await this.keeperPriorityMarkets();
     if (!priority.includes(marketWaypoint)) { this.keeperNote(`mprio:${marketWaypoint}`, `no keeper request for ${marketWaypoint}: it is not on the keeper priority list`); return false; } // operator hasn't flagged this market as worth a keeper

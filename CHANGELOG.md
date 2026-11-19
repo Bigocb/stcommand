@@ -8,6 +8,11 @@ here; link it from the entry when that happens.
 
 
 
+
+## 2026-11-19 — keeper log no longer says "nobody there" when a keeper is there
+
+The keeper-request path logged `no keeper request for <market>: the engine counts it covered ... though the keepers report shows nobody there` for every covered market. The "nobody there" half was fixed text that was never checked (BB74-A2 had THEO-1B docked on it), so the logs made it look as if keepers were missing. The line now names who covers the market (`already covered by keeper THEO-1B`, or a parked keeper). Coverage itself was already right; only the message changes (`maybeRequestKeeperProbeForMarket`, new `keeperCoveringMarket` in `src/engine/fleet.ts`). Found by the operator's investigation into the 11-18 parking, whose findings are on issue #61.
+
 ## 2026-11-19 — The Repair button shows the price first (Deck and Tower)
 
 Operator, after THEO-1 was repaired for 288,055 and scrapped 9 minutes later: "is there a way to just show the repair cost every time we
