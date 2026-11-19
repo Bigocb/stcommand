@@ -25,6 +25,9 @@ export interface BuyRules {
   bigHullCargo: number;
   /** The last big hull must have paid back its price in matched profit if it was bought within this many hours. */
   paybackHours: number;
+  /** Cargo value in holds (in transit) a big hull purchase wants on top of the wallet line. 0 = not checked. Operator 2026-11-19:
+   *  "3M with no cargo in transit is a lot different than 3M with 1.5M in cargo". */
+  bigHullHolds: number;
 }
 
 export const DEFAULT_BUY_RULES: BuyRules = {
@@ -35,6 +38,7 @@ export const DEFAULT_BUY_RULES: BuyRules = {
   bigHullLine: 10_000_000,
   bigHullCargo: 80,
   paybackHours: 6,
+  bigHullHolds: 0,
 };
 
 export const BUY_RULES_OFF: BuyRules = { ...DEFAULT_BUY_RULES, on: false };
@@ -98,6 +102,9 @@ export function buyAdvice(i: BuyAdviceInput): BuyAdvice {
   } else if (i.wallet < r.anyHullLine) {
     warnings.push(`Wallet ${fmtCredits(i.wallet)} is under the ${fmtCredits(r.anyHullLine)} line for any hull.`);
   }
+  if (bigHull && r.bigHullHolds > 0 && i.holds < r.bigHullHolds) {
+    warnings.push(`Holds ${fmtCredits(i.holds)} are under the ${fmtCredits(r.bigHullHolds)} of cargo in transit a big hull buy wants on top of the wallet line (wallet + holds ${fmtCredits(i.wallet + i.holds)}).`);
+  }
   const last = i.lastBigHullBuy;
   if (bigHull && last && i.now !== undefined) {
     const ageH = (i.now - last.at) / 3_600_000;
@@ -126,5 +133,17 @@ export function buyRulesFrom(d: { value(key: string, whenOff?: number): number; 
     bigHullLine: v("buyAdviceBigHullLine", DEFAULT_BUY_RULES.bigHullLine),
     bigHullCargo: v("buyAdviceBigHullCargo", DEFAULT_BUY_RULES.bigHullCargo),
     paybackHours: v("buyAdvicePaybackHours", DEFAULT_BUY_RULES.paybackHours),
+    bigHullHolds: d.isEnabledOr("buyAdviceBigHullHolds", false) ? d.value("buyAdviceBigHullHolds", 0) : 0,
   };
+}
+
+/**
+ * Cargo capacity of a hull for sale. Shipyard inventory rows carry cargoCapacity 0, so the buy warning took a heavy freighter (225) for
+ * a 0-cargo hull: on 2026-11-19 THEO-BD's purchase showed no big-hull warning and a floor counted with one big hull. The capacity is the
+ * sum of the hull's cargo-hold modules when the field is 0. Pure.
+ */
+export function hullCargo(offer: { cargoCapacity?: number | null; modules?: readonly { symbol: string; capacity?: number }[] | null } | undefined): number {
+  if (!offer) return 0;
+  if ((offer.cargoCapacity ?? 0) > 0) return offer.cargoCapacity as number;
+  return (offer.modules ?? []).filter((m) => m.symbol.includes("CARGO_HOLD")).reduce((n, m) => n + (m.capacity ?? 0), 0);
 }

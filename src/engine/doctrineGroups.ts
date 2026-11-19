@@ -172,6 +172,7 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   buyAdviceBigHullLine: ["cash", "Buy advice"],
   buyAdviceBigHullLoad: ["cash", "Buy advice"],
   buyAdvicePaybackHours: ["cash", "Buy advice"],
+  buyAdviceBigHullHolds: ["cash", "Buy advice"],
   buyAdviceTraderReserve: ["cash", "Buy advice"],
   traderSelfClaim: ["routes", "Trader fallbacks"],
   traderIdleDiscovery: ["routes", "Trader fallbacks"],
@@ -210,7 +211,7 @@ export const CLAUSE_NEEDS: Readonly<Record<string, readonly string[]>> = {
   shipBudget: ["autoBuyShips"], minerTarget: ["autoBuyShips"], siphonTarget: ["autoBuyShips"], explorerTarget: ["autoBuyShips"],
   keeperAutoApproveMinCash: ["autoApproveKeeperProbes"],
   buyAdviceAnyHullLine: ["buyAdvice"], buyAdviceBigHullCargo: ["buyAdvice"], buyAdviceBigHullLine: ["buyAdvice"], buyAdviceBigHullLoad: ["buyAdvice"],
-  buyAdvicePaybackHours: ["buyAdvice"], buyAdviceTraderReserve: ["buyAdvice"],
+  buyAdvicePaybackHours: ["buyAdvice"], buyAdviceBigHullHolds: ["buyAdvice"], buyAdviceTraderReserve: ["buyAdvice"],
   economyNetNegativeHours: ["economyAlerts"], economyDroughtHours: ["economyAlerts"], economyMarginDecayPct: ["economyAlerts"],
   economySmallHullCargo: ["economyAlerts"], economySmallHullJumps: ["economyAlerts"], economyCashStarvedMin: ["economyAlerts"],
 };

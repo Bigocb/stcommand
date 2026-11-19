@@ -1109,6 +1109,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "risk", defaultAdopted: true,
   },
   {
+    key: "buyAdviceBigHullHolds",
+    name: "Buy warning: cargo in transit a big hull wants",
+    description: "Warn when buying a big hull while the cargo value in holds is under this, on top of the big-hull wallet line. Operator, 2026-11-19, after buying THEO-BD: repeat it with about 3.5M in the wallet and about 1M in holds; \"3M with no cargo in transit is a lot different than 3M with 1.5M in cargo\". Off = holds are not checked.",
+    value: 1_000_000, min: 0, max: 20_000_000, step: 100_000, unit: "c",
+    enabled: false, enforced: true, category: "risk", defaultAdopted: true,
+  },
+  {
     key: "buyAdvicePaybackHours",
     name: "Buy warning: big hull payback",
     description: "Warn when the last big hull was bought less than this many hours ago and its matched profit since is still under its price: a second big hull waits until the first has paid back.",

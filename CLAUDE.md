@@ -58,6 +58,10 @@ cash flat or falling for ~2h, the rate dropping below ~80k/h, or traders sitting
 capital into a hauler to restart growth. Re-check this when the weekly reset is close: the last full day of the week is
 worth spending on rather than hoarding.
 
+**Next heavy (operator, 2026-11-19, after buying THEO-BD at B64-CA2B):** repeat it when the wallet is about **3.5M and about 1M is in holds**.
+Count cargo in transit: "3M with no cargo in transit is a lot different than 3M with 1.5M in cargo". The buy warning checks both
+(`buyAdviceBigHullLine` 3.5M, `buyAdviceBigHullHolds` 1M).
+
 **Which big hull (operator, 2026-11-19):** prefer heavy freighters (225 cargo). Buy a refining freighter (150) only when its yard is where the ship will trade; never just because it is the cheapest big hull. Once the wallet is above about **15,000,000c**, buy bulk freighters (490 cargo, about 5.6M).
 
 Example (2026-11-10): for a hull meant to trade X1-FR76, `X1-FR76-DA6C` (316,860c, 0 hops) beats `X1-PT36-A2`

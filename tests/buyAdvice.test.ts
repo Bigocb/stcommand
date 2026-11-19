@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { buyAdvice, buyRulesFrom, BUY_RULES_OFF, DEFAULT_BUY_RULES, workingCapitalFloor } from "../src/engine/buyAdvice.js";
+import { buyAdvice, buyRulesFrom, BUY_RULES_OFF, DEFAULT_BUY_RULES, hullCargo, workingCapitalFloor } from "../src/engine/buyAdvice.js";
 
 /**
  * The buy-ship warning (src/engine/buyAdvice.ts) against the two heavy buys of 2026-11-17 (docs/lessons-learned.md):
@@ -101,5 +101,22 @@ describe("buyAdvice: other cases", () => {
     assert.equal(buyRulesFrom(doc(["buyAdvice"])).on, false);
     assert.equal(buyRulesFrom(doc()).bigHullLoad, 350_000);
     assert.equal(buyRulesFrom(doc()).bigHullLine, 10_000_000);
+  });
+
+  it("a big hull wants cargo in transit on top of the wallet line (operator 2026-11-19: 3.5M wallet and about 1M in holds)", () => {
+    const rules = { ...DEFAULT_BUY_RULES, bigHullLine: 3_500_000, bigHullHolds: 1_000_000 };
+    const thin = buyAdvice({ price: 2_181_498, cargo: HEAVY, wallet: 3_600_000, holds: 300_000, traders: 10, bigHulls: 2, rules });
+    assert.ok(thin.warnings.some((w) => /Holds .* under the .* cargo in transit/.test(w)), thin.warnings.join("\n"));
+    const loaded = buyAdvice({ price: 2_181_498, cargo: HEAVY, wallet: 3_600_000, holds: 1_200_000, traders: 10, bigHulls: 2, rules });
+    assert.ok(!loaded.warnings.some((w) => /cargo in transit/.test(w)));
+    assert.ok(!buyAdvice({ price: 2_181_498, cargo: HEAVY, wallet: 3_600_000, holds: 0, traders: 10, bigHulls: 2, rules: DEFAULT_BUY_RULES }).warnings.some((w) => /cargo in transit/.test(w)), "off (0) = holds not checked");
+  });
+
+  it("hullCargo sums cargo-hold modules when the inventory row says 0 (the THEO-BD buy read the heavy as 0 cargo)", () => {
+    const heavy = { cargoCapacity: 0, modules: [{ symbol: "MODULE_CARGO_HOLD_III", capacity: 75 }, { symbol: "MODULE_CARGO_HOLD_III", capacity: 75 }, { symbol: "MODULE_CARGO_HOLD_III", capacity: 75 }, { symbol: "MODULE_CREW_QUARTERS_I", capacity: 40 }] };
+    assert.equal(hullCargo(heavy), 225);
+    assert.equal(hullCargo({ cargoCapacity: 80, modules: [] }), 80);
+    assert.equal(hullCargo({ cargoCapacity: 0, modules: [] }), 0, "a probe");
+    assert.equal(hullCargo(undefined), 0);
   });
 });

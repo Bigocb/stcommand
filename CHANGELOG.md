@@ -8,6 +8,16 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — Buy warning: a heavy is recognised as a big hull; a big hull wants cargo in transit (`buyAdviceBigHullHolds`)
+
+- **Bug.** Shipyard inventory rows carry `cargoCapacity` 0, so the buy warning treated a heavy freighter as a 0-cargo hull. When THEO-BD
+  was bought at 18:47 the preflight showed no big-hull warning, and it counted the floor with one big hull instead of two. Cargo is now
+  the sum of the hull's cargo-hold modules when the field is 0 (`hullCargo`).
+- **New rule.** For the next heavy the operator wants about 3.5M in the wallet **and** about 1M in holds: "3M with no cargo in transit is
+  a lot different than 3M with 1.5M in cargo". New clause `buyAdviceBigHullHolds` (1M, ships off): warn when buying a big hull while
+  holds are under it. The big-hull wallet line (`buyAdviceBigHullLine`) goes from 10M to 3.5M by doctrine.
+- Tests in `tests/buyAdvice.test.ts`.
+
 ## 2026-11-19 — Keeper probes: no buying at overpriced yards (clause `keeperMaxProbePrice`)
 
 Operator decision. THEO-BA cost 161,774 at X1-TU72-C40, where TU72's yards ask 161-280k for a probe, when one delivered from another yard

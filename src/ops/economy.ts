@@ -1,7 +1,7 @@
 import type { Store } from "../db/store.js";
 import type { FleetManager } from "../engine/fleet.js";
 import { bucketsFromLedger, economyHealth, economyPolicyFrom, shipStatsFromLedger, type EconomyFinding, type EconomyHealthInput, type EconomyLedgerRow } from "../engine/economyHealth.js";
-import { buyAdvice, buyRulesFrom, workingCapitalFloor, type BuyAdvice, type BuyRules } from "../engine/buyAdvice.js";
+import { hullCargo, buyAdvice, buyRulesFrom, workingCapitalFloor, type BuyAdvice, type BuyRules } from "../engine/buyAdvice.js";
 
 /**
  * The thin source for the economy alerts and the buy-ship warning: reads what the engine already has (the ledger, wealth
@@ -135,7 +135,7 @@ export async function buyPreflight(deps: EconomyDeps, shipType: string, yardSymb
   const cashFlatOrFalling2h = worthThen !== undefined && now - worthThen.at < 2.5 * HOUR && worthNow + spent2h <= worthThen.worth * 1.02;
   const advice = buyAdvice({
     price: offer?.purchasePrice ?? 0,
-    cargo: offer?.cargoCapacity ?? 0,
+    cargo: hullCargo(offer),
     wallet: l.input.walletNow,
     holds: l.holds,
     traders: l.traders.length,
@@ -152,7 +152,7 @@ export async function buyPreflight(deps: EconomyDeps, shipType: string, yardSymb
     ok: advice.warnings.length === 0,
     shipType, yardSymbol,
     price: offer?.purchasePrice ?? null,
-    cargo: offer?.cargoCapacity ?? null,
+    cargo: offer ? hullCargo(offer) : null,
     wallet: Math.round(l.input.walletNow),
     holds: Math.round(l.holds),
   };
