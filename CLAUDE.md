@@ -159,6 +159,18 @@ here so they don't get lost between sessions:
     after a `dispatch_tour` call on the same ship, not a usage error.
     Worth a proper look if it recurs.
 
+## Operator rule: nothing a decision depends on lives only in memory (2026-11-19, repeated)
+
+The fleet restarts on every deploy, often several times a day. Any state the engine decides from (a cooldown, a count, a
+"last sent" mark, a price paid, a decline) must be saved durably the moment it changes (a fleet flag via
+`Store.setFleetFlag`, a table, or `updateShipManualState`) and restored at boot. Not on a later pass, not "in memory for
+now". The operator has had to say this many times. Before adding any `Map`, `Set` or array field to `FleetManager`,
+`RouteDispatcher` or an agent, decide: is it a pure cache that can be rebuilt (fine in memory), or does a decision read it
+(save and restore it, with a test that a fresh instance restores it)? Examples fixed on 2026-11-19: the route rest limits'
+trip history, recent sales, declined legs (`routeTripHistory` flag, `src/engine/tripHistory.ts`), tour send marks and yard
+prices paid (`fleetShortMemory` flag, `src/engine/fleetMemory.ts`). Remaining maps to audit are listed in GitHub issue
+"Audit in-memory engine state".
+
 ## Operator rule: do not mention fuel (2026-11-17)
 
 Ships run their tanks down to almost nothing on purpose to reach their destination; a low reading is normal, not a fault, and the

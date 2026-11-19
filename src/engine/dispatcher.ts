@@ -400,6 +400,7 @@ export class RouteDispatcher {
     const list = this.recentSales.get(key) ?? [];
     list.push({ units, at: Date.now() });
     this.recentSales.set(key, list);
+    this.memoryChanged();
     // Prices kept apart from the volume list: that one is pruned at 30 minutes, a market takes longer to refill (marketCrash.ts).
     if (pricePerUnit !== undefined && pricePerUnit > 0) {
       const now = Date.now();
@@ -592,24 +593,45 @@ export class RouteDispatcher {
     const now = Date.now();
     this.closedTrips.push({ ...t, at: now });
     while (this.closedTrips.length && (this.closedTrips.length > 200 || this.closedTrips[0]!.at < now - 6 * 3_600_000)) this.closedTrips.shift();
-    this.tripHistoryDirty = true;
+    this.memoryChanged();
   }
 
-  /** True when a trip closed or started since the last tripHistorySnapshot(). */
+  /** True when a trip closed or started, a sale or a decline was recorded, since the last tripHistorySnapshot(). */
   private tripHistoryDirty = false;
-  /** The trip history the route limits read, as JSON for saving across a restart (tripHistory.ts); undefined when unchanged. */
+  /** Called the moment that memory changes, so the caller saves it at once rather than on a later pass (a restart in between
+   *  would lose it). Operator rule 2026-11-19: nothing a decision depends on lives only in memory. */
+  private onMemoryChange?: () => void;
+  setOnMemoryChange(fn: (() => void) | undefined): void { this.onMemoryChange = fn; }
+  /** A save failed: keep the memory marked as changed so the next attempt writes it. */
+  markMemoryUnsaved(): void { this.tripHistoryDirty = true; }
+  private memoryChanged(): void {
+    this.tripHistoryDirty = true;
+    try { this.onMemoryChange?.(); } catch { /* the save is best-effort; the next change or pass retries */ }
+  }
+  /** The dispatcher's decision memory (trips, trip starts, recent sales, declined legs) as JSON for saving across a restart
+   *  (tripHistory.ts); undefined when unchanged since the last call. */
   tripHistorySnapshot(now: number = Date.now()): string | undefined {
     if (!this.tripHistoryDirty) return undefined;
     this.tripHistoryDirty = false;
-    return packTripHistory({ trips: this.closedTrips, starts: this.tripStarts }, now);
+    return packTripHistory({ trips: this.closedTrips, starts: this.tripStarts, sales: [...this.recentSales.entries()], declined: [...this.declined.entries()] }, now);
   }
-  /** Load history saved by tripHistorySnapshot(), merged with anything recorded since this process started. Returns rows loaded. */
+  /** Load memory saved by tripHistorySnapshot(), merged with anything recorded since this process started. Returns rows loaded. */
   restoreTripHistory(json: string, now: number = Date.now()): number {
     const saved = unpackTripHistory(json, now);
     const merged = mergeTripHistory(saved, { trips: this.closedTrips, starts: this.tripStarts });
     this.closedTrips.splice(0, this.closedTrips.length, ...merged.trips);
     this.tripStarts.splice(0, this.tripStarts.length, ...merged.starts);
-    return saved.trips.length + saved.starts.length;
+    let n = saved.trips.length + saved.starts.length;
+    for (const [key, list] of saved.sales ?? []) {
+      const live = this.recentSales.get(key) ?? [];
+      const firstLive = live.length ? Math.min(...live.map((x) => x.at)) : Infinity;
+      this.recentSales.set(key, [...list.filter((x) => x.at < firstLive), ...live]);
+      n += list.length;
+    }
+    for (const [ship, d] of saved.declined ?? []) {
+      if (!this.declined.has(ship)) { this.declined.set(ship, d); n++; }
+    }
+    return n;
   }
 
   /** Why this exact route is resting after a disappointing trip or too many trips on it, or undefined. `minutes` 0 = off
@@ -647,7 +669,7 @@ export class RouteDispatcher {
     const now = Date.now();
     this.tripStarts.push({ good, buyAt, shipSymbol, at: now, ...(price !== undefined && price > 0 ? { price } : {}) });
     while (this.tripStarts.length && (this.tripStarts.length > 200 || this.tripStarts[0]!.at < now - 6 * 3_600_000)) this.tripStarts.shift();
-    this.tripHistoryDirty = true;
+    this.memoryChanged();
   }
   /** Where recompute notes go. console.log by default; the fleet points it at its own log so they reach the ops `logs` tool. */
   private logger: (msg: string) => void = (m) => console.log(m);
@@ -987,6 +1009,7 @@ export class RouteDispatcher {
     }
     this.committed.delete(shipSymbol);
     this.declined.set(shipSymbol, { good: a.good, buyAt: a.buyAt, sellAt: a.sellAt, wholeGood, until: Date.now() + DECLINE_MS });
+    this.memoryChanged();
   }
 
   /**

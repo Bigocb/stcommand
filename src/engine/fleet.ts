@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { packFleetMemory, unpackFleetMemory } from "./fleetMemory.js";
 import { API_PRIORITY, runWithApiPriority, type SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import { ShipAgent, REFINE_RECIPES } from "./agent.js";
@@ -1191,7 +1192,16 @@ export class FleetManager {
     const tripHistoryFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "routeTripHistory") : undefined;
     if (tripHistoryFlag) {
       const n = this.dispatcher.restoreTripHistory(tripHistoryFlag);
-      if (n > 0) this.log(`restored ${n} recent trip(s) for the route rest limits (cool-off, round limits, spacing)`);
+      if (n > 0) this.log(`restored ${n} row(s) of dispatcher memory (trips, trip starts, recent sales, declined legs)`);
+    }
+    // Saved the moment it changes, not on a later pass: a restart in between would lose it (operator rule 2026-11-19).
+    this.dispatcher.setOnMemoryChange(() => this.saveDispatcherMemory());
+    const shortFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "fleetShortMemory") : undefined;
+    if (shortFlag) {
+      const m = unpackFleetMemory(shortFlag, Date.now(), FleetManager.KEEPER_YARD_PAID_MS);
+      for (const [ship, at] of m.tourSent) if (!this.queueTourSentAt.has(ship)) this.queueTourSentAt.set(ship, at);
+      for (const [key, paid] of m.yardPaid) if (!this.keeperYardPaid.has(key)) this.keeperYardPaid.set(key, paid);
+      if (m.tourSent.length + m.yardPaid.length > 0) this.log(`restored ${m.tourSent.length} tour send mark(s) and ${m.yardPaid.length} yard price(s) paid`);
     }
     const deadRoutesFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "deadRoutes") : undefined;
     if (deadRoutesFlag) {
@@ -6239,6 +6249,28 @@ export class FleetManager {
   private lastRemoteSurveyAt = 0;
   private timersDoc?: PersistedTimers;
   /** Wait and cool-off timers that survive a restart (persistedTimers.ts); null until there is a store and a tenant. */
+  /** One save at a time, in order; the latest state always wins (each write is the whole snapshot). */
+  private memorySaveChain: Promise<void> = Promise.resolve();
+  /** Write the dispatcher's decision memory now (routeTripHistory flag). */
+  private saveDispatcherMemory(): void {
+    if (!this.store || !this.tenantId) return;
+    const store = this.store, tenantId = this.tenantId;
+    this.memorySaveChain = this.memorySaveChain.then(async () => {
+      const json = this.dispatcher.tripHistorySnapshot();
+      if (json === undefined) return;
+      try { await store.setFleetFlag(tenantId, "routeTripHistory", json); } catch (err) { this.dispatcher.markMemoryUnsaved(); this.log(`save dispatcher memory failed: ${describeError(err)}`); }
+    });
+  }
+  /** Write the fleet's short-lived decision memory now (fleetShortMemory flag): tour send marks and yard prices paid. */
+  private saveFleetShortMemory(): void {
+    if (!this.store || !this.tenantId) return;
+    const store = this.store, tenantId = this.tenantId;
+    const json = packFleetMemory({ tourSent: [...this.queueTourSentAt.entries()], yardPaid: [...this.keeperYardPaid.entries()] }, Date.now(), FleetManager.KEEPER_YARD_PAID_MS);
+    this.memorySaveChain = this.memorySaveChain.then(async () => {
+      try { await store.setFleetFlag(tenantId, "fleetShortMemory", json); } catch (err) { this.log(`save fleet memory failed: ${describeError(err)}`); }
+    });
+  }
+
   private timers(): PersistedTimers | undefined {
     if (!this.store || !this.tenantId) return undefined;
     const store = this.store, tenantId = this.tenantId;
@@ -6634,6 +6666,7 @@ export class FleetManager {
         try {
           await this.dispatchTourShip(s.ship, s.system, { by: "queue" });
           this.queueTourSentAt.set(s.ship, now);
+          this.saveFleetShortMemory();
           this.freshNote(`tours: sent ${s.ship} to ${s.system} (${s.reason})`);
         } catch (err) { this.freshNote(`tours: send ${s.ship} to ${s.system} failed: ${describeError(err)}`); }
       }
@@ -7829,6 +7862,7 @@ export class FleetManager {
       const row = (await this.api.getShipyard(sys, yard)).ships?.find((x) => x.type === hull);
       if (row && typeof row.purchasePrice === "number") {
         this.keeperYardPaid.set(yardPaidKey(yard, hull), { price: row.purchasePrice, at: Date.now() });
+        this.saveFleetShortMemory();
         if (row.purchasePrice > price && !this.keeperAutoApproves(row.purchasePrice).approve) {
           this.log(`keeper ${hull} for ${target} not bought at ${yard}: the live price ${row.purchasePrice} is over the auto-approve cap (stored reading ${price})`);
           await this.coolKeeperMarket(target, 10);
@@ -8371,6 +8405,7 @@ export class FleetManager {
     // market is held back, because an unpinned hull leaves the market uncovered.
     const bought = res.ship.symbol;
     this.keeperYardPaid.set(yardPaidKey(waypointSymbol, hull), { price: res.transaction.price, at: Date.now() });
+    this.saveFleetShortMemory();
     try {
       this.recordLedger?.({
         timestamp: new Date().toISOString(),
@@ -11448,15 +11483,9 @@ export class FleetManager {
           this.log(`save trade impacts failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
-      // Keep the trip history the route rest limits count across a restart (written only when a trip closed or started).
-      const tripHistoryJson = this.dispatcher.tripHistorySnapshot();
-      if (tripHistoryJson !== undefined && this.tenantId) {
-        try {
-          await this.store?.setFleetFlag(this.tenantId, "routeTripHistory", tripHistoryJson);
-        } catch (err) {
-          this.log(`save route trip history failed: ${err instanceof Error ? err.message : String(err)}`);
-        }
-      }
+      // The dispatcher's decision memory is saved the moment it changes (saveDispatcherMemory); this is only the retry for a
+      // save that failed (the snapshot is undefined when nothing is pending). It goes through the same queue, so writes stay in order.
+      this.saveDispatcherMemory();
       // Keep the routes ships have found dead across a restart (written only when the list changes).
       const deadRoutesJson = this.dispatcher.deadRoutesSnapshot();
       if (deadRoutesJson !== undefined && this.tenantId) {

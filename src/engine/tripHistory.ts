@@ -17,7 +17,21 @@ export const TRIP_HISTORY_KEEP_MS = 6 * 3_600_000;
 /** Most rows of each kind kept (the dispatcher keeps 200). */
 export const TRIP_HISTORY_MAX = 200;
 
-export interface TripHistory { trips: RouteTrip[]; starts: TripStart[] }
+/** A trader's declined leg, kept off its picks until `until` (RouteDispatcher.decline). */
+export interface DeclinedLeg { good: string; buyAt?: string; sellAt?: string; wholeGood: boolean; until: number }
+/** Units we sold into one (good@market), for the sell-side fatigue in route scoring (RouteDispatcher.recordSale). */
+export interface RecentSale { units: number; at: number }
+
+/**
+ * Everything the dispatcher decides from that is not already saved elsewhere. Operator rule (2026-11-19, repeated): nothing
+ * that a decision depends on may live only in memory. `sales` and `declined` are optional so an older saved flag still loads.
+ */
+export interface TripHistory {
+  trips: RouteTrip[];
+  starts: TripStart[];
+  sales?: [string, RecentSale[]][];
+  declined?: [string, DeclinedLeg][];
+}
 
 const isNum = (x: unknown): x is number => typeof x === "number" && Number.isFinite(x);
 const isStr = (x: unknown): x is string => typeof x === "string" && x.length > 0;
@@ -27,7 +41,9 @@ export function packTripHistory(h: TripHistory, now: number): string {
   const since = now - TRIP_HISTORY_KEEP_MS;
   const trips = h.trips.filter((t) => t.at >= since).slice(-TRIP_HISTORY_MAX);
   const starts = h.starts.filter((s) => s.at >= since).slice(-TRIP_HISTORY_MAX);
-  return JSON.stringify({ trips, starts });
+  const sales = (h.sales ?? []).map(([k, list]) => [k, list.filter((x) => x.at >= since).slice(-TRIP_HISTORY_MAX)] as [string, RecentSale[]]).filter(([, l]) => l.length > 0);
+  const declined = (h.declined ?? []).filter(([, d]) => d.until > now);
+  return JSON.stringify({ trips, starts, sales, declined });
 }
 
 /** Parse saved history; bad JSON gives an empty history. */
@@ -50,7 +66,24 @@ export function unpackTripHistory(json: string, now: number): TripHistory {
   }
   trips.sort((a, b) => a.at - b.at);
   starts.sort((a, b) => a.at - b.at);
-  return { trips: trips.slice(-TRIP_HISTORY_MAX), starts: starts.slice(-TRIP_HISTORY_MAX) };
+  const sales: [string, RecentSale[]][] = [];
+  for (const row of Array.isArray((o as { sales?: unknown }).sales) ? (o as { sales: unknown[] }).sales : []) {
+    if (!Array.isArray(row) || !isStr(row[0]) || !Array.isArray(row[1])) continue;
+    const list: RecentSale[] = [];
+    for (const x of row[1] as unknown[]) {
+      const r = x as Partial<RecentSale>;
+      if (isNum(r.units) && r.units > 0 && isNum(r.at) && r.at >= since && r.at <= now) list.push({ units: r.units, at: r.at });
+    }
+    if (list.length) sales.push([row[0], list.sort((a, b) => a.at - b.at).slice(-TRIP_HISTORY_MAX)]);
+  }
+  const declined: [string, DeclinedLeg][] = [];
+  for (const row of Array.isArray((o as { declined?: unknown }).declined) ? (o as { declined: unknown[] }).declined : []) {
+    if (!Array.isArray(row) || !isStr(row[0])) continue;
+    const d = row[1] as Partial<DeclinedLeg>;
+    if (!d || !isStr(d.good) || !isNum(d.until) || d.until <= now) continue;
+    declined.push([row[0], { good: d.good, ...(isStr(d.buyAt) ? { buyAt: d.buyAt } : {}), ...(isStr(d.sellAt) ? { sellAt: d.sellAt } : {}), wholeGood: d.wholeGood === true, until: d.until }]);
+  }
+  return { trips: trips.slice(-TRIP_HISTORY_MAX), starts: starts.slice(-TRIP_HISTORY_MAX), sales, declined };
 }
 
 /**

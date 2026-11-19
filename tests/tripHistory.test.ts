@@ -10,7 +10,8 @@ const start = (at: number, good = "IRON") => ({ good, buyAt: "X1-UU52-EX7A", shi
 describe("tripHistory (pure)", () => {
   it("round-trips trips and starts", () => {
     const h = { trips: [trip(NOW - 60_000)], starts: [start(NOW - 90_000)] };
-    assert.deepEqual(unpackTripHistory(packTripHistory(h, NOW), NOW), h);
+    const back = unpackTripHistory(packTripHistory(h, NOW), NOW);
+    assert.deepEqual({ trips: back.trips, starts: back.starts }, h);
   });
   it("drops rows outside the keep window, from the future, and malformed ones", () => {
     const json = JSON.stringify({
@@ -55,5 +56,49 @@ describe("the dispatcher keeps its route rests across a restart (2026-11-19, THE
     after.recompute([], [], [], [], [], [], () => true, () => 0, undefined, undefined, undefined, tuning);
     assert.equal(after.restoreTripHistory(saved!), 2);
     assert.match(after.routeCoolOff("IRON", "X1-UU52-EX7A", "X1-UU52-F12C", 0) ?? "", /resting \d+ more min: 2 trips/);
+  });
+});
+
+describe("the rest of the dispatcher's decision memory survives a restart (operator rule 2026-11-19)", () => {
+  it("recent sales and declined legs round-trip; expired declines and old sales are dropped", () => {
+    const h = {
+      trips: [], starts: [],
+      sales: [["IRON@X1-UU52-F12C", [{ units: 40, at: NOW - 60_000 }, { units: 40, at: NOW - TRIP_HISTORY_KEEP_MS - 1 }]]] as [string, { units: number; at: number }[]][],
+      declined: [["THEO-33", { good: "IRON", buyAt: "A", sellAt: "B", wholeGood: false, until: NOW + 60_000 }], ["THEO-1", { good: "FOOD", wholeGood: true, until: NOW - 1 }]] as [string, { good: string; buyAt?: string; sellAt?: string; wholeGood: boolean; until: number }][],
+    };
+    const back = unpackTripHistory(packTripHistory(h, NOW), NOW);
+    assert.deepEqual(back.sales, [["IRON@X1-UU52-F12C", [{ units: 40, at: NOW - 60_000 }]]]);
+    assert.deepEqual(back.declined?.map(([s]) => s), ["THEO-33"]);
+  });
+  it("a saved flag from before sales/declines were kept still loads", () => {
+    const back = unpackTripHistory(JSON.stringify({ trips: [trip(NOW - 10)], starts: [] }), NOW);
+    assert.equal(back.trips.length, 1);
+    assert.deepEqual(back.sales, []);
+    assert.deepEqual(back.declined, []);
+  });
+  it("every change calls the save hook at once, and a failed save stays pending", () => {
+    const d = new RouteDispatcher();
+    let calls = 0;
+    d.setOnMemoryChange(() => { calls++; });
+    d.recordTrip({ good: "IRON", buyAt: "A", sellAt: "B", promised: 1, made: 1 });
+    d.recordTripStart("IRON", "A", "S1", 100);
+    d.recordSale("IRON", "B", 40, 145);
+    assert.equal(calls, 3);
+    assert.ok(d.tripHistorySnapshot());
+    assert.equal(d.tripHistorySnapshot(), undefined);
+    d.markMemoryUnsaved();
+    assert.ok(d.tripHistorySnapshot(), "after a failed save the next attempt writes again");
+  });
+  it("recent sales come back after a restart, merged with sales since the boot", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: NOW - 120_000 });
+    const a = new RouteDispatcher();
+    a.recordSale("IRON", "B", 40, 145);
+    t.mock.timers.tick(60_000);
+    const saved = a.tripHistorySnapshot()!;
+    const b = new RouteDispatcher();
+    b.recordSale("IRON", "B", 30, 144);
+    assert.ok(b.restoreTripHistory(saved) >= 1);
+    const json = JSON.parse(b.tripHistorySnapshot()!);
+    assert.equal(json.sales[0][1].length, 2);
   });
 });

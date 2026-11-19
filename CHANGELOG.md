@@ -8,6 +8,22 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — Decision memory saved the moment it changes, not on a later pass
+
+Operator, again: nothing a decision depends on may live only in memory. The first fix for the route rest limits (fb0e856)
+still waited for the next dispatch pass to write, so a restart inside that minute lost trips. Now:
+
+- The dispatcher calls back the moment its decision memory changes (`setOnMemoryChange`), and the fleet writes the
+  `routeTripHistory` flag at once, through one ordered queue (`saveDispatcherMemory`); a failed write stays pending
+  (`markMemoryUnsaved`) and the dispatch pass retries it.
+- That memory now also holds the dispatcher's recent sales per market (the 30-minute sell-side fatigue in route scoring) and
+  declined legs (a trader's refused route, kept off its list for 15 minutes), which were memory-only.
+- The fleet's tour send marks (`queueTourSentAt`, the fresh-system tour queue's minimum stay; a restart forgot it on
+  2026-11-17 and locked every tour ship out for 10 hours) and keeper yard prices paid (`keeperYardPaid`, which raises the
+  price the keeper auto-approve cap checks) are saved as `fleetShortMemory` on each change and restored at boot
+  (`src/engine/fleetMemory.ts`, pure).
+- CLAUDE.md gains the operator rule. Tests: `tests/tripHistory.test.ts`, `tests/fleetMemory.test.ts`.
+
 ## 2026-11-19 — Route rest limits survive a restart
 
 The route cool-off, the route and buy-market round limits and trip spacing all count the dispatcher's recent trip history
