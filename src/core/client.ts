@@ -1002,13 +1002,13 @@ export class SpaceTradersAPI {
   acceptContract(contractId: string) {
     return this.client.post<{ agent: components["schemas"]["Agent"]; contract: components["schemas"]["Contract"] }>(
       `/my/contracts/${contractId}/accept`,
-    );
+    ).then((r) => this.noteCredits(r));
   }
 
   fulfillContract(contractId: string) {
     return this.client.post<{ agent: components["schemas"]["Agent"]; contract: components["schemas"]["Contract"] }>(
       `/my/contracts/${contractId}/fulfill`,
-    );
+    ).then((r) => this.noteCredits(r));
   }
 
   deliverContract(contractId: string, shipSymbol: string, tradeSymbol: string, units: number) {
@@ -1145,7 +1145,7 @@ export class SpaceTradersAPI {
       cooldown: components["schemas"]["Cooldown"];
       transaction: components["schemas"]["MarketTransaction"];
       agent: components["schemas"]["Agent"];
-    }>(`/my/ships/${shipSymbol}/jump`, { waypointSymbol });
+    }>(`/my/ships/${shipSymbol}/jump`, { waypointSymbol }).then((r) => this.noteCredits(r)); // jump fees move the wallet too (ledger wallet_after, 2026-11-19)
   }
 
   /** Warp to a waypoint in another system. Needs a warp drive module, the ship in orbit, and fuel for the trip. */
@@ -1179,7 +1179,7 @@ export class SpaceTradersAPI {
       fuel: components["schemas"]["ShipFuel"];
       transaction: components["schemas"]["MarketTransaction"];
       cargo?: components["schemas"]["ShipCargo"];
-    }>(`/my/ships/${shipSymbol}/refuel`, { units, fromCargo });
+    }>(`/my/ships/${shipSymbol}/refuel`, { units, fromCargo }).then((r) => this.noteCredits(r));
   }
 
   extract(shipSymbol: string) {

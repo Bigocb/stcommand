@@ -8,6 +8,16 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — Ledger wallet balance after jumps, refuels and contracts
+
+The operator asked where ~26k had gone when two wallet readings disagreed (ledger 151,631 at 13:07:14, the live wallet 126,705).
+Nothing was missing: the ledger stamps each row with `SpaceTradersAPI.lastKnownCredits`, and only buy, sell and ship-purchase
+responses updated it. Jump and refuel responses (and contract accept/fulfil) carry `agent.credits` too but were ignored, so a
+JUMP or REFUEL row showed the balance from the last trade and the next trade row absorbed every jump since. Over 12:43-13:12 the
+trade rows reconcile with the ledger to the credit. `jumpShip`, `refuelShip`, `acceptContract` and `fulfillContract` in
+`src/core/client.ts` now record the balance as well, which also moves the dashboard's wallet at each jump instead of at the next
+trade. Test: `tests/walletAfter.test.ts`.
+
 ## 2026-11-19 — Route hold reason says "beyond the jump limit", not "no open gate"
 
 The dispatcher held routes as "no open gate between X and Y" when the buy and sell systems had no finished-gate path within

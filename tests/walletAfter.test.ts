@@ -23,4 +23,19 @@ describe("SpaceTradersAPI.lastKnownCredits", () => {
     await api.purchaseCargo("S-1", "IRON", 1);
     assert.equal(api.lastKnownCredits, 500);
   });
+
+  it("follows jump, refuel and contract responses too (2026-11-19: JUMP/REFUEL rows carried the previous trade's balance)", async () => {
+    const api = new SpaceTradersAPI(fake(900), "t");
+    await api.jumpShip("S-1", "X1-B-I1");
+    assert.equal(api.lastKnownCredits, 900);
+    (api as any).client = fake(880);
+    await api.refuelShip("S-1");
+    assert.equal(api.lastKnownCredits, 880);
+    (api as any).client = fake(50_880);
+    await api.fulfillContract("C-1");
+    assert.equal(api.lastKnownCredits, 50_880);
+    (api as any).client = fake(60_000);
+    await api.acceptContract("C-2");
+    assert.equal(api.lastKnownCredits, 60_000);
+  });
 });
