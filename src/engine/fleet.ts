@@ -3292,6 +3292,7 @@ export class FleetManager {
           refreshSystemMarkets: (sys) => this.refreshSystemMarkets(sys),
           marketTourTargets: () => this.sectorTourTargets(ship.symbol),
           staleMarketTargets: () => this.staleMarketTargets(),
+          listedFirstMarkets: (sys) => this.listedFirstMarkets(sys),
           shipyardTourTargets: () => this.shipyardTourTargets(),
           advanceTourDestination: () => this.advanceTourDispatch(ship.symbol),
           hasTourDestination: () => this.tourDestinations.has(ship.symbol),
@@ -3829,6 +3830,7 @@ export class FleetManager {
             refreshSystemMarkets: (sys) => this.refreshSystemMarkets(sys),
             marketTourTargets: () => this.sectorTourTargets(shipSymbol),
             staleMarketTargets: () => this.staleMarketTargets(),
+            listedFirstMarkets: (sys) => this.listedFirstMarkets(sys),
             shipyardTourTargets: () => this.shipyardTourTargets(),
             advanceTourDestination: () => this.advanceTourDispatch(shipSymbol),
             hasTourDestination: () => this.tourDestinations.has(shipSymbol),
@@ -7608,6 +7610,18 @@ export class FleetManager {
     // registry (this.keeperMarkets) this reads.
     for (const covered of this.coveredKeeperMarkets()) out.delete(covered);
     return [...out].sort();
+  }
+
+  /**
+   * Clause stagedTourListedFirst: a staged or scouted system's listed markets that have never been priced, for a tour ship in it
+   * to visit first (listedFirstTour.ts). Read from the queue and the stored snapshots each leg, so nothing lives only in memory.
+   */
+  private async listedFirstMarkets(system: string): Promise<string[]> {
+    if (!this.doctrine.isEnabledOr("stagedTourListedFirst", false) || this.freshGateMode() === "off") return [];
+    const q = this.systemQueue.get(system);
+    if (!q || q.state === "live" || !q.markets.length) return [];
+    const priced = new Set(((await this.store?.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol));
+    return q.markets.filter((m) => !priced.has(m));
   }
 
   /** Markets whose latest snapshot is older than the freshness window. */

@@ -8,6 +8,21 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — Tours in a staged system visit its listed markets first (clause `stagedTourListedFirst`)
+
+Operator idea, during the probe-tour test on X1-ZU90. A staged system is released by the tour path once a tour ship is in it and
+`releaseOnTourPct` (50%) of its **listed** markets have been priced. The listed markets are the ones picked for keepers when it was
+queued: those trading at least `keeperMinGoods` goods, the best `freshKeepersPerSystem` of them. A normal tour visits every market,
+stale first and then nearest, so a slow probe could spend hours on markets that don't count toward the release.
+
+Two tour modes now. With the clause on, a tour ship in a staged or scouted system flies only to that system's listed markets that have
+never been priced, nearest first. Once they are all priced, or none can be reached, it goes back to the normal tour of the whole
+system. The list is read each leg from the queue and the stored snapshots, so nothing lives only in memory.
+
+- `src/engine/listedFirstTour.ts`: pure, picks the targets and gives a one-line reason ("listed-first: N listed market(s) in SYS not yet priced").
+- `ShipAgent.tourScout()` asks `listedFirstMarkets(system)` before choosing a leg; `FleetManager.listedFirstMarkets()` answers from the queue.
+- The clause ships **off**; off means tours behave exactly as before. Tests: `tests/listedFirstTour.test.ts` (pure, and the tourScout seam).
+
 ## 2026-11-19 — Decision memory saved the moment it changes, not on a later pass
 
 Operator, again: nothing a decision depends on may live only in memory. The first fix for the route rest limits (fb0e856)

@@ -1,4 +1,5 @@
 import { nextTourStep, startNextLap, type SurveyTourPlan } from "./surveyTour.js";
+import { listedFirstTargets } from "./listedFirstTour.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import type { MarketSnapshot } from "./market.js";
@@ -130,6 +131,8 @@ export interface AgentOptions {
   tourHopPriority?: () => boolean;
   /** Markets whose snapshots are older than the freshness window — tour these first. */
   staleMarketTargets?: () => Promise<string[]>;
+  /** Clause stagedTourListedFirst: a staged/scouted system's listed markets never priced yet (empty = tour normally). See listedFirstTour.ts. */
+  listedFirstMarkets?: (system: string) => Promise<string[]>;
   /** Shipyard waypoints to tour periodically so ship stock stays fresh. */
   shipyardTourTargets?: () => Promise<string[]>;
   /**
@@ -299,6 +302,7 @@ export class ShipAgent {
   private readonly hasTourDestination?: AgentOptions["hasTourDestination"];
   private readonly tourHopPriority?: AgentOptions["tourHopPriority"];
   private readonly staleMarketTargets?: AgentOptions["staleMarketTargets"];
+  private readonly listedFirstMarkets?: AgentOptions["listedFirstMarkets"];
   private readonly exploreNext?: AgentOptions["exploreNext"];
   private readonly explorersParked?: AgentOptions["explorersParked"];
   private readonly shipyardTourTargets?: AgentOptions["shipyardTourTargets"];
@@ -418,6 +422,7 @@ export class ShipAgent {
     this.hasTourDestination = opts.hasTourDestination;
     this.tourHopPriority = opts.tourHopPriority;
     this.staleMarketTargets = opts.staleMarketTargets;
+    this.listedFirstMarkets = opts.listedFirstMarkets;
     this.shipyardTourTargets = opts.shipyardTourTargets;
     this.exploreNext = opts.exploreNext;
     this.explorersParked = opts.explorersParked;
@@ -1763,6 +1768,26 @@ export class ShipAgent {
     // Without this every target cost more than 0 and a probe on the tour role reported "no reachable target" forever
     // (THEO-C9 at X1-SP97, 2026-10-30). Only coordinates that are still unknown (dist Infinity) rule a target out.
     const fuelBudget = this.ship.fuel.capacity <= 0 ? Number.MAX_SAFE_INTEGER : this.atMarketHere() ? this.ship.fuel.capacity : this.ship.fuel.current;
+    // Listed-first (clause stagedTourListedFirst): in a staged system, tour only its listed markets not yet priced, the ones the
+    // release counts. Nothing listed left (or none reachable) = the normal tour below.
+    const listedPick = listedFirstTargets(this.ship.nav.systemSymbol, here, (await this.listedFirstMarkets?.(this.ship.nav.systemSymbol).catch(() => [])) ?? []);
+    if (listedPick) {
+      const listedReachable = listedPick.targets
+        .map((t) => ({ t, dist: this.registry.fuelFor(here, t) }))
+        .filter((x) => Number.isFinite(x.dist) && x.dist <= fuelBudget && this.fuelNeededRoundTrip(x.t) <= fuelBudget)
+        .sort((a, b) => a.dist - b.dist);
+      const next = listedReachable[0]?.t;
+      if (next && (await this.refuelIfNeeded(5, next) || this.ship.fuel.capacity <= 0 || this.ship.fuel.current > 0)) {
+        this.clearStranded();
+        this.log(`tour scout: touring ${next} (${listedPick.reason})`);
+        await this.navigateTo(next);
+        await this.ensureDocked();
+        if (this.recordMarket) await this.recordMarket(next);
+        if (this.recordShipyard) await this.recordShipyard(next);
+        return true;
+      }
+      this.log(`tour scout: ${listedPick.reason}, none reachable from ${here}; touring normally`);
+    }
     const reachable = targets
       .filter((t) => t !== here)
       // Same system only. Waypoint coordinates are per-system, so the distance
