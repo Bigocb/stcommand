@@ -7387,6 +7387,20 @@ export class FleetManager {
     return known?.waypoints.find((w) => w.symbol === waypointSymbol)?.traits.some((t) => t.symbol === "SHIPYARD") ?? false;
   }
 
+  /**
+   * What a manual repair would cost, and what scrapping the ship would pay now, before anything is spent (operator 2026-11-19, after
+   * THEO-1 was repaired for 288,055 and scrapped 9 minutes later). Both are game quotes with no side effect; either can be missing
+   * (the ship is not at a shipyard), and the reason is returned instead. Never throws.
+   */
+  async repairQuote(shipSymbol: string): Promise<{ repairCost?: number; scrapValue?: number; note?: string }> {
+    const out: { repairCost?: number; scrapValue?: number; note?: string } = {};
+    const notes: string[] = [];
+    try { out.repairCost = (await this.api.getRepairCost(shipSymbol)).transaction.totalPrice; } catch (err) { notes.push(`repair cost unknown: ${describeError(err)}`); }
+    try { out.scrapValue = (await this.api.getScrapValue(shipSymbol)).transaction.totalPrice; } catch (err) { notes.push(`scrap value unknown: ${describeError(err)}`); }
+    if (notes.length) out.note = notes.join("; ");
+    return out;
+  }
+
   /** Repair a ship to full condition. Must be DOCKED at a shipyard-trait waypoint — the same requirement the raw API itself enforces, checked here first so the error is legible instead of a raw 400. */
   async repairShip(shipSymbol: string): Promise<void> {
     // shipFor() is an agent's cached snapshot, and a ship the fleet has just

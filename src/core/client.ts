@@ -1342,6 +1342,11 @@ export class SpaceTradersAPI {
     return this.client.get<{ exportToImportMap: Record<string, string[]> }>("/market/supply-chain");
   }
 
+  /** Preview what scrapping a ship would pay — no side effect. */
+  getScrapValue(shipSymbol: string) {
+    return this.client.get<{ transaction: components["schemas"]["ScrapTransaction"] }>(`/my/ships/${shipSymbol}/scrap`);
+  }
+
   /** Preview the cost of repairing a ship — no side effect. */
   getRepairCost(shipSymbol: string) {
     return this.client.get<{ transaction: components["schemas"]["RepairTransaction"] }>(`/my/ships/${shipSymbol}/repair`);

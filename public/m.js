@@ -1417,6 +1417,12 @@ $("sheet-actions").addEventListener("click", async (e) => {
     return renderFleetView();
   }
   if (act === "repair") {
+    // Show the price first (operator 2026-11-19): a repair can cost more than the ship is worth to keep.
+    let q = {};
+    try { q = await api("GET", `/api/fleet/repair-quote?shipSymbol=${encodeURIComponent(ship)}`); } catch (err) { q = { note: err.message }; }
+    const fmt = (n) => (typeof n === "number" ? n.toLocaleString() + "c" : "unknown");
+    const msg = `Repair ${ship}?\n\nRepair cost: ${fmt(q.repairCost)}\nScrap value now: ${fmt(q.scrapValue)}${q.note ? `\n\n(${q.note})` : ""}`;
+    if (!confirm(msg)) return;
     b.disabled = true;
     try { await api("POST", "/api/fleet/repair", { shipSymbol: ship }); await loadBridge(); }
     catch (err) { alert(err.message); }

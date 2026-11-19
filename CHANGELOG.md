@@ -8,6 +8,18 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — The Repair button shows the price first (Deck and Tower)
+
+Operator, after THEO-1 was repaired for 288,055 and scrapped 9 minutes later: "is there a way to just show the repair cost every time we
+want to repair something manually".
+
+- Pressing Repair in Deck's or Tower's ship actions now asks first, showing the **repair cost** and the ship's **scrap value now**.
+  Both are game quotes with no side effect: `GET /my/ships/{ship}/repair` and `GET /my/ships/{ship}/scrap`, through
+  `FleetManager.repairQuote()` and the new route `GET /api/fleet/repair-quote?shipSymbol=`.
+- A quote the game refuses (the ship is not at a shipyard) shows as "unknown" with the reason. Cancel spends nothing.
+
+The fuller warning (repair worth less than it adds, a sale pending) is issue #62.
+
 ## 2026-11-19 — Buy warning: a heavy is recognised as a big hull; a big hull wants cargo in transit (`buyAdviceBigHullHolds`)
 
 - **Bug.** Shipyard inventory rows carry `cargoCapacity` 0, so the buy warning treated a heavy freighter as a 0-cargo hull. When THEO-BD

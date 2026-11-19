@@ -2524,6 +2524,15 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     }
   });
 
+  // What a repair would cost and what scrapping would pay now, shown before a manual repair (Deck and Tower ask before repairing).
+  router.get("/fleet/repair-quote", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const shipSymbol = typeof req.query.shipSymbol === "string" ? req.query.shipSymbol : undefined;
+    if (!shipSymbol) return res.status(400).json({ error: "shipSymbol required" });
+    res.json(await w.fleet.repairQuote(shipSymbol));
+  });
+
   router.post("/fleet/repair", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
