@@ -8,6 +8,26 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — Keeping a new system's shipyard covered: scout probes settle as yard keepers; yards that unlock a system go first
+
+The operator asked that we never price a system and then leave its shipyard without a keeper. Two gaps, two clauses, both shipped **off**.
+
+**`keeperYardsUnlockFirst`** (`src/engine/keeperOrder.ts` `unlockYardsFirst`)
+- **The gap.** Shipyards were already listed first. But the keeper queue then ran `serviceableFirst`, which puts every market of a
+  system with no ship docked at a yard behind every market of a system that has one. A newly released system has no ship docked at a
+  yard, so on 2026-11-19 RZ24's four listed yards (X11B, B22Z, F29F, A17A) waited 9.5 h behind about 400 markets.
+- **The fix.** One yard per live system with no keeper of ours now goes to the front, delivered across gates if need be
+  (`keeperDeliveryHops`). The first keeper docked there lets the rest of the system be bought locally.
+
+**`stagedScoutProbeKeeps`** (`src/engine/stagedScoutProbe.ts` `pickScoutProbeKeeperMarket`)
+- **What it does.** When the system a scout probe was bought for is released, the probe settles as a keeper with no approval card,
+  since the hull is already ours.
+- **Where it settles,** in order: an uncovered shipyard that sells probes, then any uncovered shipyard, then the best listed market
+  without a keeper.
+- **Durable.** Which probes are scout probes is saved the moment one is bought (fleet flag `scoutProbes`) and restored at boot.
+
+Tests: `tests/scoutProbeKeeper.test.ts`.
+
 ## 2026-11-19 — Scout probes for staged systems with no tour ship close (clause `stagedScoutProbe`)
 
 This came from the operator's idea and the ZU90 test. A staged system is released once a tour ship is in it and half its listed markets

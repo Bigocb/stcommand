@@ -34,7 +34,7 @@ import { Reminders } from "./reminders.js";
 import { SystemQueue } from "./systemQueue.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
 import { DEFAULT_QUEUE_TOUR_POLICY, decideQueueTours, destinationNeedsTour, needsTour, shouldConsiderTourShip, type QueueTourPolicy, type TourShip, type TourTarget } from "./queueTours.js";
-import { DEFAULT_SCOUT_PROBE_POLICY, decideScoutProbe, type ProbeYard, type ScoutNeed } from "./stagedScoutProbe.js";
+import { DEFAULT_SCOUT_PROBE_POLICY, decideScoutProbe, pickScoutProbeKeeperMarket, packScoutProbes, unpackScoutProbes, type KeeperSpot, type ProbeYard, type ScoutNeed } from "./stagedScoutProbe.js";
 import { DEFAULT_ROUTE_REUSE_POLICY, decideRouteReuse } from "./routeReuse.js";
 import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, type QueueFacts, type ReleaseDecision, type ReleaseMode, type ReleasePolicy } from "./systemRelease.js";
 import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
@@ -73,7 +73,7 @@ import { setTenantUniverse } from "../db/pool.js";
 import { chainSinks, getSupplyChain, transitiveInputs } from "./supplyChain.js";
 import { tripEconomics, legTravel, fuelCredits, REFERENCE_TRIP_SECONDS } from "./routeEconomics.js";
 import { cannotProfit, netCeiling } from "./routePrefilter.js";
-import { yardsFirst } from "./keeperOrder.js";
+import { yardsFirst, unlockYardsFirst } from "./keeperOrder.js";
 import { rotateBySystem, rotationReason, shouldDisplaceCard, systemOf as keeperSystemOf } from "./keeperRotation.js";
 import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
@@ -1203,6 +1203,12 @@ export class FleetManager {
       for (const [ship, at] of m.tourSent) if (!this.queueTourSentAt.has(ship)) this.queueTourSentAt.set(ship, at);
       for (const [key, paid] of m.yardPaid) if (!this.keeperYardPaid.has(key)) this.keeperYardPaid.set(key, paid);
       if (m.tourSent.length + m.yardPaid.length > 0) this.log(`restored ${m.tourSent.length} tour send mark(s) and ${m.yardPaid.length} yard price(s) paid`);
+    }
+    // Scout probes bought for a staged system (stagedScoutProbe), ship -> system: they settle as keepers when it is released.
+    const scoutFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "scoutProbes") : undefined;
+    if (scoutFlag) {
+      for (const [ship, sys] of unpackScoutProbes(scoutFlag)) this.scoutProbes.set(ship, sys);
+      if (this.scoutProbes.size) this.log(`restored ${this.scoutProbes.size} scout probe(s) waiting for their system's release`);
     }
     const deadRoutesFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "deadRoutes") : undefined;
     if (deadRoutesFlag) {
@@ -6264,6 +6270,17 @@ export class FleetManager {
       try { await store.setFleetFlag(tenantId, "routeTripHistory", json); } catch (err) { this.dispatcher.markMemoryUnsaved(); this.log(`save dispatcher memory failed: ${describeError(err)}`); }
     });
   }
+  /** Scout probes bought for a staged system, ship -> system (fleet flag scoutProbes, saved the moment it changes). */
+  private readonly scoutProbes = new Map<string, string>();
+  private saveScoutProbes(): void {
+    if (!this.store || !this.tenantId) return;
+    const store = this.store, tenantId = this.tenantId;
+    const json = packScoutProbes(this.scoutProbes);
+    this.memorySaveChain = this.memorySaveChain.then(async () => {
+      try { await store.setFleetFlag(tenantId, "scoutProbes", json); } catch (err) { this.log(`save scout probes failed: ${describeError(err)}`); }
+    });
+  }
+
   /** Write the fleet's short-lived decision memory now (fleetShortMemory flag): tour send marks and yard prices paid. */
   private saveFleetShortMemory(): void {
     if (!this.store || !this.tenantId) return;
@@ -6625,6 +6642,7 @@ export class FleetManager {
 
   /** Send free tour/explorer ships to queued systems that still need pricing (queueTours.ts), after the release loop. Never throws. */
   private async maybeSendQueueTours(queue: QueueFacts[], now: number): Promise<void> {
+    await this.settleScoutProbes();
     const policy = this.queueTourPolicy();
     if (policy.maxShips <= 0) return;
     try {
@@ -6682,6 +6700,38 @@ export class FleetManager {
     }
   }
 
+  /**
+   * Clause stagedScoutProbeKeeps: a scout probe whose system has been released settles as a keeper on its best spot
+   * (pickScoutProbeKeeperMarket): a yard selling probes, else any yard, else the best listed market without a keeper. No card: the hull
+   * is already ours. A probe the operator has since taken (no longer a tour ship) is forgotten. Never throws.
+   */
+  private async settleScoutProbes(): Promise<void> {
+    if (!this.scoutProbes.size) return;
+    const keeps = this.doctrine.isEnabledOr("stagedScoutProbeKeeps", false);
+    let changed = false;
+    for (const [ship, system] of [...this.scoutProbes]) {
+      try {
+        if (!this.tours.has(ship)) { this.scoutProbes.delete(ship); changed = true; continue; }
+        const q = this.systemQueue.get(system);
+        if (q && q.state !== "live") continue;
+        this.scoutProbes.delete(ship); changed = true;
+        if (!keeps) continue;
+        const covered = this.coveredKeeperMarkets();
+        const probeYards = new Set(((await this.store?.shipyardDirectory()) ?? []).filter((y) => y.shipTypes.includes("SHIP_PROBE")).map((y) => y.waypointSymbol));
+        const listed = q?.markets ?? [];
+        const spots: KeeperSpot[] = (this.galaxy.getSystem(system)?.waypoints ?? [])
+          .filter((w) => this.registry.isMarket(w.symbol) || this.registry.isShipyard(w.symbol))
+          .map((w) => ({ market: w.symbol, isYard: this.registry.isShipyard(w.symbol), sellsProbes: probeYards.has(w.symbol), covered: covered.has(w.symbol), ...(listed.includes(w.symbol) ? { listedRank: listed.indexOf(w.symbol) } : {}) }));
+        const pick = pickScoutProbeKeeperMarket(spots);
+        if (!pick) { this.freshNote(`scout probe: ${ship} stays a tour ship: every yard and listed market in ${system} already has a keeper`); continue; }
+        await this.addKeeperPriorityMarkets([pick.market]);
+        await this.setShipRole(ship, "keeper", pick.market);
+        this.freshNote(`scout probe: ${system} is live, ${ship} now keeps ${pick.market} (${pick.reason})`);
+      } catch (err) { this.freshNote(`scout probe: settling ${ship} failed: ${describeError(err)}`); }
+    }
+    if (changed) this.saveScoutProbes();
+  }
+
   /** Clause stagedScoutProbe off, or nothing to buy = undefined. Reads only the queue, the ships, the stored yard prices and the cash. */
   private async decideStagedScoutProbe(targets: TourTarget[], ships: TourShip[], coveredElsewhere: string[], sends: { ship: string; system: string; hops: number }[], policy: QueueTourPolicy): Promise<import("./stagedScoutProbe.js").ScoutProbeBuy | undefined> {
     if (!this.doctrine.isEnabledOr("stagedScoutProbe", false)) return undefined;
@@ -6720,6 +6770,8 @@ export class FleetManager {
       symbol = (await this.buyShip("SHIP_PROBE" as ShipType, b.yard)).symbol;
     } catch (err) { this.freshNote(`scout probe: buying at ${b.yard} for ${b.system} failed: ${describeError(err)}`); return; }
     this.freshNote(`scout probe: bought ${symbol} at ${b.yard} for ${b.system} (${b.reason})`);
+    this.scoutProbes.set(symbol, b.system);
+    this.saveScoutProbes();
     this.recordAction(configChangeEvent({ setting: "scout_probe", before: {}, after: { ship: symbol, system: b.system, yard: b.yard, price: b.price, hops: b.hops }, atIso: new Date(now).toISOString(), reason: b.reason }));
     try {
       await this.dispatchTourShip(symbol, b.system, { by: "queue" });
@@ -8371,7 +8423,11 @@ export class FleetManager {
     // One card per system, then the next system's turn (keeperRotation.ts): the system served least recently goes first, so a system with
     // many gaps cannot hold the single slot all day (operator, 2026-11-17).
     const rotate = this.doctrine.isEnabledOr("keeperRotateSystems", true);
-    const priority = rotateBySystem(serviceableFirst(yardsFirst(wanted, yardFirst), serviceable), this.keeperSystemServedAt, { enabled: rotate });
+    const rotated = rotateBySystem(serviceableFirst(yardsFirst(wanted, yardFirst), serviceable), this.keeperSystemServedAt, { enabled: rotate });
+    // Clause keeperYardsUnlockFirst: a yard in a live system with no keeper of ours goes to the front (keeperOrder.ts unlockYardsFirst).
+    const priority = this.doctrine.isEnabledOr("keeperYardsUnlockFirst", false)
+      ? unlockYardsFirst(rotated, (m) => this.registry.isShipyard(m), new Set([...this.keeperMarkets.values()].map((m) => m.slice(0, m.lastIndexOf("-")))), this.systemQueue.gated())
+      : rotated;
     if (rotate && priority.length > 0) this.keeperNote("rotate", `keeper queue: next system is ${rotationReason(priority[0], this.keeperSystemServedAt, Date.now())}`);
     // Walk the uncovered markets in priority order until one actually asks (or buys). A market that cannot be
     // requested right now (no keeper hull in stock in its system, the shipyard path already asked for it, ...)

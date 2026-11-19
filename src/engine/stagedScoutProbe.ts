@@ -85,3 +85,44 @@ export function decideScoutProbe(needs: readonly ScoutNeed[], yards: readonly Pr
   }
   return out;
 }
+
+export interface KeeperSpot {
+  market: string;
+  isYard: boolean;
+  /** The yard sells probes (from the shipyard directory). */
+  sellsProbes: boolean;
+  /** Already has a keeper of ours. */
+  covered: boolean;
+  /** On the system's keeper list (listed markets), in list order. */
+  listedRank?: number;
+}
+
+/**
+ * Where a scout probe settles as a keeper once its system is released (clause stagedScoutProbeKeeps): an uncovered yard that sells
+ * probes first (the rest of the system's keepers can then be bought there with no jumps), then any uncovered yard (its stock and prices
+ * stay fresh), then the best uncovered listed market. Undefined = nothing left to keep; the probe stays a tour ship. Pure.
+ */
+export function pickScoutProbeKeeperMarket(spots: readonly KeeperSpot[]): { market: string; reason: string } | undefined {
+  const open = spots.filter((s) => !s.covered);
+  const yardProbe = open.filter((s) => s.isYard && s.sellsProbes).sort((a, b) => (a.listedRank ?? 99) - (b.listedRank ?? 99) || a.market.localeCompare(b.market))[0];
+  if (yardProbe) return { market: yardProbe.market, reason: "a shipyard that sells probes, so the system's other keepers can be bought there with no jumps" };
+  const yard = open.filter((s) => s.isYard).sort((a, b) => (a.listedRank ?? 99) - (b.listedRank ?? 99) || a.market.localeCompare(b.market))[0];
+  if (yard) return { market: yard.market, reason: "a shipyard (no probes for sale there), so its stock and prices stay fresh" };
+  const listed = open.filter((s) => s.listedRank !== undefined).sort((a, b) => a.listedRank! - b.listedRank!)[0];
+  if (listed) return { market: listed.market, reason: "the best listed market without a keeper (the system has no uncovered yard)" };
+  return undefined;
+}
+
+/** The scoutProbes fleet flag: ship -> the staged system it was bought for. Saved the moment it changes, restored at boot. */
+export function packScoutProbes(m: ReadonlyMap<string, string>): string {
+  return JSON.stringify(Object.fromEntries(m));
+}
+
+export function unpackScoutProbes(json: string | undefined): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!json) return out;
+  try {
+    for (const [ship, sys] of Object.entries(JSON.parse(json) as Record<string, unknown>)) if (typeof sys === "string") out.set(ship, sys);
+  } catch { /* an unreadable flag holds nothing */ }
+  return out;
+}

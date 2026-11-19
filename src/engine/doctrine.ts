@@ -696,6 +696,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "stagedScoutProbeKeeps",
+    name: "Fresh systems: a scout probe becomes the system's yard keeper on release",
+    description: "On = once the staged system a scout probe (stagedScoutProbe) was bought for is released, the probe settles as a keeper with no approval card (the hull is already ours): on an uncovered shipyard that sells probes first, so the rest of the system's keepers can be bought there with no jumps; else any uncovered shipyard, so its stock and prices stay fresh; else the best listed market without a keeper. Which probes are scout probes is saved (fleet flag scoutProbes), so a restart keeps them. Added 2026-11-19 (operator: do not price a system and then leave its shipyard without a keeper). Off (the default) = a scout probe keeps touring after the release, as before.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
+    key: "keeperYardsUnlockFirst",
+    name: "Keepers: a shipyard in a system with no keeper of ours goes first",
+    description: "On = in the keeper queue, one shipyard in each live system where none of our keepers is stationed goes to the very front, delivered across gates if need be (keeperDeliveryHops). Such a system has no ship docked at a yard, so the queue's 'serviceable first' rule used to put every one of its markets behind every market elsewhere: on 2026-11-19 RZ24's four listed yards waited 9.5 hours behind about 400 markets after its release. The first keeper docked at a yard lets the rest of the system be bought there with no jumps. Off (the default) = the queue order as before.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "stagedTourListedFirst",
     name: "Fresh systems: a tour in a staged system visits its listed markets first",
     description: "A staged system is released by the tour path once releaseOnTourPct of its listed markets (the ones picked for keepers when it was queued) are priced. On = a tour ship in a staged or scouted system visits only those listed markets that have never been priced, nearest first; once all are priced it tours the rest of the system as usual. Added 2026-11-19 (operator idea, during the probe-tour test on X1-ZU90): a normal tour visits every market, stale first then nearest, so a slow probe could spend hours on markets that do not count toward the release. Off (the default) = tours pick every market the same way, as before. Takes effect on the next leg.",
