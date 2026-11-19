@@ -9,6 +9,11 @@ here; link it from the entry when that happens.
 
 
 
+
+## 2026-11-19 — keeper auto-approve can also require the fleet to be earning
+
+Operator (2026-11-19): "5m with a rate of 0 would clean out the wallet. maybe we need that extra check". The keeper auto-approve only looked at cash (`keeperAutoApproveMinCash`, 5M), so a wallet above the line kept buying probes even while nothing sold. New clause `keeperAutoApproveMinRate` (c/h, default 500,000, ships off): a probe is auto-approved only while the fleet's net over the last hour (realized sale profit minus jump fees and fuel, from the ledger) is at least that much. Below it, or before the rate is known after a restart, the purchase raises a card as before. Both tests apply together. Pure parts in `src/engine/keeperBuy.ts` (`keeperAutoApprove` rate inputs, `hourlyNet`); `FleetManager.refreshKeeperRate()` rebuilds the rate from the ledger at most every 5 minutes in the maintenance pass (a cache of the durable ledger, nothing to persist). Tests in `tests/keeperBuy.test.ts`.
+
 ## 2026-11-19 — keeper log no longer says "nobody there" when a keeper is there
 
 The keeper-request path logged `no keeper request for <market>: the engine counts it covered ... though the keepers report shows nobody there` for every covered market. The "nobody there" half was fixed text that was never checked (BB74-A2 had THEO-1B docked on it), so the logs made it look as if keepers were missing. The line now names who covers the market (`already covered by keeper THEO-1B`, or a parked keeper). Coverage itself was already right; only the message changes (`maybeRequestKeeperProbeForMarket`, new `keeperCoveringMarket` in `src/engine/fleet.ts`). Found by the operator's investigation into the 11-18 parking, whose findings are on issue #61.

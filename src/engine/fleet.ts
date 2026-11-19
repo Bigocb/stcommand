@@ -22,7 +22,7 @@ import { Registry } from "./registry.js";
 import { IntentBoard } from "./intent.js";
 import { unpricedMarkets, gateProgressPct } from "./surveyCoverage.js";
 import { OpeningRunnerImpl } from "./openingRunner.js";
-import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets, systemAlreadyLive } from "./keeperBuy.js";
+import { distinctGoods, hourlyNet, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets, systemAlreadyLive } from "./keeperBuy.js";
 import { blockGood as addBlockedGood, blockedSet, parseBlocked, unblockGood as removeBlockedGood, type BlockedGood } from "./blockedGoods.js";
 import { parseSpaced, spaceRoute as addSpacedRoute, unspaceRoute as removeSpacedRoute, type SpacedRoute } from "./tripSpacing.js";
 import { arrivalSurvey } from "./arrivalSurvey.js";
@@ -7979,7 +7979,23 @@ export class FleetManager {
       spendable: this.canAfford(price),
       keepCash: this.doctrine.isEnabledOr("keeperAutoApproveMinCash", false) ? this.doctrine.value("keeperAutoApproveMinCash") : 0,
       credits: this.credits,
+      minRatePerHour: this.doctrine.isEnabledOr("keeperAutoApproveMinRate", false) ? this.doctrine.value("keeperAutoApproveMinRate") : 0,
+      ratePerHour: this.keeperRate?.net,
     });
+  }
+
+  /** The fleet's net over the last hour, for keeperAutoApproveMinRate. A cache rebuilt from the ledger (refreshKeeperRate), not state. */
+  private keeperRate?: { net: number; at: number };
+
+  /** Refresh keeperRate from the ledger at most every 5 minutes while the rate test is on; a read failure keeps the last value. */
+  private async refreshKeeperRate(): Promise<void> {
+    if (!this.doctrine.isEnabledOr("keeperAutoApproveMinRate", false) || !this.store || !this.tenantId) return;
+    const now = Date.now();
+    if (this.keeperRate && now - this.keeperRate.at < 5 * 60_000) return;
+    try {
+      const rows = await this.store.ledgerRowsSince(this.tenantId, new Date(now - 3_600_000).toISOString());
+      this.keeperRate = { net: hourlyNet(rows, now), at: now };
+    } catch { /* keep the last value; undefined means the operator decides */ }
   }
 
   /**
@@ -11747,6 +11763,7 @@ export class FleetManager {
         await this.timed("contracts.acceptBest", () => this.contracts!.acceptBest());
         await this.timed("maybeNegotiateContract", () => this.maybeNegotiateContract());
       }
+      await this.timed("refreshKeeperRate", () => this.refreshKeeperRate());
       await this.timed("maybeAssignKeepers", () => this.maybeAssignKeepers());
       await this.timed("maybeTriageKeepers", () => this.maybeTriageKeepers());
       await this.timed("maintainFreshGate", () => this.maintainFreshGate());

@@ -598,6 +598,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperAutoApproveMinRate",
+    name: "Keeper auto-approve: fleet must be earning",
+    description: "Auto-approve a keeper probe only while the fleet's net over the last hour (matched profit minus jump fees and fuel) is at least this many credits; below it, or before the rate is known after a restart, the purchase asks the operator instead. A cash reserve alone can drain while nothing sells (operator 2026-11-19). Off = no rate test.",
+    value: 500000, min: 0, max: 20000000, step: 50000, unit: "c/h",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "systemReleaseMinCash",
     name: "System release: keep cash",
     description: "Stage a queued system only while the wallet would still hold at least this many credits after buying its keepers. Separate from keeperAutoApproveMinCash (which decides whether each keeper probe buys without a card). Off = no cash test for staging.",

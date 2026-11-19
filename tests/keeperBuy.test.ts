@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { distinctGoods, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets, systemAlreadyLive } from "../src/engine/keeperBuy.js";
+import { distinctGoods, hourlyNet, keeperAutoApprove, marketsNeedingKeepers, pickShipAtYard, splitThinMarkets, systemAlreadyLive } from "../src/engine/keeperBuy.js";
 
 const base = { clauseOn: true, capCredits: 60_000, price: 28_959, spendable: true };
 
@@ -21,6 +21,42 @@ describe("keeperAutoApprove", () => {
   it("says why", () => {
     assert.match(keeperAutoApprove({ ...base, price: 70_000 }).reason, /over the 60000c/);
   });
+});
+
+describe("keeperAutoApprove: hourly rate (keeperAutoApproveMinRate)", () => {
+  it("no rate floor reproduces today's behaviour", () => {
+    assert.equal(keeperAutoApprove({ ...base, ratePerHour: 0 }).approve, true);
+    assert.equal(keeperAutoApprove({ ...base, minRatePerHour: 0, ratePerHour: 0 }).approve, true);
+  });
+  it("asks while the fleet earns under the floor, even with plenty of cash", () => {
+    const r = keeperAutoApprove({ ...base, keepCash: 5_000_000, credits: 9_000_000, minRatePerHour: 500_000, ratePerHour: 0 });
+    assert.equal(r.approve, false);
+    assert.match(r.reason, /making 0c an hour, under the 500000c/);
+  });
+  it("asks when the rate is not known yet", () => {
+    assert.match(keeperAutoApprove({ ...base, minRatePerHour: 500_000 }).reason, /not known yet/);
+  });
+  it("approves when both the cash and the rate are there", () => {
+    assert.equal(keeperAutoApprove({ ...base, keepCash: 5_000_000, credits: 6_000_000, minRatePerHour: 500_000, ratePerHour: 3_000_000 }).approve, true);
+  });
+  it("the cash reserve still applies with a good rate", () => {
+    assert.equal(keeperAutoApprove({ ...base, keepCash: 5_000_000, credits: 4_000_000, minRatePerHour: 500_000, ratePerHour: 3_000_000 }).approve, false);
+  });
+});
+
+describe("hourlyNet", () => {
+  const now = 10_000_000;
+  it("sums sale profit and subtracts jump fees and fuel inside the last hour only", () => {
+    const rows = [
+      { ts: now - 1_000, type: "SELL", total: 100_000, pnl: 40_000 },
+      { ts: now - 2_000, type: "JUMP", total: 6_500, pnl: null },
+      { ts: now - 3_000, type: "REFUEL", total: 500, pnl: null },
+      { ts: now - 4_000, type: "PURCHASE", total: 90_000, pnl: null },
+      { ts: now - 3_700_000, type: "SELL", total: 1, pnl: 999_999 },
+    ];
+    assert.equal(hourlyNet(rows, now), 33_000);
+  });
+  it("is 0 with no rows", () => assert.equal(hourlyNet([], now), 0));
 });
 
 describe("pickShipAtYard", () => {

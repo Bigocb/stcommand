@@ -28,6 +28,10 @@ export interface KeeperAutoApproveInput {
   keepCash?: number;
   /** The wallet's credits now; only read when keepCash is set. */
   credits?: number;
+  /** Net profit an hour the fleet must be making (clause keeperAutoApproveMinRate); 0 or undefined = no rate test. */
+  minRatePerHour?: number;
+  /** The fleet's net over the last hour (matched profit minus jump fees and fuel); undefined = not known yet. */
+  ratePerHour?: number;
 }
 
 export function keeperAutoApprove(i: KeeperAutoApproveInput): { approve: boolean; reason: string } {
@@ -38,7 +42,29 @@ export function keeperAutoApprove(i: KeeperAutoApproveInput): { approve: boolean
   if (i.keepCash && i.keepCash > 0 && (i.credits ?? 0) - i.price < i.keepCash) {
     return { approve: false, reason: `paying ${i.price}c would leave ${Math.max(0, (i.credits ?? 0) - i.price)}c, under the ${i.keepCash}c to keep: the operator decides` };
   }
+  // A cash reserve alone can drain while nothing sells (operator 2026-11-19: "5m with a rate of 0 would clean out the wallet"), so
+  // with a rate floor set the fleet must also be earning. An unknown rate asks rather than guesses.
+  if (i.minRatePerHour && i.minRatePerHour > 0) {
+    if (i.ratePerHour === undefined || !Number.isFinite(i.ratePerHour)) return { approve: false, reason: "the fleet's hourly rate is not known yet: the operator decides" };
+    if (i.ratePerHour < i.minRatePerHour) {
+      return { approve: false, reason: `the fleet is making ${Math.round(i.ratePerHour)}c an hour, under the ${i.minRatePerHour}c an hour for automatic keepers: the operator decides` };
+    }
+  }
   return { approve: true, reason: `${i.price}c is within the ${i.capCredits}c auto-approve cap` };
+}
+
+/**
+ * The fleet's net over the hour before `now`: realized profit on sales minus jump fees and fuel, from ledger rows. Pure. The
+ * keeper auto-approve rate test reads it; it is rebuilt from the durable ledger, so it is a cache, not state to persist.
+ */
+export function hourlyNet(rows: readonly { ts: number; type: string; total: number; pnl: number | null }[], now: number): number {
+  let net = 0;
+  for (const r of rows) {
+    if (r.ts < now - 3_600_000 || r.ts >= now) continue;
+    if (r.type === "SELL") net += r.pnl ?? 0;
+    else if (r.type === "JUMP" || r.type === "REFUEL") net -= Math.abs(r.total);
+  }
+  return Math.round(net);
 }
 
 export interface ShipAtWaypoint { symbol: string; role: string; waypoint: string; nav: string }
