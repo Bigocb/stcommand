@@ -8,6 +8,24 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19: contract goods bought where they land cheapest, not only in the home system (doctrine contractSourceAnySystem, issue #54)
+
+Contract buying looked only at markets in the agent's home system (`materialBuyers(good, homeSystem)`). On 2026-11-18 a FOOD
+contract for X1-YH41-A1 bought 149 units in home-system X1-KJ19 at 3,468-4,422 each (578,778c), 2 jumps from the delivery point,
+while FOOD sold at about 2,203 in X1-S96, 1 jump away. About 250k was overpaid, plus an extra jump each trip.
+
+New pure module `src/engine/contractSource.ts` (`chooseContractSource`) picks the market with the lowest landed cost at the
+delivery point: price x units still needed + jumps to the destination x 2 x 6,500. Home-system markets stay candidates at any
+age, as before. Other systems count only with a price newer than the clause value (default 90 minutes) and a finished gate path
+(`galaxy.jumpPath`, within positioningHops). `computeContractBuyTargets()` and `assignContractCarrier()` both use it through
+`FleetManager.contractSourceFor()`, which logs `contract source <good>: ...` whenever the choice changes, comparing it with what
+the home system would have cost.
+
+Ships **off**: clause `contractSourceAnySystem`. Off = the old home-system rule exactly (tested). Turn it on with
+`stcommand_set_doctrine contractSourceAnySystem enabled=true`; it takes effect on the next tick. The gate mission's material
+buying still uses the home-system `materialBuyers()` and is unchanged. Tests: `tests/contractSource.test.ts` (module) and
+`tests/contractReach.test.ts` (sourcing seam, clause off and on).
+
 ## 2026-11-18: no new jump routes while the wallet is under a floor (doctrine jumpCashFloor)
 
 The dispatcher nets a route's jump fees against its profit but never asked whether the wallet could carry them. On 2026-11-18

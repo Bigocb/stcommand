@@ -96,9 +96,41 @@ describe("FleetManager sourcing and the delivery-reachability check", () => {
       { contractId: "c1", tradeSymbol: "PRECIOUS_STONES", destinationSymbol: "X1-NH60-ZA5E", unitsRequired: 132, unitsFulfilled: 0, onFulfilledPayment: 11_000 },
       { contractId: "c2", tradeSymbol: "IRON_ORE", destinationSymbol: "X1-NEAR-A1", unitsRequired: 50, unitsFulfilled: 0, onFulfilledPayment: 9_000 },
     ] };
-    f.materialBuyers = async () => [{ waypoint: "X1-HOME-M1", purchasePrice: 50 }];
+    const ts = new Date().toISOString();
+    f.store = { latestMarketSnapshots: async () => ["PRECIOUS_STONES", "IRON_ORE"].map((g) => ({ systemSymbol: "X1-HOME", waypointSymbol: "X1-HOME-M1", goodSymbol: g, purchasePrice: 50, timestamp: ts })) };
     const targets = await f.computeContractBuyTargets();
     assert.deepEqual(targets.map((t: any) => t.good), ["IRON_ORE"]);
+  });
+});
+
+/** Issue #54: contract goods were only ever bought in the home system (FOOD at 4,422 in KJ19 while S96, 1 jump from the delivery point, had it at 2,203). */
+describe("FleetManager contract sourcing across systems (contractSourceAnySystem)", () => {
+  function fleet(on: boolean) {
+    const f: any = new FleetManager({ api: {} as any });
+    f.systemSymbol = "X1-KJ19";
+    f.log = () => {};
+    const hops: Record<string, string[]> = { "X1-KJ19>X1-YH41": ["X1-KJ19", "X1-TV64", "X1-YH41"], "X1-S96>X1-YH41": ["X1-S96", "X1-YH41"] };
+    f.galaxy = { canJump: () => true, jumpPath: (a: string, b: string) => hops[`${a}>${b}`], warmJumpPath: async () => undefined, maxPositioningHops: 6 };
+    f.doctrine = { isEnabledOr: (k: string, d: boolean) => (k === "contractSourceAnySystem" ? on : d), value: (_k: string, d: number) => d };
+    f.contracts = { outstandingDeliveries: async () => [
+      { contractId: "c1", tradeSymbol: "FOOD", destinationSymbol: "X1-YH41-A1", unitsRequired: 288, unitsFulfilled: 269, onFulfilledPayment: 858_701 },
+    ] };
+    const ts = new Date().toISOString();
+    f.store = { latestMarketSnapshots: async () => [
+      { systemSymbol: "X1-KJ19", waypointSymbol: "X1-KJ19-A1", goodSymbol: "FOOD", purchasePrice: 4_422, timestamp: ts },
+      { systemSymbol: "X1-S96", waypointSymbol: "X1-S96-AD6B", goodSymbol: "FOOD", purchasePrice: 2_203, timestamp: ts },
+    ] };
+    return f;
+  }
+  it("clause off: sources in the home system as before", async () => {
+    const [t] = await fleet(false).computeContractBuyTargets();
+    assert.equal(t.buyAt, "X1-KJ19-A1");
+  });
+  it("clause on: sources where the good lands cheapest at the delivery point", async () => {
+    const [t] = await fleet(true).computeContractBuyTargets();
+    assert.equal(t.buyAt, "X1-S96-AD6B");
+    assert.equal(t.buyPrice, 2_203);
+    assert.equal(t.needed, 19);
   });
 });
 

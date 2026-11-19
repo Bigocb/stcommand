@@ -164,6 +164,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "contractSourceAnySystem",
+    name: "Buy contract goods where they land cheapest",
+    description: "Contract buying used to look only at markets in the home system and take the cheapest one there. On 2026-11-18 a FOOD contract for X1-YH41-A1 bought 149 units in home-system KJ19 at 3,468-4,422 (578,778c), 2 jumps from the destination, while FOOD sold at about 2,203 in S96, 1 jump away: about 250k overpaid (issue #54). With this on, every market with a price newer than the value (minutes) and a finished gate path to the delivery point is a candidate, and the one with the lowest landed cost wins: price x units still needed + jumps to the destination x 2 x about 6,500. Home-system markets stay candidates at any age, as before. Off = home-system cheapest only (the old rule). Takes effect on the next tick (about a minute).",
+    value: 90, min: 10, max: 600, step: 10, unit: " min",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "jumpCashFloor",
     name: "No new jump routes below this wallet",
     description: "A gate jump costs about 6-8k, and the dispatcher nets that against a route's profit but never asked whether the wallet can carry it: on 2026-11-18 the wallet fell from 148k to 22k in 90 minutes, mostly in jump fees, and at 22k three jumps would have emptied it. With this on, while the wallet is under the value no trader is given a NEW route that needs a gate jump (to reach the buy market or to carry the cargo to the sell market); same-system routes are unaffected, and a ship already carrying cargo keeps its leg. Off by default. Takes effect on the next dispatch recompute.",

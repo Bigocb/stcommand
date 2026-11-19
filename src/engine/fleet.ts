@@ -92,6 +92,7 @@ import { effectiveMaxLots, type ShipLotPolicy } from "./shipLotPolicy.js";
 import type { ShipReach } from "./shipReach.js";
 import { isIdleTrader, trackIdle, idleLongerThan, IDLE_ALERT_AFTER_MS } from "./idleTraders.js";
 import { sizeForImpact, DEFAULT_IMPACT_POLICY, type ImpactPolicy } from "./lotImpact.js";
+import { chooseContractSource, CONTRACT_SOURCE_OFF } from "./contractSource.js";
 import { RouteDispatcher, EMPTY_COMMITMENTS, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -1965,6 +1966,7 @@ export class FleetManager {
     if (!this.contracts) return [];
     const deliveries = await this.contracts.outstandingDeliveries();
     const neededByGood = new Map<string, number>();
+    const destByGood = new Map<string, string>(); // first delivery point per good: where the landed cost is measured
     // A contract pays out once, on full completion — attribute its whole
     // onFulfilled payout to every good it still needs, but only once per
     // contract per good, so a duplicate line (or this loop re-adding the
@@ -1977,6 +1979,7 @@ export class FleetManager {
       // No point buying for a delivery point nothing can reach: the cargo would sit in a hold, failing the path check.
       if (!(await this.contractDestinationReachable(d.destinationSymbol))) continue;
       neededByGood.set(d.tradeSymbol, (neededByGood.get(d.tradeSymbol) ?? 0) + needed);
+      if (!destByGood.has(d.tradeSymbol)) destByGood.set(d.tradeSymbol, d.destinationSymbol);
       const key = `${d.tradeSymbol}:${d.contractId}`;
       if (!countedContractForGood.has(key)) {
         countedContractForGood.add(key);
@@ -1985,9 +1988,9 @@ export class FleetManager {
     }
     const targets: ContractBuyTarget[] = [];
     for (const [good, needed] of neededByGood) {
-      const cheapest = (await this.materialBuyers(good, this.systemSymbol))[0];
-      if (!cheapest) continue; // no known market — e.g. a raw ore only ever obtained by mining
-      targets.push({ good, buyAt: cheapest.waypoint, buyPrice: cheapest.purchasePrice, needed, value: valueByGood.get(good) });
+      const source = await this.contractSourceFor(good, destByGood.get(good), needed);
+      if (!source) continue; // no known market — e.g. a raw ore only ever obtained by mining
+      targets.push({ good, buyAt: source.waypoint, buyPrice: source.purchasePrice, needed, value: valueByGood.get(good) });
     }
     return targets;
   }
@@ -8648,6 +8651,32 @@ export class FleetManager {
    *  tried (and failed) to route there every tick forever, invisible
    *  because the mission's own "no buyer known" fallback never triggered —
    *  a buyer, just an unreachable one, was always "found". */
+  /**
+   * The market a contract buy for `good` should use (contractSource.ts, issue #54). Clause contractSourceAnySystem off:
+   * the cheapest home-system market, exactly as before. On: the lowest landed cost at the delivery point across every
+   * market with a fresh price and a finished gate path there. Logs the choice when it changes.
+   */
+  private async contractSourceFor(good: string, destinationWaypoint: string | undefined, units: number): Promise<{ waypoint: string; purchasePrice: number } | undefined> {
+    const on = this.doctrine.isEnabledOr("contractSourceAnySystem", false);
+    const rows = (await this.store?.latestMarketSnapshots())?.filter((r) => r.goodSymbol === good && r.purchasePrice > 0 && (on || r.systemSymbol === this.systemSymbol)) ?? [];
+    const destSystem = destinationWaypoint ? destinationWaypoint.slice(0, destinationWaypoint.lastIndexOf("-")) : this.systemSymbol;
+    const choice = chooseContractSource(
+      rows.map((r) => ({ waypoint: r.waypointSymbol, system: r.systemSymbol, purchasePrice: r.purchasePrice, observedAt: Date.parse(r.timestamp) })),
+      {
+        homeSystem: this.systemSymbol, destinationSystem: destSystem, units, now: Date.now(),
+        hops: (from, to) => { if (from === to) return 0; const p = this.galaxy.jumpPath(from, to); return p ? p.length - 1 : undefined; },
+      },
+      { ...CONTRACT_SOURCE_OFF, enabled: on, maxAgeMin: on ? this.doctrine.value("contractSourceAnySystem", 90) : CONTRACT_SOURCE_OFF.maxAgeMin },
+    );
+    if (choice && this.contractSourceLast.get(good) !== choice.waypoint) {
+      this.contractSourceLast.set(good, choice.waypoint);
+      this.log(`contract source ${good}: ${choice.reason}`);
+    }
+    return choice;
+  }
+
+  private readonly contractSourceLast = new Map<string, string>();
+
   private async materialBuyers(tradeSymbol: string, systemSymbol: string): Promise<{ waypoint: string; purchasePrice: number; tradeVolume: number }[]> {
     const rows = (await this.store?.latestMarketSnapshots())?.filter((r) => r.goodSymbol === tradeSymbol && r.purchasePrice > 0 && r.systemSymbol === systemSymbol) ?? [];
     return rows
@@ -9075,7 +9104,9 @@ export class FleetManager {
     const agent = this.traders.get(shipSymbol);
     if (!agent) throw new Error(`${shipSymbol} is not a trader — contract delivery needs a cargo hold`);
     if ((agent.getShip().cargo?.capacity ?? 0) <= 0) throw new Error(`${shipSymbol} has no cargo hold`);
-    const cheapest = (await this.materialBuyers(tradeSymbol, this.systemSymbol))[0];
+    const deliveries = this.contracts ? await this.contracts.outstandingDeliveries() : [];
+    const line = deliveries.find((d) => d.tradeSymbol === tradeSymbol && d.unitsRequired > d.unitsFulfilled);
+    const cheapest = await this.contractSourceFor(tradeSymbol, line?.destinationSymbol, line ? line.unitsRequired - line.unitsFulfilled : 1);
     if (!cheapest) throw new Error(`no known market sells ${tradeSymbol}`);
     await this.setManualDispatch(shipSymbol, {
       shipSymbol,
