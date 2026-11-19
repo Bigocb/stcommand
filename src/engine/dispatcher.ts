@@ -123,6 +123,7 @@ import { ROUNDS_WINDOW_MIN, buyMarketRoundsReason, roundsReason } from "./routeR
 import { autoSpacedNow, spacingReason, type SpacedRoute, type SpacingPolicy, type TripStart } from "./tripSpacing.js";
 import { formatTraderStates, summarizeTraderStates } from "./traderStates.js";
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
+import { profitPerReference, scaledTripSeconds } from "./tripScale.js";
 import { positioningCharge, tripProfitForPositioning } from "./positioningCost.js";
 import { RouteBlocks, DEFAULT_BLOCK_POLICY } from "./routeBlocks.js";
 import { learnImpact, type ImpactPolicy, type Learned } from "./lotImpact.js";
@@ -376,6 +377,8 @@ export class RouteDispatcher {
   private lastComputed = 0;
   /** What the last non-throttled recompute saw and decided, for dispatch_explain. Replaced wholesale each cycle. */
   private lastExplain: DispatchExplainSnapshot | undefined;
+  /** Shortest trip time a score may be scaled by (tripScale.ts, clause routeMinTripSeconds); 0 = no floor. Set per recompute. */
+  private minTripSeconds = 0;
   /** (good, sellAt) → recent real sales into that market, each as the units
    *  moved and when. Confirmed live twice: THEO-1 sold 40u ELECTRONICS at
    *  X1-XB94-D43 for 35,900c; the very next idle trader (THEO-A) was handed
@@ -662,7 +665,7 @@ export class RouteDispatcher {
   private scoreRoute(route: DispatchRoute): number {
     // Profit per trip, scaled to a reference trip length when the route knows its round-trip time, so a
     // short repeating route outranks a long one earning the same per trip.
-    const base = route.tripSeconds ? (route.profitPerTrip * REFERENCE_TRIP_SECONDS) / route.tripSeconds : route.profitPerTrip;
+    const base = profitPerReference(route.profitPerTrip, route.tripSeconds, { referenceSeconds: REFERENCE_TRIP_SECONDS, minTripSeconds: this.minTripSeconds });
     const sold = this.recentVolume(route.good, route.sellAt);
     if (sold <= 0) return base;
     return base / (1 + sold / Math.max(route.volume, 1));
@@ -1063,7 +1066,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; spacingAutoPct?: number; marketRecoveryMin?: number; routeBlockMin?: number; fitMinTrip?: number; fitBigHold?: number; slowHullSpeed?: number; slowHullHauledHops?: number; slowHullPositioningHops?: number; jumpCashFloor?: number; credits?: number; positioningCostScaled?: boolean },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; spacingAutoPct?: number; marketRecoveryMin?: number; routeBlockMin?: number; fitMinTrip?: number; fitBigHold?: number; slowHullSpeed?: number; slowHullHauledHops?: number; slowHullPositioningHops?: number; jumpCashFloor?: number; credits?: number; positioningCostScaled?: boolean; minTripSeconds?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -1074,6 +1077,7 @@ export class RouteDispatcher {
     inFlight?: { shipSymbol: string; good: string; buyAt?: string; sellAt: string; units: number }[],
   ): void {
     const now = Date.now();
+    this.minTripSeconds = Math.max(0, tuning?.minTripSeconds ?? 0);
     // Unconditional throttle. This used to also require a non-empty assignment
     // map, which meant the one case that produces no assignments — no fresh
     // intel, so no routes — recomputed on every 2s tick, running a full
@@ -1900,7 +1904,8 @@ export class RouteDispatcher {
         // value, and the extra buyers' cost on the same scale, rise by the ship's speed gain, and its flight to the
         // buy market shrinks with the trip. Cross-system routes are mostly jump cooldowns, which speed does not shorten.
         const gain = w.secPerDist ? gainFor(t) : 1;
-        const timeScale = (w.tripSeconds ? REFERENCE_TRIP_SECONDS / w.tripSeconds : 1) * gain;
+        const scaledTrip = scaledTripSeconds(w.tripSeconds, { minTripSeconds: this.minTripSeconds });
+        const timeScale = (scaledTrip ? REFERENCE_TRIP_SECONDS / scaledTrip : 1) * gain;
         let penalty = extra * timeScale;
         // A route's profit is priced at the biggest hold in the fleet. With holdAware on a smaller hull is scored on what ITS hold
         // earns (the route's own figure for that hold, else its share of the units the trip moves), so far routes stop looking as
@@ -1925,7 +1930,7 @@ export class RouteDispatcher {
           // route's own profitPerTrip is not changed; this is the ship-specific cost of getting there.
           // positioningCost.ts: with positioningCostScaled on, the fee goes on the same per-600-s scale as the score instead
           // of coming off a rate as a lump (2026-11-19: rich routes 4+ jumps away were refused for every ship).
-          const share = positioningCharge(positioningCredits(t.system, w.buySystem), w.tripSeconds, positioning, { scaled: !!tuning?.positioningCostScaled, referenceSeconds: REFERENCE_TRIP_SECONDS });
+          const share = positioningCharge(positioningCredits(t.system, w.buySystem), scaledTrip, positioning, { scaled: !!tuning?.positioningCostScaled, referenceSeconds: REFERENCE_TRIP_SECONDS });
           score -= share;
           penalty += share;
           if (score <= 0) return undefined;

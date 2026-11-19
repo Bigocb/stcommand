@@ -170,6 +170,7 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   traderIdleDiscovery: ["routes", "Trader fallbacks"],
   jumpCashFloor: ["reach", "Jumps"],
   positioningCostScaled: ["reach", "Jumps"],
+  routeMinTripSeconds: ["routes", "Scoring"],
   contractSourceAnySystem: ["gate", "Contracts"],
   keeperRotateSystems: ["keeper-buy", "Approval & auto-buy"],
   economyAlerts: ["alerts", "Economy alerts"],

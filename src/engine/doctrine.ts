@@ -178,6 +178,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "routeMinTripSeconds",
+    name: "Shortest trip a route's score assumes",
+    description: "The dispatcher ranks a route as profit per 600 seconds of trip time. A same-system hop between two neighbouring waypoints is modelled at a few tens of seconds, so a trivial profit became a huge rate: on 2026-11-19 FUEL in X1-DT25 (2,663 a trip on a 15c spread) ranked at 49,931, above real ANTIMATTER routes, and a trader was handed it (issue #55). With this on, a route's trip time is never taken as shorter than the value (seconds) when scaling its score, so a short route can be worth at most 600 / value times its trip profit. Off = the old scaling. Takes effect on the next dispatch recompute.",
+    value: 300, min: 60, max: 1800, step: 30, unit: " s",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "jumpCashFloor",
     name: "No new jump routes below this wallet",
     description: "A gate jump costs about 6-8k, and the dispatcher nets that against a route's profit but never asked whether the wallet can carry it: on 2026-11-18 the wallet fell from 148k to 22k in 90 minutes, mostly in jump fees, and at 22k three jumps would have emptied it. With this on, while the wallet is under the value no trader is given a NEW route that needs a gate jump (to reach the buy market or to carry the cargo to the sell market); same-system routes are unaffected, and a ship already carrying cargo keeps its leg. Off by default. Takes effect on the next dispatch recompute.",

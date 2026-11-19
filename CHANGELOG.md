@@ -8,6 +8,16 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — Shortest-trip floor for route scores (issue #55)
+
+The dispatcher ranks a route as profit per 600 seconds of trip time. A same-system hop between neighbouring waypoints is
+modelled at a few tens of seconds, so a trivial profit became a huge rate: FUEL in X1-DT25 (2,663 a trip on a 15c spread)
+ranked at 49,931, above real ANTIMATTER routes, and THEO-7 was handed it. New pure module `src/engine/tripScale.ts` floors the
+trip time used for scaling. The dispatcher uses it in `scoreRoute()`, in the extra-buyer impact scale and in the positioning
+charge. Clause `routeMinTripSeconds` (routes / Scoring, 300 s) ships off; on, a route can be worth at most 600 / floor times
+its trip profit. Tests: `tests/tripScale.test.ts` (pure, plus the dispatcher seam: off reproduces the bug, on picks the 50k
+route). FUEL was blocked as a trade good overnight as a stop-gap; unblock once the clause is on.
+
 ## 2026-11-19: Expand cards show how much of each system is priced
 
 Operator request: Tower's Expand tab (Queue) showed each system's keepers but not how much of it we have prices for. The
