@@ -62,6 +62,38 @@ Example (2026-11-10): for a hull meant to trade X1-FR76, `X1-FR76-DA6C` (316,860
 (314,772c, 2 hops) despite costing about 2k more. Light-hauler yards seen: X1-PT36-A2 (314,772c), X1-FR76-DA6C
 (316,860c), X1-YN91-A2 (371,290c). Every live/candidate system was 1-2 hops from home X1-PT36 on 2026-11-10.
 
+## Checking a route before quoting it or acting on it (MANDATORY, every time)
+
+Operator rule (2026-11-19, after the third or fourth costly wrong route): never quote a route's value, recommend a route, pin a
+route, widen a ship's reach or explain a refusal without doing these checks and showing the numbers. The work list's
+`profitPerTrip` is NOT what a given ship will make. Mistakes this rule exists for:
+- THEO-7 GOLD (11-18): quoted the 225-hold figure for an 80-hold ship 3 jumps away; sold at a loss (-8.6k).
+- THEO-33 ANTIMATTER (11-19): widened reach for a "~1 run left" route; the dispatcher put it on the 858k contract slot 5 jumps away instead (#53).
+- FOOD contract (11-18/19): bought in the home system at ~2x the price one jump from the delivery point (#54); said "19 owed" in a way the operator read as 10 spare.
+- ANTIMATTER AB12 -> XS51 (11-19): 160k listed, the dispatcher's own value for THEO-A7 was 15k; the gap was a units bug in `scoreItem`, not a real 160k.
+
+Steps (write the result as one line per ship: `units x margin - jumps x ~6.5k = net, prices N min old`):
+1. **Which ship, where.** `stcommand_ops_ship_live <ship>`: current system, waypoint, hold size, cargo, current assignment.
+2. **The ship's own value, not the list's.** The list prices every route at the biggest hold in the fleet (traders, tour ships and
+   explorers count) and at today's spendable cash. Read `stcommand_ops_dispatch_explain ship=<ship> good=<good>`: the rejection
+   reason for that ship, and in `stcommand_ops_logs ship=<ship>` the `dispatch match: <route> -> <ship> (<hold>u, worth N)` line.
+   If `worth` and `profitPerTrip` differ by more than ~2x, stop and find out why before saying anything (2026-11-19 it was a bug).
+3. **Units the ship can really buy:** min(its hold, spendable / buy price, tradeVolume x maxLotsPerTrip). Spendable = max(wallet -
+   cashFloor, cashFloorTradeSharePct % x wallet) (`stcommand_get_doctrine keys=[...]`, `stcommand_get_cargo_value` for the wallet).
+4. **Jumps, counted:** finished-gate hops from the ship's system to the buy system, and buy system to sell system (BFS over
+   `get_state.jumpConnections` where `complete` is true; never guess). Cost ~6.5k per jump. Positioning jumps are paid once per trip.
+5. **Both markets, fresh:** `stcommand_get_best_price good=<good>` and `stcommand_ops_market_freshness system=<sys>`: buy and sell
+   price, supply, tradeVolume, and age. Price older than ~30 min = say "stale". Sell side SCARCE with tradeVolume under ~20 = one
+   load at most; say so and size to it.
+6. **What else the change does.** Widening reach makes the ship eligible for EVERY far route, including the contract-buy slot (#53).
+   Check `stcommand_ops_contract_money` and who holds the contract slot before widening anyone. After the trip, put the ship back.
+7. **Compute net** with the numbers from steps 3-5 and say it in the reply. If any input is missing or stale, say which one and do
+   not give a number. Never round a list figure into a promise.
+8. **Before a pin or a big buy of cargo:** also the return leg (what the ship does after selling), the share of the wallet the load
+   ties up (over ~50% needs the operator's yes), and a margin that survives one tradeVolume lot of our own impact (~4-5%).
+9. **Contracts:** where the good is cheapest delivered (price + jumps to the delivery point), not the home-system price; units
+   still owed = required - fulfilled from the game (`get_state.contracts`), stated as "N of M delivered, K still owed".
+
 ## Keeper cards: how they get raised (read before explaining a keeper delay)
 
 Corrected 2026-11-17 after the operator had to repeat it three times: **a keeper card does NOT wait for a ship to visit the yard.**

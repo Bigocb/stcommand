@@ -9,6 +9,23 @@ Newest first. Where a lesson became a rule, say where the rule lives (CLAUDE.md,
 
 ---
 
+## 2026-11-19: wrong route numbers, three or four times in two days
+
+**What happened.** Route advice was given from the work list's `profitPerTrip` without checking it against the ship that would fly
+it: THEO-7 GOLD (225-hold figure for an 80-hold ship 3 jumps away, sold at -8.6k); THEO-33 widened for a one-run ANTIMATTER route
+and pulled onto the 858k contract slot 5 jumps away (#53); the FOOD contract bought at ~2x the price one jump from delivery (#54);
+ANTIMATTER AB12 -> XS51 listed at 160k while the dispatcher valued it at 15k for THEO-A7 (a units bug in `scoreItem`).
+
+**Why.** The list prices a route at the biggest hold in the fleet and today's cash, before positioning jumps and before the sell
+market's depth. A ship's own value is different, and the dispatcher's reasons say why; they were not read first.
+
+**Cost.** Direct losses of ~10k, ~250k overpaid on FOOD, and hours of idle hulls and operator trust.
+
+**Rule.** CLAUDE.md, "Checking a route before quoting it or acting on it (MANDATORY, every time)": the ship's own value from
+dispatch_explain and the `dispatch match ... worth` log, units it can afford, counted jumps, fresh prices on both sides, side effects
+of widening reach, and the net written out as a line per ship. No number when an input is missing.
+
+
 ## 2026-11-18: the domino week: fresh systems stop, margins thin, a big buy on a thin wallet, then jump fees eat the profit
 
 **Week:** 2026-11-15 (agent THEO). The gate opened at about hour 34, 13 hours earlier than the week before, and by hour 60 the
