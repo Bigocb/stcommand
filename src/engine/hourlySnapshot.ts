@@ -18,8 +18,13 @@ export interface SnapshotFacts {
   liveSystems: number;
   stagedSystems: number;
   scoutedSystems: number;
-  /** Keepers' API calls a minute, as the keeper review computes it. */
+  /** Keepers' API calls a minute as PLANNED: the sum of 1 / poll interval over the keepers polling (what the keeper review computes). */
   keeperCallsPerMin: number;
+  /** Keeper market reads a minute MEASURED over the last hour (or since boot, if shorter). Added 2026-11-19: the planned figure
+   *  alone could not say whether keepers really read during the crash. Absent in readings written before then. */
+  keeperReadsPerMin?: number;
+  /** Of keepersParked, those parked by idle parking (clause freshIdleParkHours), the rule that parked up to 121 keepers on 11-18. */
+  keepersIdleParked?: number;
   ships: number;
   traders: number;
   wallet: number;
@@ -31,7 +36,7 @@ export function hourOf(ms: number): number {
 }
 
 export function hourlySnapshotEvent(f: SnapshotFacts, atIso: string): ActionEventRecord {
-  return { at: atIso, kind: SNAPSHOT_KIND, actor: "engine", subject: "fleet", observed: { ...f, keeperCallsPerMin: Math.round(f.keeperCallsPerMin * 10) / 10 } };
+  return { at: atIso, kind: SNAPSHOT_KIND, actor: "engine", subject: "fleet", observed: { ...f, keeperCallsPerMin: Math.round(f.keeperCallsPerMin * 10) / 10, ...(f.keeperReadsPerMin !== undefined ? { keeperReadsPerMin: Math.round(f.keeperReadsPerMin * 10) / 10 } : {}) } };
 }
 
 /** One compare-screen point per hour. A hour with no reading is null so a chart leaves a gap, not a zero. */
@@ -40,11 +45,13 @@ export interface FleetPoint {
   keepers: number | null;
   live: number | null;
   calls: number | null;
+  /** Measured keeper reads a minute (null for readings written before 2026-11-19). */
+  reads: number | null;
 }
 
 /** Readings (any order) set on the ledger's hour axis: hour 0 is `startAtIso`. The last reading in an hour stands. */
 export function fleetPoints(rows: readonly { at: string; observed?: Record<string, unknown> }[], startAtIso: string | null, upToHour: number): FleetPoint[] {
-  const out: FleetPoint[] = Array.from({ length: upToHour + 1 }, (_, hour) => ({ hour, keepers: null, live: null, calls: null }));
+  const out: FleetPoint[] = Array.from({ length: upToHour + 1 }, (_, hour) => ({ hour, keepers: null, live: null, calls: null, reads: null }));
   const start = startAtIso ? Date.parse(startAtIso) : NaN;
   if (!Number.isFinite(start)) return out;
   const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -52,7 +59,7 @@ export function fleetPoints(rows: readonly { at: string; observed?: Record<strin
     const hour = Math.floor((Date.parse(r.at) - start) / 3_600_000);
     if (hour < 0 || hour > upToHour) continue;
     const o = r.observed ?? {};
-    out[hour] = { hour, keepers: num(o.keepers), live: num(o.liveSystems), calls: num(o.keeperCallsPerMin) };
+    out[hour] = { hour, keepers: num(o.keepers), live: num(o.liveSystems), calls: num(o.keeperCallsPerMin), reads: num(o.keeperReadsPerMin) };
   }
   return out;
 }

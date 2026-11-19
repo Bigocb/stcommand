@@ -2566,6 +2566,31 @@ export class Store {
     });
   }
 
+  /**
+   * Per market and time bucket: distinct reads, and how many of them differed from the market's previous read (any good's buy
+   * price, sell price or supply), for ops market_changes (src/engine/marketChanges.ts). The comparison runs over the whole window,
+   * so a market's first read in it is never counted as a change.
+   */
+  async marketChangeCounts(sinceIso: string, bucketMin: number, system?: string): Promise<{ waypoint: string; bucket: number; reads: number; changed: number }[]> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ w: string; b: Date; reads: string; changed: string }>(
+        `WITH s AS (
+           SELECT waypoint_symbol AS w, timestamp AS ts,
+                  (LAG(timestamp) OVER k IS NOT NULL AND (purchase_price IS DISTINCT FROM LAG(purchase_price) OVER k
+                     OR sell_price IS DISTINCT FROM LAG(sell_price) OVER k OR supply IS DISTINCT FROM LAG(supply) OVER k)) AS diff
+           FROM market_snapshots
+           WHERE timestamp >= $1::timestamptz AND ($3::text IS NULL OR system_symbol = $3)
+           WINDOW k AS (PARTITION BY waypoint_symbol, good_symbol ORDER BY timestamp)
+         )
+         SELECT w, to_timestamp(floor(extract(epoch FROM ts) / ($2 * 60)) * ($2 * 60)) AS b,
+                COUNT(DISTINCT ts) AS reads, COUNT(DISTINCT ts) FILTER (WHERE diff) AS changed
+         FROM s GROUP BY w, b`,
+        [sinceIso, bucketMin, system ?? null],
+      );
+      return res.rows.map((r) => ({ waypoint: r.w, bucket: r.b.getTime(), reads: Number(r.reads), changed: Number(r.changed) }));
+    });
+  }
+
   async marketSnapshotsSince(sinceIso: string): Promise<{ waypoint: string; good: string; ts: number; purchasePrice: number; sellPrice: number; supply: string }[]> {
     return withPool(this.pool, async (c) => {
       const res = await c.query<{ waypoint_symbol: string; good_symbol: string; ts: Date; purchase_price: number; sell_price: number; supply: string }>(

@@ -153,7 +153,8 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
       <div class="cmp-chart-box"><div class="cmp-chart-h">Trade volume, cumulative</div>${compareChart(A.points, B.points, { key: "units", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, label: "units sold", height: small ? 120 : 160 })}</div>
       ${fleetChart("live", "Live systems", data, gate(A), gate(B), small)}
       ${small ? "" : fleetChart("keepers", "Keepers polling", data, gate(A), gate(B), small)}
-      ${small ? "" : fleetChart("calls", "Keeper API calls a minute", data, gate(A), gate(B), small)}
+      ${small ? "" : fleetChart("calls", "Keeper API calls a minute (planned)", data, gate(A), gate(B), small)}
+      ${small ? "" : fleetChart("reads", "Keeper reads a minute (measured)", data, gate(A), gate(B), small)}
       ${small ? "" : `<div class="cmp-chart-box"><div class="cmp-chart-h">Ships bought so far</div>${compareChart(A.points, B.points, { key: "ships", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, label: "ships bought" })}</div>`}
       ${small ? "" : `<div class="cmp-chart-box"><div class="cmp-chart-h">Wallet</div>${compareChart(A.points, B.points, { key: "wallet", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, label: "wallet" })}</div>`}
     </div>`;

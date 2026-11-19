@@ -6696,6 +6696,9 @@ export class FleetManager {
       stagedSystems: queue.filter((q) => q.state === "staged").length,
       scoutedSystems: queue.filter((q) => q.state === "scouted").length,
       keeperCallsPerMin: polls.reduce((t, c) => t + c, 0),
+      // Measured, over the last hour or since boot when that is shorter (the read times are kept in memory; a rate, not a decision input).
+      keeperReadsPerMin: this.keeperReads.perMin(now, Math.max(60_000, Math.min(3_600_000, now - this.startedAtMs))),
+      keepersIdleParked: this.idleParked.size,
       ships: this.fleetStatusSummary().length,
       traders: this.traders.size,
       wallet: this.credits,

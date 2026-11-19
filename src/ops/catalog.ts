@@ -31,6 +31,7 @@ import { runAnalysis } from "./analysis.js";
 import { DEFAULT_YARD_POLICY, yardReport } from "../engine/yardScan.js";
 import { summarizeDirectory } from "../engine/marketDirectory.js";
 import { buyPreflight, economyReport } from "./economy.js";
+import { summarizeMarketChanges } from "../engine/marketChanges.js";
 
 /** Query-string friendly booleans ("true"/"false") as well as real ones. */
 const bool = z.union([z.boolean(), z.enum(["true", "false"]).transform((v) => v === "true")]).optional();
@@ -824,6 +825,20 @@ export const OPS_TOOLS: OpsTool[] = [
     async run(ctx, a) {
       const rows = await ctx.w.store.opsMarketFreshness(a.system);
       return { system: a.system, markets: rows.length, neverPriced: rows.filter((r) => r.newest === null).length, staleOver90min: rows.filter((r) => r.ageMin !== null && r.ageMin > 90).length, rows };
+    },
+  },
+
+  {
+    name: "market_changes",
+    title: "How often markets actually changed, per hour",
+    description: "From the stored market snapshots: per time bucket, how many markets were read, how many reads, and how many of those reads showed a change from the market's previous read (any good's buy price, sell price or supply), plus the markets that never changed. A keeper waits a third of the time since its market last changed (5-30 min), so this says whether a slow keeper cadence came from markets that really sat still. keepersOnly (default true) counts only markets a keeper is stationed on now. Added 2026-11-19 for the crash question. Read-only; a long window over every market is a heavy query, so keep sinceHours modest.",
+    input: { sinceHours: num(24), bucketMin: num(60), system: z.string().optional(), keepersOnly: z.coerce.boolean().optional().default(true), top: num(10) },
+    async run(ctx, a) {
+      const hours = Math.min(Math.max(a.sinceHours, 1), 96);
+      const bucket = Math.min(Math.max(Math.round(a.bucketMin), 15), 240);
+      const rows = await ctx.w.store.marketChangeCounts(new Date(ctx.now() - hours * 3_600_000).toISOString(), bucket, a.system);
+      const only = a.keepersOnly ? new Set(ctx.w.fleet.keeperStations().filter((k) => !k.parked).map((k) => k.market)) : undefined;
+      return { sinceHours: hours, bucketMin: bucket, keepersOnly: !!a.keepersOnly, ...summarizeMarketChanges(rows, only, Math.min(Math.max(a.top, 1), 50)) };
     },
   },
 

@@ -30,4 +30,16 @@ describe("hourly snapshot", () => {
     assert.deepEqual(p.map((x) => x.keepers), [110, null, null, 150, null]);
     assert.equal(fleetPoints(rows, null, 2).every((x) => x.live === null), true);
   });
+  it("carries the measured keeper reads next to the planned calls, and older readings without it read as null", () => {
+    const e = hourlySnapshotEvent({ ...facts, keeperReadsPerMin: 4.24, keepersIdleParked: 121 }, "2026-11-18T11:00:00.000Z");
+    assert.equal((e.observed as any).keeperReadsPerMin, 4.2);
+    assert.equal((e.observed as any).keepersIdleParked, 121);
+    const start = "2026-11-18T10:00:00.000Z";
+    const p = fleetPoints([
+      { at: "2026-11-18T10:10:00.000Z", observed: { keepers: 130, keeperCallsPerMin: 4.7 } },
+      { at: "2026-11-18T11:10:00.000Z", observed: { keepers: 130, keeperCallsPerMin: 4.7, keeperReadsPerMin: 4.2 } },
+    ], start, 1);
+    assert.deepEqual(p.map((x) => x.reads), [null, 4.2]);
+    assert.deepEqual(p.map((x) => x.calls), [4.7, 4.7]);
+  });
 });

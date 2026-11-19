@@ -8,6 +8,28 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — Measured keeper reads in the hourly snapshot; ops `market_changes`
+
+The operator's question: why did keeper API calls fall during the 11-17/18 crash and jump back at about hour 97?
+
+**What the chart shows.** Deck's "Keeper API calls a minute" chart is the PLANNED rate: the sum of 1 / poll interval over the keepers
+polling. It is not a count of calls. Two changes make the real picture visible:
+
+- **Measured reads in the snapshot.** The hourly snapshot (`hourly_snapshot` action event) now also records `keeperReadsPerMin`,
+  measured over the last hour (or since boot if shorter), and `keepersIdleParked`. Deck's compare screen draws a second chart,
+  "Keeper reads a minute (measured)". The first chart is renamed "(planned)". Readings from before today have no measured figure,
+  so that chart shows a gap for them.
+- **New ops `market_changes`** (`stcommand_ops_market_changes`). From the stored snapshots it counts, per hour, how many markets were
+  read, how many reads there were, and how many of those reads differed from the market's previous read. It also lists the markets
+  that never changed. A keeper waits a third of the time since its market last changed (5-30 min), so this tells whether a slow
+  cadence came from markets that really sat still.
+  - `src/engine/marketChanges.ts` (pure); `Store.marketChangeCounts()` does the LAG comparison in SQL.
+  - Tests: `tests/marketChanges.test.ts`, `tests/marketChangesStore.test.ts`.
+
+**What was already found.** From 11-17 21:40 to 11-18 14:20, idle parking (`freshIdleParkHours` with `freshIdleMinHourlyProfit`
+20,000) parked up to 121 keepers, because the crash put almost every system under the profit bar. That clause stays off, and its
+redesign around something other than sales is issue #61.
+
 ## 2026-11-19 — Tours in a staged system visit its listed markets first (clause `stagedTourListedFirst`)
 
 Operator idea, during the probe-tour test on X1-ZU90. A staged system is released by the tour path once a tour ship is in it and
