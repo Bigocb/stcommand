@@ -8,6 +8,22 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — Fresh-system tours: assignments can expire, and probes count as fuelled (issue #57)
+
+Three staged systems (XD69, XP91, YV28) waited 0% priced while the engine wanted a release, and the tour log said "2 tour ship(s), none
+free" with six tour ships in the fleet. Four of them (THEO-37, THEO-1, THEO-4, THEO-AD) still carried `dispatch_tour` assignments to
+systems that had gone live hours before; `shouldConsiderTourShip` skips any operator-assigned ship for good (issue #46). The probe
+THEO-AD also failed the fuel check, `fuelCap > 0 && fuel / fuelCap >= minFuelShare`, because a probe has no tank.
+
+- New clause `freshTourPinExpires` (off by default): with it on, an operator's tour assignment holds the ship only while the assigned
+  system still needs a tour (`destinationNeedsTour`); once that system is live or priced enough, the queue may send the ship on.
+  Off reproduces the #46 behaviour (tested).
+- A ship with no tank counts as fuelled (a probe flies without fuel); fuel-share ties use the same rule.
+- The "none free" note now names the ships left out as operator-assigned.
+
+`src/engine/queueTours.ts`, `src/engine/fleet.ts` (queue-tour pass), `src/engine/doctrine.ts`, `src/engine/doctrineGroups.ts`;
+tests in `tests/queueTours.test.ts`.
+
 ## 2026-11-19 — Ledger wallet balance after jumps, refuels and contracts
 
 The operator asked where ~26k had gone when two wallet readings disagreed (ledger 151,631 at 13:07:14, the live wallet 126,705).

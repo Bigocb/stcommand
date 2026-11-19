@@ -78,6 +78,8 @@ export interface TourSignals {
   ships: readonly TourShip[];
   /** Gate hops between two systems; undefined = no known path. A caller's lookup, so this module stays pure. */
   hops: (from: string, to: string) => number | undefined;
+  /** Ships the caller left out because an operator assignment holds them (named in the "none free" note so the log says why). */
+  pinned?: readonly string[];
 }
 
 export interface TourSend {
@@ -127,10 +129,12 @@ export function destinationNeedsTour(dest: string | undefined, targets: readonly
  *   Giving it a destination is safe in flight: it finishes the leg, then walks (advanceTourDispatch). Explorers in flight stay skipped:
  *   they may be on a long charting trip.
  */
-export function shouldConsiderTourShip(s: { destination: string | undefined; sentByModule: boolean; inTransit: boolean; isTourRole: boolean; destinationNeedsTour: boolean; operatorAssigned?: boolean }): boolean {
+export function shouldConsiderTourShip(s: { destination: string | undefined; sentByModule: boolean; inTransit: boolean; isTourRole: boolean; destinationNeedsTour: boolean; operatorAssigned?: boolean; assignmentNeedsTour?: boolean; assignmentExpires?: boolean }): boolean {
   // An operator-assigned tour ship belongs to its system until the operator moves it (issue #46, 2026-11-18). Its trip's destination is
   // cleared on arrival, so without this the queue saw it as free and could send it off mid-pricing.
-  if (s.operatorAssigned) return false;
+  // With assignmentExpires (clause freshTourPinExpires, issue #57) the claim lasts only while the assigned system still needs a tour: on
+  // 2026-11-19 four tour ships stayed pinned to systems that had gone live hours before, and the queue said "none free" with six tour ships.
+  if (s.operatorAssigned && !(s.assignmentExpires && s.assignmentNeedsTour === false)) return false;
   if (s.destination !== undefined && !s.sentByModule && s.destinationNeedsTour) return false;
   if (s.inTransit && s.destination === undefined && !s.isTourRole) return false;
   return true;
@@ -166,11 +170,14 @@ export function decideQueueTours(s: TourSignals, p: QueueTourPolicy): TourDecisi
   }
 
   const workingSet = new Set(working.map((x) => x.symbol));
-  const fueled = (x: TourShip): boolean => x.fuelCap > 0 && x.fuel / x.fuelCap >= p.minFuelShare;
+  // A ship with no tank (a probe) needs no fuel to fly: it counts as full (issue #57; before, fuelCap 0 made it never free).
+  const fuelShare = (x: TourShip): number => (x.fuelCap > 0 ? x.fuel / x.fuelCap : 1);
+  const fueled = (x: TourShip): boolean => fuelShare(x) >= p.minFuelShare;
   const stayed = (x: TourShip): boolean => x.sentAt === undefined || s.now - x.sentAt >= p.minStayMs;
   const free = s.ships.filter((x) => !x.held && !workingSet.has(x.symbol) && fueled(x) && stayed(x));
   if (!free.length) {
-    const why = s.ships.length ? `${s.ships.length} tour ship(s), none free (held, busy on a system that needs it, low on fuel, or just sent)` : "no tour or explorer ship";
+    const pinned = s.pinned?.length ? `; ${s.pinned.length} more left out as operator-assigned (${s.pinned.join(", ")})` : "";
+    const why = s.ships.length ? `${s.ships.length} tour ship(s), none free (held, busy on a system that needs it, low on fuel, or just sent)${pinned}` : `no tour or explorer ship${pinned}`;
     out.notes.push(`${uncovered.map((t) => t.system).join(", ")} need a tour: ${why}`);
     return out;
   }
@@ -186,7 +193,7 @@ export function decideQueueTours(s: TourSignals, p: QueueTourPolicy): TourDecisi
       if (taken.has(x.symbol)) continue;
       const h = x.system === t.system ? 0 : s.hops(x.system, t.system);
       if (h === undefined || h > p.maxHops) continue;
-      if (!best || h < best.hops || (h === best.hops && x.fuel / x.fuelCap > best.ship.fuel / best.ship.fuelCap)) best = { ship: x, hops: h };
+      if (!best || h < best.hops || (h === best.hops && fuelShare(x) > fuelShare(best.ship))) best = { ship: x, hops: h };
     }
     if (!best) {
       out.notes.push(`${t.system} needs a tour: no free ship within ${p.maxHops} gate hops`);

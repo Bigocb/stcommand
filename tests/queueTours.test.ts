@@ -107,3 +107,35 @@ test("an operator-assigned tour ship is never considered by the queue, before or
   assert.equal(shouldConsiderTourShip({ ...base, destination: "X1-GV7", destinationNeedsTour: false, operatorAssigned: true }), false);
   assert.equal(shouldConsiderTourShip({ ...base, operatorAssigned: false }), true, "not assigned: unchanged");
 });
+
+// Issue #57 (2026-11-19): THEO-37/1/4/AD stayed pinned by old dispatch_tour assignments to systems that had gone live, and the probe
+// THEO-AD (fuelCap 0) could never pass the fuel check, so three staged systems waited 0% priced with "none free".
+test("#57 clause off: an operator assignment still holds the ship, whatever its system's state (the #46 behaviour)", () => {
+  const base = { destination: undefined, sentByModule: false, inTransit: true, isTourRole: true, destinationNeedsTour: false, operatorAssigned: true };
+  assert.equal(shouldConsiderTourShip({ ...base, assignmentNeedsTour: false }), false);
+  assert.equal(shouldConsiderTourShip({ ...base, assignmentNeedsTour: false, assignmentExpires: false }), false);
+});
+
+test("#57 clause on: the assignment ends once its system no longer needs a tour, and holds while it still does", () => {
+  const base = { destination: undefined, sentByModule: false, inTransit: true, isTourRole: true, destinationNeedsTour: false, operatorAssigned: true, assignmentExpires: true };
+  assert.equal(shouldConsiderTourShip({ ...base, assignmentNeedsTour: false }), true, "assigned system is live: free");
+  assert.equal(shouldConsiderTourShip({ ...base, assignmentNeedsTour: true }), false, "assigned system still staged and unpriced: kept");
+});
+
+test("#57 a probe with no tank counts as fuelled and can be sent", () => {
+  const d = decideQueueTours(sig([target("X5")], [ship("PROBE", "X4", { fuel: 0, fuelCap: 0 })]), on);
+  assert.equal(d.send.length, 1);
+  assert.equal(d.send[0]!.ship, "PROBE");
+});
+
+test("#57 a tanked ship under the fuel share is still held back, and ties prefer the fuller ship over a probe only when fuller", () => {
+  assert.equal(decideQueueTours(sig([target("X5")], [ship("LOW", "X4", { fuel: 10, fuelCap: 100 })]), on).send.length, 0);
+  const d = decideQueueTours(sig([target("X5")], [ship("HALF", "X4", { fuel: 50, fuelCap: 100 }), ship("PROBE", "X4", { fuel: 0, fuelCap: 0 })]), on);
+  assert.equal(d.send[0]!.ship, "PROBE", "a probe counts as full, so it wins a tie against a half tank");
+});
+
+test("#57 the none-free note names the ships left out as operator-assigned", () => {
+  const d = decideQueueTours({ ...sig([target("X5")], [ship("H", "X4", { held: true })]), pinned: ["THEO-37", "THEO-4"] }, on);
+  assert.equal(d.send.length, 0);
+  assert.match(d.notes.join(" "), /2 more left out as operator-assigned \(THEO-37, THEO-4\)/);
+});

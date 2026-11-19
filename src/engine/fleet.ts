@@ -6593,8 +6593,11 @@ export class FleetManager {
         readyShare: q.readyShare, pricedShare: q.pricedShare, reachable: q.reachable,
       }));
       const ships: TourShip[] = [];
+      const pinned: string[] = [];
+      const pinExpires = this.doctrine.isEnabledOr("freshTourPinExpires", false);
       for (const [symbol, agent] of [...this.tours, ...this.explorers]) {
         const dest = this.tourDestinations.get(symbol);
+        const assigned = this.tourAssignments.get(symbol);
         // A destination this module did not set belongs to the operator (or the charting flow): never override it while that system still
         // needs a tour. Once it does not (live, or enough priced), the job is done and the ship is free (also after a restart, which
         // forgets queueTourSentAt: 2026-11-17 every tour ship was locked out that way for 10 hours).
@@ -6602,8 +6605,9 @@ export class FleetManager {
         if (!shouldConsiderTourShip({
           destination: dest, sentByModule: this.queueTourSentAt.has(symbol), inTransit: sh.nav.status === "IN_TRANSIT",
           isTourRole: this.tours.has(symbol), destinationNeedsTour: destinationNeedsTour(dest, targets, policy),
-          operatorAssigned: this.tourAssignments.has(symbol),
-        })) continue;
+          operatorAssigned: assigned !== undefined,
+          assignmentExpires: pinExpires, assignmentNeedsTour: destinationNeedsTour(assigned, targets, policy),
+        })) { if (assigned !== undefined) pinned.push(symbol); continue; }
         ships.push({
           symbol, system: sh.nav.systemSymbol, fuel: sh.fuel?.current ?? 0, fuelCap: sh.fuel?.capacity ?? 0,
           ...(dest !== undefined ? { heading: dest } : {}), held: this.isHeld(symbol), sentAt: this.queueTourSentAt.get(symbol),
@@ -6612,6 +6616,7 @@ export class FleetManager {
       const d = decideQueueTours({
         now, targets, ships,
         hops: (a, b) => { const p = this.findSystemPath(a, b); return p ? p.length - 1 : undefined; },
+        pinned,
       }, policy);
       for (const n of d.notes) this.freshNote(`tours: ${n}`);
       for (const s of d.send) {
