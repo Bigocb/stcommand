@@ -8,6 +8,15 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — A denied keeper card holds back only its own market
+
+Operator (2026-11-19): "why does it wait 15 minutes". Denying one market-triggered keeper card (`buyKeeperProbeForMarket`) used to stop
+every keeper card for 15 minutes, because `ApprovalGate` keeps its denial wait per approval kind and every market shares that one kind.
+Overnight denials kept the keeper queue stalled for that reason. Now both callers in `src/engine/fleet.ts` pass `denyCooldownMs: 0` for
+that kind and put only the denied market on its own 15-minute hold (`coolKeeperMarket`, `KEEPER_DENIAL_COOLDOWN_MIN`), so the next
+market's card can open on the next pass. The shipyard-triggered kind and every other approval kind are unchanged. Test:
+`tests/approvals.test.ts` ("denyCooldownMs 0").
+
 ## 2026-11-19 — Shortest-trip floor for route scores (issue #55)
 
 The dispatcher ranks a route as profit per 600 seconds of trip time. A same-system hop between neighbouring waypoints is

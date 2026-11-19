@@ -86,6 +86,18 @@ describe("ApprovalGate", () => {
     assert.equal(rows.length, 1);
   });
 
+  it("denyCooldownMs 0: after a denial the kind may ask again at once (keeper cards: only the denied market waits, 2026-11-19)", async () => {
+    const { store, rows } = fakeStore();
+    const gate = new ApprovalGate(store, "t1", () => {});
+    await gate.request("buyKeeperProbeForMarket", { ...opts, shipSymbol: "Y|M1|SHIP_PROBE", denyCooldownMs: 0 });
+    await store.decideApproval("t1", rows[0]!.id, "denied");
+    assert.equal(await gate.request("buyKeeperProbeForMarket", { ...opts, shipSymbol: "Y|M1|SHIP_PROBE", denyCooldownMs: 0 }), false);
+    // The next market's card opens straight away.
+    assert.equal(await gate.request("buyKeeperProbeForMarket", { ...opts, shipSymbol: "Y|M2|SHIP_PROBE", denyCooldownMs: 0 }), undefined);
+    assert.equal(rows.length, 2);
+    assert.equal(rows[1]!.shipSymbol, "Y|M2|SHIP_PROBE");
+  });
+
   it("survives a restart: a fresh ApprovalGate reading the same store resumes an approved decision", async () => {
     const { store, rows } = fakeStore();
     const before = new ApprovalGate(store, "t1", () => {});

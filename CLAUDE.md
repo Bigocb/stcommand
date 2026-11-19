@@ -104,7 +104,7 @@ are not limited to two ships (`freshTours`, now 8). What can still hold a keeper
 - **One open request at a time.** `advanceKeeperMarketQueue` (`src/engine/fleet.ts`) raises one `buyKeeperProbeForMarket` card at a time
   unless `autoApproveKeeperProbes` is on; an unanswered card stalls every other market ("the single request slot is held by ...").
   2026-11-17 the YH41-A2 card (3 goods) sat open 00:22-01:45 and the rest of BB74/YH41 got no cards. Answer or deny an open card at once.
-- A denied market is not asked again for 15 minutes.
+- A denied market is not asked again for 15 minutes. Only that market waits: other markets can raise cards at once (fixed 2026-11-19; before, one denial stopped every keeper card for 15 min).
 - The maintenance tick can run 15-25 s when `maybeRemoteSurvey` is busy, so a card is resolved up to ~25 s after the tap.
 - Staged systems' keepers are parked until the system is released (that is the design, not a stall).
 

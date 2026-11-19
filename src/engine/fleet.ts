@@ -428,6 +428,9 @@ interface PassRecorder {
   steps: { name: string; ms: number }[];
 }
 
+/** Minutes a denied market-triggered keeper card's market is not asked about again. Only that market: other markets may ask at once. */
+const KEEPER_DENIAL_COOLDOWN_MIN = 15;
+
 export class FleetManager {
   private readonly api: SpaceTradersAPI;
   readonly contracts?: ContractManager;
@@ -8171,12 +8174,14 @@ export class FleetManager {
       cost: delivery ? delivery.total : best.price,
       timeoutMs: 2 * 60 * 60_000,
       onTimeout: "deny",
+      // The denial wait is the denied market's, not the whole kind's (2026-11-19): one "no" used to stop every keeper card for 15 min.
+      denyCooldownMs: 0,
     });
     if (approved === undefined) {
       this.log(`keeper probe purchase for ${marketWaypoint} (at ${best.waypointSymbol}) awaiting operator approval`);
       return true;
     }
-    if (approved === false) return true; // ApprovalGate.request() logs a fresh denial once; cooldown repeats stay silent
+    if (approved === false) { await this.coolKeeperMarket(marketWaypoint, KEEPER_DENIAL_COOLDOWN_MIN); return true; } // only this market waits; the next market may ask at once
     await this.purchaseKeeperProbe(best.waypointSymbol, marketWaypoint, best.price, best.hull);
     return true;
   }
@@ -8537,10 +8542,13 @@ export class FleetManager {
       cost: row.cost,
       timeoutMs: 2 * 60 * 60_000,
       onTimeout: "deny",
+      ...(kind === "buyKeeperProbeForMarket" ? { denyCooldownMs: 0 } : {}),
     });
     if (approved === undefined) return; // still pending, or already resolved this tick
     if (approved === false) {
-      return; // ApprovalGate.request() logged the denial once when it picked the row up
+      // ApprovalGate.request() logged the denial once when it picked the row up. The market-triggered kind holds back only the denied market.
+      if (kind === "buyKeeperProbeForMarket") await this.coolKeeperMarket(targetMarket, KEEPER_DENIAL_COOLDOWN_MIN);
+      return;
     }
     await this.purchaseKeeperProbe(waypointSymbol, targetMarket, row.cost, hull);
   }
