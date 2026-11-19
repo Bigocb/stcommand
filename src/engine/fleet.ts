@@ -93,6 +93,7 @@ import type { ShipReach } from "./shipReach.js";
 import { isIdleTrader, trackIdle, idleLongerThan, IDLE_ALERT_AFTER_MS } from "./idleTraders.js";
 import { sizeForImpact, DEFAULT_IMPACT_POLICY, type ImpactPolicy } from "./lotImpact.js";
 import { chooseContractSource, CONTRACT_SOURCE_OFF } from "./contractSource.js";
+import { marketPricedShares } from "./pricedShare.js";
 import { RouteDispatcher, EMPTY_COMMITMENTS, CROSS_SYSTEM_JUMP_COST_ESTIMATE, MAX_LOTS_PER_TRIP, type DispatchRoute, type WarehouseTarget, type HaulTarget, type MissionBuyTarget, type ContractBuyTarget, type TraderAssignment } from "./dispatcher.js";
 
 export type Ship = components["schemas"]["Ship"];
@@ -6501,7 +6502,14 @@ export class FleetManager {
     const reachKnown = reach.size >= 5 || this.galaxy.gatesAllClosed(this.systemSymbol);
     // Markets any keeper has read at least once (a snapshot of any age); unknown when the store cannot say, so the release test is skipped.
     let pricedSeen: Set<string> | undefined;
-    try { pricedSeen = new Set(((await this.store.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol)); } catch { pricedSeen = undefined; }
+    try {
+      const rows = (await this.store.latestMarketSnapshots()) ?? [];
+      pricedSeen = new Set(rows.map((r) => r.waypointSymbol));
+      // Newest price per market, kept for freshGateState()'s per-system priced / fresh shares (Tower's Expand cards).
+      const newest = new Map<string, number>();
+      for (const r of rows) { const t = Date.parse(r.timestamp); if (Number.isFinite(t) && t > (newest.get(r.waypointSymbol) ?? 0)) newest.set(r.waypointSymbol, t); }
+      this.marketNewestPrice = { at: Date.now(), newest };
+    } catch { pricedSeen = undefined; }
     // Systems with one of our tour or explorer ships in them now (the tour path of the release rule, clause releaseOnTourPct).
     const toured = new Set<string>();
     for (const agent of [...this.tours.values(), ...this.explorers.values()]) {
@@ -6750,6 +6758,9 @@ export class FleetManager {
   }
 
   /** For the ops tool: the queue, readiness, live premiums, what the rule says now and the last notes. */
+  /** Newest price time per market, refreshed by the fresh-system check (about every 5 minutes); feeds freshGateState(). */
+  private marketNewestPrice: { at: number; newest: Map<string, number> } | undefined;
+
   freshGateState(): Record<string, unknown> {
     const ready = this.keepersInPlaceMarkets();
     return {
@@ -6760,6 +6771,7 @@ export class FleetManager {
       queue: this.systemQueue.list().map((q) => ({
         ...q,
         keepersInPlace: q.state === "staged" ? q.markets.filter((m) => ready.has(m)).length : undefined,
+        ...marketPricedShares(q.markets, this.marketNewestPrice?.newest, Date.now()),
         stagedAt: q.stagedAt ? new Date(q.stagedAt).toISOString() : undefined,
         releasedAt: q.releasedAt ? new Date(q.releasedAt).toISOString() : undefined,
         addedAt: new Date(q.addedAt).toISOString(),

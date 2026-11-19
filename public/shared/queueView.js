@@ -38,6 +38,12 @@ export function tradingRows(pnl) {
   return { rows, flag, drop: flag ? Math.round(((three - last) / three) * 100) : 0 };
 }
 
+/** "62% priced · 40% fresh" (fresh = priced in the last 90 min); empty when the server did not send the shares. */
+export function pricedText(x) {
+  if (x?.pricedPct == null) return "";
+  return `${x.pricedPct}% priced · ${x.freshPct ?? 0}% fresh`;
+}
+
 export function buildQueueView({ queue, keepers, review, pnl, stuck, approvals, nowMs }) {
   const q = queue?.queue ?? [];
   const by = (state) => q.filter((s) => s.state === state);
@@ -49,17 +55,17 @@ export function buildQueueView({ queue, keepers, review, pnl, stuck, approvals, 
     .map((s) => {
       const f = liveFacts.get(s.system);
       const at = ms(s.releasedAt);
-      return { system: s.system, releasedAt: Number.isFinite(at) ? at : null, age: Number.isFinite(at) ? ageText(nowMs - at) : "—", ratio: f?.ratio ?? null, sells: f?.sells ?? 0, held: !!s.held };
+      return { system: s.system, releasedAt: Number.isFinite(at) ? at : null, age: Number.isFinite(at) ? ageText(nowMs - at) : "—", ratio: f?.ratio ?? null, sells: f?.sells ?? 0, held: !!s.held, ...(s.pricedPct != null ? { pricedPct: s.pricedPct, freshPct: s.freshPct ?? 0 } : {}) };
     })
     .sort((a, b) => (b.releasedAt ?? 0) - (a.releasedAt ?? 0));
 
   const staged = by("staged").map((s) => {
     const mine = inSystem(s.system);
     const inPlace = mine.filter((m) => m.status === "staged" || m.status === "covered").length;
-    return { system: s.system, inPlace, of: s.markets?.length ?? 0, held: !!s.held, since: Number.isFinite(ms(s.stagedAt)) ? ageText(nowMs - ms(s.stagedAt)) : "—" };
+    return { system: s.system, inPlace, of: s.markets?.length ?? 0, held: !!s.held, since: Number.isFinite(ms(s.stagedAt)) ? ageText(nowMs - ms(s.stagedAt)) : "—", ...(s.pricedPct != null ? { pricedPct: s.pricedPct, freshPct: s.freshPct ?? 0 } : {}) };
   });
 
-  const scouted = by("scouted").map((s) => ({ system: s.system, markets: s.markets?.length ?? 0, age: Number.isFinite(ms(s.addedAt)) ? ageText(nowMs - ms(s.addedAt)) : "—", held: !!s.held }));
+  const scouted = by("scouted").map((s) => ({ system: s.system, markets: s.markets?.length ?? 0, age: Number.isFinite(ms(s.addedAt)) ? ageText(nowMs - ms(s.addedAt)) : "—", held: !!s.held, ...(s.pricedPct != null ? { pricedPct: s.pricedPct, freshPct: s.freshPct ?? 0 } : {}) }));
 
   const counts = keepers?.counts ?? {};
   const budget = review?.budget ?? {};

@@ -8,6 +8,16 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19: Expand cards show how much of each system is priced
+
+Operator request: Tower's Expand tab (Queue) showed each system's keepers but not how much of it we have prices for. The
+fresh-system check now keeps the newest price time per market (it already loaded them for the release rule), and
+`system_queue` returns, per queued system (live, staged and scouted), `pricedPct` (listed markets ever priced, what the release
+rule counts) and `freshPct` (priced in the last 90 minutes, the age a price still defines a route); pure helper
+`src/engine/pricedShare.ts`. The cards read "3 of 8 keepers · 62% priced · 40% fresh"; the live table gains a Fresh column and
+the scouted table a Priced column (both the card and the table layout). Older servers send neither and the cards look as before.
+Tests: `tests/pricedShare.test.ts`; `tests/queueView.test.ts` unchanged and passing.
+
 ## 2026-11-19: positioning jumps charged on the route's own scale (doctrine positioningCostScaled)
 
 The dispatcher ranks routes by a time-scaled score (profit per 600 s of trip, `scoreRoute()`), and two places compared that

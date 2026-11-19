@@ -7,7 +7,7 @@
  *   c.hide();
  */
 import { escapeHtml } from "/shared/domain.js";
-import { buildQueueView } from "/shared/queueView.js";
+import { buildQueueView, pricedText } from "/shared/queueView.js";
 
 const h = (s) => escapeHtml(String(s ?? ""));
 const compact = (n) => {
@@ -59,25 +59,25 @@ export function mountQueue(root, { api, approvalCount, layout = "tables" }) {
     root.innerHTML = `
       ${v.attention.length ? `<div class="qq-card qq-warn-card"><div class="qq-q">Needs attention</div>${v.attention.map((a) => `<div class="qq-a">${h(a.item)}: ${h(a.detail)}</div>`).join("")}</div>` : ""}
       <div class="qq-card"><div class="qq-q">Next to open</div>
-        ${next ? `<div class="qq-big">${h(next.system)}</div><div class="qq-a">${next.inPlace} of ${next.of} keepers in place · staged ${h(next.since)}${next.held ? " · held" : ""}</div>` : `<div class="qq-a">Nothing staged right now.</div>`}
+        ${next ? `<div class="qq-big">${h(next.system)}</div><div class="qq-a">${next.inPlace} of ${next.of} keepers in place${pricedText(next) ? ` · ${h(pricedText(next))}` : ""} · staged ${h(next.since)}${next.held ? " · held" : ""}</div>` : `<div class="qq-a">Nothing staged right now.</div>`}
         ${next && !next.held ? `<button class="qq-link qq-release" data-release="${h(next.system)}">Release now</button>` : ""}
         ${v.rule ? `<div class="qq-a qq-rule-a">Release rule: ${h(v.rule)}</div>` : ""}
       </div>
       <div class="qq-card"><div class="qq-q">Staged — release by hand</div>
-        ${v.staged.length ? v.staged.map((s) => `<div class="qq-a">${h(s.system)} · ${s.inPlace} of ${s.of} keepers <button class="qq-link qq-release" data-release="${h(s.system)}">Release now</button></div>`).join("") : `<div class="qq-a">None staged.</div>`}
+        ${v.staged.length ? v.staged.map((s) => `<div class="qq-a">${h(s.system)} · ${s.inPlace} of ${s.of} keepers${pricedText(s) ? ` · ${h(pricedText(s))}` : ""} <button class="qq-link qq-release" data-release="${h(s.system)}">Release now</button></div>`).join("") : `<div class="qq-a">None staged.</div>`}
       </div>
       <div class="qq-card"><div class="qq-q">Systems in each state</div>
         <div class="qq-counts"><div><b>${v.counts.live}</b><span>live</span></div><div><b>${v.counts.staged}</b><span>staged</span></div><div><b>${v.counts.scouted}</b><span>scouted</span></div></div>
         <div class="qq-a">Mode ${h(v.mode)}</div>
       </div>
       <div class="qq-card"><div class="qq-q">Last released</div>
-        ${last ? `<div class="qq-big">${h(last.system)}</div><div class="qq-a">open ${h(last.age)} · ${last.sells} sells${last.ratio ? ` · ${Number(last.ratio).toFixed(2)}× the mature rate` : ""}</div>` : `<div class="qq-a">None yet.</div>`}
+        ${last ? `<div class="qq-big">${h(last.system)}</div><div class="qq-a">open ${h(last.age)} · ${last.sells} sells${last.ratio ? ` · ${Number(last.ratio).toFixed(2)}× the mature rate` : ""}${pricedText(last) ? ` · ${h(pricedText(last))}` : ""}</div>` : `<div class="qq-a">None yet.</div>`}
       </div>
       <div class="qq-card"><div class="qq-q">Live systems, newest first</div>
-        ${table(["System", "Open", "Premium", "Sells"], v.live.map((s) => tr([h(s.system) + (s.held ? " 🔒" : ""), h(s.age), s.ratio ? `${Number(s.ratio).toFixed(2)}×` : "—", String(s.sells)])).join(""))}
+        ${table(["System", "Open", "Premium", "Sells", "Fresh"], v.live.map((s) => tr([h(s.system) + (s.held ? " 🔒" : ""), h(s.age), s.ratio ? `${Number(s.ratio).toFixed(2)}×` : "—", String(s.sells), s.freshPct == null ? "—" : `${s.freshPct}%`])).join(""))}
       </div>
       <div class="qq-card"><div class="qq-q">Waiting behind the gate</div>
-        ${table(["System", "Markets", "Queued"], v.scouted.slice(0, 8).map((s) => tr([h(s.system) + (s.held ? " 🔒" : ""), String(s.markets), h(s.age)])).join(""))}
+        ${table(["System", "Markets", "Priced", "Queued"], v.scouted.slice(0, 8).map((s) => tr([h(s.system) + (s.held ? " 🔒" : ""), String(s.markets), s.pricedPct == null ? "—" : `${s.pricedPct}%`, h(s.age)])).join(""))}
         ${v.scouted.length > 8 ? `<div class="qq-a">and ${v.scouted.length - 8} more</div>` : ""}
       </div>
       <div class="qq-links">
@@ -100,9 +100,9 @@ export function mountQueue(root, { api, approvalCount, layout = "tables" }) {
       <div class="qq-sub">Needs attention</div>
       ${v.attention.length ? table(["Item", "Detail"], v.attention.map((a) => tr([h(a.item), h(a.detail)])).join("")) : `<div class="qq-ok">nothing</div>`}
       <div class="qq-sub">Staged — keepers in place, gate shut</div>
-      ${table(["System", "Keepers", "For", ""], v.staged.map((s) => tr([h(s.system) + (s.held ? " 🔒" : ""), `${s.inPlace} of ${s.of}`, h(s.since), `<button class="qq-link" data-release="${h(s.system)}">Release now</button>`])).join(""))}
+      ${table(["System", "Keepers", "Priced", "Fresh", "For", ""], v.staged.map((s) => tr([h(s.system) + (s.held ? " 🔒" : ""), `${s.inPlace} of ${s.of}`, s.pricedPct == null ? "—" : `${s.pricedPct}%`, s.freshPct == null ? "—" : `${s.freshPct}%`, h(s.since), `<button class="qq-link" data-release="${h(s.system)}">Release now</button>`])).join(""))}
       <div class="qq-sub">Live — released</div>
-      ${table(["System", "Open for", "Premium", "Sells"], v.live.map((s) => tr([h(s.system) + (s.held ? " 🔒" : ""), h(s.age), s.ratio ? `${Number(s.ratio).toFixed(2)}×` : "—", String(s.sells)])).join(""))}
+      ${table(["System", "Open for", "Premium", "Sells", "Fresh"], v.live.map((s) => tr([h(s.system) + (s.held ? " 🔒" : ""), h(s.age), s.ratio ? `${Number(s.ratio).toFixed(2)}×` : "—", String(s.sells), s.freshPct == null ? "—" : `${s.freshPct}%`])).join(""))}
       <div class="qq-sub">Keepers</div>
       ${table(["", "Now"], v.keepers.rows.map((r) => tr([h(r.label), String(r.value)])).join(""))}
       <div class="qq-line">Polling <b>${v.keepers.polling ?? "—"}</b> of ${v.keepers.pollingMax} calls/min · ${v.keepers.stationed ?? "—"} keepers of ${v.keepers.limit ?? "—"}</div>
@@ -110,7 +110,7 @@ export function mountQueue(root, { api, approvalCount, layout = "tables" }) {
       ${table(["Window", "Profit", "Per hour", "Sales"], trade.rows.map((r) => tr([`${r.hours} h`, compact(r.profit), compact(r.perHour), r.sales ?? "—"])).join(""))}
       ${trade.flag ? `<div class="qq-warn">Last hour is ${trade.drop}% under the 3-hour rate.</div>` : ""}
       <div class="qq-sub">Scouted — waiting behind the gate (${v.counts.scouted})</div>
-      ${table(["System", "Markets", "Queued"], v.scouted.slice(0, 12).map((s) => tr([h(s.system) + (s.held ? " 🔒" : ""), String(s.markets), h(s.age)])).join(""))}
+      ${table(["System", "Markets", "Priced", "Queued"], v.scouted.slice(0, 12).map((s) => tr([h(s.system) + (s.held ? " 🔒" : ""), String(s.markets), s.pricedPct == null ? "—" : `${s.pricedPct}%`, h(s.age)])).join(""))}
       ${v.scouted.length > 12 ? `<div class="qq-line">and ${v.scouted.length - 12} more</div>` : ""}`;
   }
 
