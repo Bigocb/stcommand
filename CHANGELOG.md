@@ -8,6 +8,20 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19: positioning jumps charged on the route's own scale (doctrine positioningCostScaled)
+
+The dispatcher ranks routes by a time-scaled score (profit per 600 s of trip, `scoreRoute()`), and two places compared that
+rate with a lump of credits. In `scoreItem` the jump fees to reach the buy market came off the score in full; in
+`whyUnreachable` the "first trip does not cover the N-jump positioning cost" test compared the score with the jump bill. On
+2026-11-19 ANTIMATTER AB12 -> XS51 (160,578 a trip, ~54 min, score 29,737) was refused for THEO-A7 five jumps away (~33k of
+fees) as "not covered", though the trip nets ~127k after the jumps: every rich route four or more jumps away was refused for
+every ship. Same code since at least 2026-10-29; it bit this week because the rich systems are 4-6 jumps apart.
+
+New pure module `src/engine/positioningCost.ts`: `positioningCharge()` puts the fee on the score's scale (fee x 600 / (trip +
+positioning) s) and `tripProfitForPositioning()` tests the first trip with the route's real profit (`rawProfit`). Behind clause
+`positioningCostScaled` (group reach / Jumps), **off by default**; off reproduces the old behaviour (tested with the 11-19 case).
+Tests: `tests/positioningCost.test.ts`; the dispatcher/doctrine suites' failing subtests are unchanged.
+
 ## 2026-11-19: doctrine screen grouped and searchable; get_doctrine small by default (docs/doctrine-organization.md)
 
 The operator said the doctrine was "impossible to use": 140 clauses in four coarse categories, a flat unsearchable list on Deck

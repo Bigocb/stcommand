@@ -171,6 +171,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "positioningCostScaled",
+    name: "Charge positioning jumps on the route's own scale",
+    description: "The dispatcher scores a route as profit per 600 seconds of trip time, then took the jump fees to reach its buy market off that rate as a lump of credits. A rate minus a lump: on 2026-11-19 ANTIMATTER AB12 -> XS51 (160,578 a trip, about 54 minutes, scored 29,737) was refused for THEO-A7 five jumps away (about 33k of fees) as 'net score at or below zero after positioning', though the trip nets about 127k after the jumps. Every rich route four or more jumps away was refused for every ship. With this on, the fee is put on the same scale as the score (fee x 600 / (trip + positioning) seconds), so a route is ranked by (profit - fees) per 600 seconds of the whole trip. Off = the old lump subtraction. Same-system routes are unaffected. Takes effect on the next dispatch recompute.",
+    value: 1, min: 1, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "jumpCashFloor",
     name: "No new jump routes below this wallet",
     description: "A gate jump costs about 6-8k, and the dispatcher nets that against a route's profit but never asked whether the wallet can carry it: on 2026-11-18 the wallet fell from 148k to 22k in 90 minutes, mostly in jump fees, and at 22k three jumps would have emptied it. With this on, while the wallet is under the value no trader is given a NEW route that needs a gate jump (to reach the buy market or to carry the cargo to the sell market); same-system routes are unaffected, and a ship already carrying cargo keeps its leg. Off by default. Takes effect on the next dispatch recompute.",

@@ -123,6 +123,7 @@ import { ROUNDS_WINDOW_MIN, buyMarketRoundsReason, roundsReason } from "./routeR
 import { autoSpacedNow, spacingReason, type SpacedRoute, type SpacingPolicy, type TripStart } from "./tripSpacing.js";
 import { formatTraderStates, summarizeTraderStates } from "./traderStates.js";
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
+import { positioningCharge, tripProfitForPositioning } from "./positioningCost.js";
 import { RouteBlocks, DEFAULT_BLOCK_POLICY } from "./routeBlocks.js";
 import { learnImpact, type ImpactPolicy, type Learned } from "./lotImpact.js";
 import { routeOutsideReach, systemOfWaypoint, type ShipReach } from "./shipReach.js";
@@ -1062,7 +1063,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; spacingAutoPct?: number; marketRecoveryMin?: number; routeBlockMin?: number; fitMinTrip?: number; fitBigHold?: number; slowHullSpeed?: number; slowHullHauledHops?: number; slowHullPositioningHops?: number; jumpCashFloor?: number; credits?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; spacingAutoPct?: number; marketRecoveryMin?: number; routeBlockMin?: number; fitMinTrip?: number; fitBigHold?: number; slowHullSpeed?: number; slowHullHauledHops?: number; slowHullPositioningHops?: number; jumpCashFloor?: number; credits?: number; positioningCostScaled?: boolean },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -1672,7 +1673,7 @@ export class RouteDispatcher {
     };
     /** Why this trader cannot take this work from where it stands, or undefined when it can. Cross-system reasons name
      *  the guard that failed, so dispatch_explain says which one blocks a route. */
-    const whyUnreachable = (t: (typeof traders)[number], w: { buySystem?: string; buyAt?: string; sellAt?: string; profitPerTrip?: number }): string | undefined => {
+    const whyUnreachable = (t: (typeof traders)[number], w: { buySystem?: string; buyAt?: string; sellAt?: string; profitPerTrip?: number; rawProfit?: number }): string | undefined => {
       // A local-only ship (reach "system") never leaves its system, whatever the route's gate distance: see shipReach.ts.
       const outside = routeOutsideReach(t.reach, t.system, { buySystem: w.buySystem, sellSystem: w.sellAt !== undefined ? systemOfWaypoint(w.sellAt) : undefined });
       if (outside !== undefined) return outside;
@@ -1692,7 +1693,7 @@ export class RouteDispatcher {
           if (!crossSystem?.enabled) return `${w.buySystem} is not one gate from ${t.system} and cross-system routes are off`;
           const path = crossSystem.path(t.system, w.buySystem);
           if (!path || path.length < 3) return `no finished gate path from ${t.system} to ${w.buySystem} within the jump limit`;
-          if ((w.profitPerTrip ?? 0) <= pathCost(path)) return `the first trip does not cover the ${path.length - 1}-jump positioning cost`;
+          if (tripProfitForPositioning(w.profitPerTrip, w.rawProfit, { scaled: !!tuning?.positioningCostScaled }) <= pathCost(path)) return `the first trip does not cover the ${path.length - 1}-jump positioning cost`;
           if (crossSystem.homeSystem !== undefined && t.system === crossSystem.homeSystem) {
             const reserve = crossSystem.homeReserve ?? 1;
             const stayingHome = traders.filter((x) => x.system === crossSystem.homeSystem).length - 1 - leavingHome;
@@ -1922,7 +1923,9 @@ export class RouteDispatcher {
           // The jumps this ship must make to reach the buy market are credits it pays on this trip, so they come off
           // the score in full. (Previously only a third came off, and a single gate jump came off nothing.) The
           // route's own profitPerTrip is not changed; this is the ship-specific cost of getting there.
-          const share = positioningCredits(t.system, w.buySystem);
+          // positioningCost.ts: with positioningCostScaled on, the fee goes on the same per-600-s scale as the score instead
+          // of coming off a rate as a lump (2026-11-19: rich routes 4+ jumps away were refused for every ship).
+          const share = positioningCharge(positioningCredits(t.system, w.buySystem), w.tripSeconds, positioning, { scaled: !!tuning?.positioningCostScaled, referenceSeconds: REFERENCE_TRIP_SECONDS });
           score -= share;
           penalty += share;
           if (score <= 0) return undefined;
