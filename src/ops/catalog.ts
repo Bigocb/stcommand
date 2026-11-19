@@ -832,13 +832,14 @@ export const OPS_TOOLS: OpsTool[] = [
     name: "market_changes",
     title: "How often markets actually changed, per hour",
     description: "From the stored market snapshots: per time bucket, how many markets were read, how many reads, and how many of those reads showed a change from the market's previous read (any good's buy price, sell price or supply), plus the markets that never changed. A keeper waits a third of the time since its market last changed (5-30 min), so this says whether a slow keeper cadence came from markets that really sat still. keepersOnly (default true) counts only markets a keeper is stationed on now. Added 2026-11-19 for the crash question. Read-only; a long window over every market is a heavy query, so keep sinceHours modest.",
-    input: { sinceHours: num(24), bucketMin: num(60), system: z.string().optional(), keepersOnly: z.coerce.boolean().optional().default(true), top: num(10) },
+    input: { sinceHours: num(24), bucketMin: num(60), system: z.string().optional(), keepersOnly: bool, top: num(10) },
     async run(ctx, a) {
       const hours = Math.min(Math.max(a.sinceHours, 1), 96);
       const bucket = Math.min(Math.max(Math.round(a.bucketMin), 15), 240);
       const rows = await ctx.w.store.marketChangeCounts(new Date(ctx.now() - hours * 3_600_000).toISOString(), bucket, a.system);
-      const only = a.keepersOnly ? new Set(ctx.w.fleet.keeperStations().filter((k) => !k.parked).map((k) => k.market)) : undefined;
-      return { sinceHours: hours, bucketMin: bucket, keepersOnly: !!a.keepersOnly, ...summarizeMarketChanges(rows, only, Math.min(Math.max(a.top, 1), 50)) };
+      const keepersOnly = a.keepersOnly !== false;
+      const only = keepersOnly ? new Set(ctx.w.fleet.keeperStations().filter((k) => !k.parked).map((k) => k.market)) : undefined;
+      return { sinceHours: hours, bucketMin: bucket, keepersOnly, ...summarizeMarketChanges(rows, only, Math.min(Math.max(a.top, 1), 50)) };
     },
   },
 
