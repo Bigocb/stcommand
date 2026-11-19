@@ -1188,6 +1188,11 @@ export class FleetManager {
       const n = this.dispatcher.restoreImpacts(impactsFlag);
       if (n > 0) this.log(`restored ${n} recent sale/purchase lot(s) for market recovery pricing`);
     }
+    const tripHistoryFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "routeTripHistory") : undefined;
+    if (tripHistoryFlag) {
+      const n = this.dispatcher.restoreTripHistory(tripHistoryFlag);
+      if (n > 0) this.log(`restored ${n} recent trip(s) for the route rest limits (cool-off, round limits, spacing)`);
+    }
     const deadRoutesFlag = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "deadRoutes") : undefined;
     if (deadRoutesFlag) {
       const n = this.dispatcher.restoreDeadRoutes(deadRoutesFlag);
@@ -11435,6 +11440,15 @@ export class FleetManager {
           await this.store?.setFleetFlag(this.tenantId, "tradeImpacts", impactsJson);
         } catch (err) {
           this.log(`save trade impacts failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }
+      // Keep the trip history the route rest limits count across a restart (written only when a trip closed or started).
+      const tripHistoryJson = this.dispatcher.tripHistorySnapshot();
+      if (tripHistoryJson !== undefined && this.tenantId) {
+        try {
+          await this.store?.setFleetFlag(this.tenantId, "routeTripHistory", tripHistoryJson);
+        } catch (err) {
+          this.log(`save route trip history failed: ${err instanceof Error ? err.message : String(err)}`);
         }
       }
       // Keep the routes ships have found dead across a restart (written only when the list changes).

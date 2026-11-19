@@ -8,6 +8,22 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — Route rest limits survive a restart
+
+The route cool-off, the route and buy-market round limits and trip spacing all count the dispatcher's recent trip history
+(`closedTrips`, `tripStarts`), which lived only in memory, so every deploy reset them. Seen live on 2026-11-19: THEO-33 ran IRON
+UU52-EX7A > F12C at 13:09 and 13:12, so the route was resting until about 14:09; the 13:33 deploy cleared the count and the ship
+ran it again at 13:39 and 13:41. ALUMINUM EX7A > ZD6C rested at 13:29 and ran again at 13:48. The history is now saved as the
+fleet flag `routeTripHistory` on the dispatch pass after any trip closes or starts, and restored at boot, merged with anything
+recorded since the process started (`src/engine/tripHistory.ts`, pure; `RouteDispatcher.tripHistorySnapshot()` /
+`restoreTripHistory()`). No limit changed. Tests: `tests/tripHistory.test.ts`, including a dispatcher seam test that rests a
+route after a simulated restart.
+
+Checked against the last 12 hours while here: the limits held where they should. THEO-1's MEDICINE CN92-Z17C trips bought at
+4,062, then 4,227, then 4,440 in three minutes, and the third trip (to A19B) made 12.7k against about 38k for the first two; the
+round limit and then the buy-market limit (3) rested it after that. The one cool-off (THEO-6B ANTIMATTER V44 > HS78, 3,087 made
+against 23,898 promised) also fired as designed.
+
 ## 2026-11-19 — Fresh-system tours: assignments can expire, and probes count as fuelled (issue #57)
 
 Three staged systems (XD69, XP91, YV28) waited 0% priced while the engine wanted a release, and the tour log said "2 tour ship(s), none

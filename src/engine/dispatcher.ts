@@ -120,6 +120,7 @@ import { jumpCashBlock } from "./jumpCashGuard.js";
 import { coolOffReason, DEFAULT_HEAT_POLICY, type RouteTrip } from "./routeHeat.js";
 import { estimateBuyPrice, estimateSellPrice, profitAfterShortfall, type SaleImpact } from "./marketCrash.js";
 import { ROUNDS_WINDOW_MIN, buyMarketRoundsReason, roundsReason } from "./routeRounds.js";
+import { mergeTripHistory, packTripHistory, unpackTripHistory } from "./tripHistory.js";
 import { autoSpacedNow, spacingReason, type SpacedRoute, type SpacingPolicy, type TripStart } from "./tripSpacing.js";
 import { formatTraderStates, summarizeTraderStates } from "./traderStates.js";
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
@@ -591,6 +592,24 @@ export class RouteDispatcher {
     const now = Date.now();
     this.closedTrips.push({ ...t, at: now });
     while (this.closedTrips.length && (this.closedTrips.length > 200 || this.closedTrips[0]!.at < now - 6 * 3_600_000)) this.closedTrips.shift();
+    this.tripHistoryDirty = true;
+  }
+
+  /** True when a trip closed or started since the last tripHistorySnapshot(). */
+  private tripHistoryDirty = false;
+  /** The trip history the route limits read, as JSON for saving across a restart (tripHistory.ts); undefined when unchanged. */
+  tripHistorySnapshot(now: number = Date.now()): string | undefined {
+    if (!this.tripHistoryDirty) return undefined;
+    this.tripHistoryDirty = false;
+    return packTripHistory({ trips: this.closedTrips, starts: this.tripStarts }, now);
+  }
+  /** Load history saved by tripHistorySnapshot(), merged with anything recorded since this process started. Returns rows loaded. */
+  restoreTripHistory(json: string, now: number = Date.now()): number {
+    const saved = unpackTripHistory(json, now);
+    const merged = mergeTripHistory(saved, { trips: this.closedTrips, starts: this.tripStarts });
+    this.closedTrips.splice(0, this.closedTrips.length, ...merged.trips);
+    this.tripStarts.splice(0, this.tripStarts.length, ...merged.starts);
+    return saved.trips.length + saved.starts.length;
   }
 
   /** Why this exact route is resting after a disappointing trip or too many trips on it, or undefined. `minutes` 0 = off
@@ -628,6 +647,7 @@ export class RouteDispatcher {
     const now = Date.now();
     this.tripStarts.push({ good, buyAt, shipSymbol, at: now, ...(price !== undefined && price > 0 ? { price } : {}) });
     while (this.tripStarts.length && (this.tripStarts.length > 200 || this.tripStarts[0]!.at < now - 6 * 3_600_000)) this.tripStarts.shift();
+    this.tripHistoryDirty = true;
   }
   /** Where recompute notes go. console.log by default; the fleet points it at its own log so they reach the ops `logs` tool. */
   private logger: (msg: string) => void = (m) => console.log(m);
