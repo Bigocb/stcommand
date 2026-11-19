@@ -8,6 +8,14 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — Route hold reason says "beyond the jump limit", not "no open gate"
+
+The dispatcher held routes as "no open gate between X and Y" when the buy and sell systems had no finished-gate path within
+`positioningHops`. The operator pointed out that both ends were priced, so ships had reached them: the gates were open. Every case
+checked had a path, just a long one (JB94→RZ24 14 jumps, UU52→CN92 14, RZ24→FH46 11, FD13→T82 9). The hold now reads
+"X and Y are further apart than the jump limit (positioningHops) by finished gates" (`src/engine/dispatcher.ts`), and the route
+status text matches (`src/engine/routeStatus.ts`, `tests/routeStatus.test.ts`). Wording only; no routing change.
+
 ## 2026-11-19 — A denied keeper card holds back only its own market
 
 Operator (2026-11-19): "why does it wait 15 minutes". Denying one market-triggered keeper card (`buyKeeperProbeForMarket`) used to stop
