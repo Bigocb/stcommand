@@ -8,6 +8,31 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-19 — Scout probes for staged systems with no tour ship close (clause `stagedScoutProbe`)
+
+This came from the operator's idea and the ZU90 test. A staged system is released once a tour ship is in it and half its listed markets
+are priced. In the test, a probe bought at 16:51 at FR50 reached ZU90 at 17:27, and ZU90 was released at 17:55. That cost about 51k in
+all, against 250-300k for the system's seven keepers.
+
+The engine now does this on its own during the queue-tour pass (every 5 minutes):
+- **When it buys.** A staged system needs a tour, and no free tour ship is within `stagedScoutProbeShipHops` gate hops (operator: 2).
+- **Where it buys.** At the cheapest yard counting price + jumps × 6,500, among yards where one of our ships is docked, since a yard
+  only sells to a ship standing there.
+- **What it does next.** It sends the probe on the tour, which runs listed-first if `stagedTourListedFirst` is on. A far tour ship the
+  queue would have sent there is not sent.
+
+**Limits:**
+- The clause value is the most one probe may cost, price plus jumps (default 80,000).
+- One probe a pass.
+- The wallet must keep the jump floor (or the cash floor) after the buy.
+- The tour destination is saved, so a restart does not buy a second probe.
+- If the send fails, the probe still gets the tour role and the next pass sends it.
+
+**Code and tests:**
+- Pure module `src/engine/stagedScoutProbe.ts`; wiring in `FleetManager.maybeSendQueueTours()`.
+- The clause ships **off**; off means no probes are bought, as before.
+- Tests: `tests/stagedScoutProbe.test.ts`.
+
 ## 2026-11-19 — Measured keeper reads in the hourly snapshot; ops `market_changes`
 
 The operator's question: why did keeper API calls fall during the 11-17/18 crash and jump back at about hour 97?

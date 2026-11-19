@@ -33,7 +33,8 @@ import { OFF_POLICY as TRIAGE_OFF_POLICY, reviewParked, triageKeepers, type Tria
 import { Reminders } from "./reminders.js";
 import { SystemQueue } from "./systemQueue.js";
 import { gateFromJumpRejection } from "./jumpRejection.js";
-import { DEFAULT_QUEUE_TOUR_POLICY, decideQueueTours, destinationNeedsTour, shouldConsiderTourShip, type QueueTourPolicy, type TourShip, type TourTarget } from "./queueTours.js";
+import { DEFAULT_QUEUE_TOUR_POLICY, decideQueueTours, destinationNeedsTour, needsTour, shouldConsiderTourShip, type QueueTourPolicy, type TourShip, type TourTarget } from "./queueTours.js";
+import { DEFAULT_SCOUT_PROBE_POLICY, decideScoutProbe, type ProbeYard, type ScoutNeed } from "./stagedScoutProbe.js";
 import { DEFAULT_ROUTE_REUSE_POLICY, decideRouteReuse } from "./routeReuse.js";
 import { DEFAULT_RELEASE_POLICY, READY_SHARE, decideReleases, type LiveFacts, type QueueFacts, type ReleaseDecision, type ReleaseMode, type ReleasePolicy } from "./systemRelease.js";
 import { buildFreshness, livePremium, systemOf } from "./analysis/freshness.js";
@@ -6664,7 +6665,10 @@ export class FleetManager {
         pinned, coveredElsewhere,
       }, policy);
       for (const n of d.notes) this.freshNote(`tours: ${n}`);
+      // Clause stagedScoutProbe: a staged system with no free tour ship close gets a probe bought for it (stagedScoutProbe.ts).
+      const probe = await this.decideStagedScoutProbe(targets, ships, coveredElsewhere, d.send, policy);
       for (const s of d.send) {
+        if (probe?.system === s.system) { this.freshNote(`tours: ${s.ship} not sent to ${s.system}, ${s.hops} hop(s) away: a scout probe is bought instead`); continue; }
         try {
           await this.dispatchTourShip(s.ship, s.system, { by: "queue" });
           this.queueTourSentAt.set(s.ship, now);
@@ -6672,8 +6676,59 @@ export class FleetManager {
           this.freshNote(`tours: sent ${s.ship} to ${s.system} (${s.reason})`);
         } catch (err) { this.freshNote(`tours: send ${s.ship} to ${s.system} failed: ${describeError(err)}`); }
       }
+      if (probe) await this.buyStagedScoutProbe(probe, now);
     } catch (err) {
       this.freshNote(`tours: skipped (${describeError(err)})`);
+    }
+  }
+
+  /** Clause stagedScoutProbe off, or nothing to buy = undefined. Reads only the queue, the ships, the stored yard prices and the cash. */
+  private async decideStagedScoutProbe(targets: TourTarget[], ships: TourShip[], coveredElsewhere: string[], sends: { ship: string; system: string; hops: number }[], policy: QueueTourPolicy): Promise<import("./stagedScoutProbe.js").ScoutProbeBuy | undefined> {
+    if (!this.doctrine.isEnabledOr("stagedScoutProbe", false)) return undefined;
+    const covered = new Set([...coveredElsewhere, ...ships.flatMap((x) => [x.heading ?? x.system])]);
+    const needs: ScoutNeed[] = targets
+      .filter((t) => t.state === "staged" && needsTour(t, policy) && !covered.has(t.system))
+      .map((t) => { const s = sends.find((x) => x.system === t.system); return s ? { system: t.system, shipHops: s.hops } : { system: t.system }; });
+    if (!needs.length) return undefined;
+    // A yard sells only to a ship docked there, so only yards one of our ships is docked at count.
+    const docked = new Set(this.currentShips().filter((x) => x.nav.status === "DOCKED").map((x) => x.nav.waypointSymbol));
+    const latest = new Map<string, ProbeYard & { at: string }>();
+    for (const r of (await this.store?.shipyardInventory()) ?? []) {
+      if (r.shipType !== "SHIP_PROBE" || !docked.has(r.waypointSymbol)) continue;
+      const prev = latest.get(r.waypointSymbol);
+      if (!prev || r.timestamp > prev.at) latest.set(r.waypointSymbol, { yard: r.waypointSymbol, system: r.systemSymbol, price: r.purchasePrice, at: r.timestamp });
+    }
+    const jumpFloor = this.doctrine.isEnabledOr("jumpCashFloor", false) ? this.doctrine.value("jumpCashFloor") : 0;
+    const cashFloor = this.doctrine.isEnabledOr("cashFloor", false) ? this.doctrine.value("cashFloor") : 0;
+    const d = decideScoutProbe(needs, [...latest.values()], (a, b) => { const p = this.findSystemPath(a, b); return p ? p.length - 1 : undefined; }, this.credits, {
+      ...DEFAULT_SCOUT_PROBE_POLICY,
+      maxCost: this.doctrine.value("stagedScoutProbe"),
+      shipHops: this.doctrine.isEnabledOr("stagedScoutProbeShipHops", false) ? this.doctrine.value("stagedScoutProbeShipHops") : DEFAULT_SCOUT_PROBE_POLICY.shipHops,
+      minCashAfter: Math.max(jumpFloor, cashFloor),
+    });
+    for (const n of d.notes) this.freshNote(`scout probe: ${n}`);
+    return d.buy;
+  }
+
+  /**
+   * Buy the probe and send it on the tour. The tour destination is saved by dispatchTourShip (durable), so a restart keeps the system
+   * covered and nothing is bought twice. If the send fails the probe still gets the tour role, so the next pass sends it.
+   */
+  private async buyStagedScoutProbe(b: import("./stagedScoutProbe.js").ScoutProbeBuy, now: number): Promise<void> {
+    let symbol: string;
+    try {
+      symbol = (await this.buyShip("SHIP_PROBE" as ShipType, b.yard)).symbol;
+    } catch (err) { this.freshNote(`scout probe: buying at ${b.yard} for ${b.system} failed: ${describeError(err)}`); return; }
+    this.freshNote(`scout probe: bought ${symbol} at ${b.yard} for ${b.system} (${b.reason})`);
+    this.recordAction(configChangeEvent({ setting: "scout_probe", before: {}, after: { ship: symbol, system: b.system, yard: b.yard, price: b.price, hops: b.hops }, atIso: new Date(now).toISOString(), reason: b.reason }));
+    try {
+      await this.dispatchTourShip(symbol, b.system, { by: "queue" });
+      this.queueTourSentAt.set(symbol, now);
+      this.saveFleetShortMemory();
+      this.freshNote(`tours: sent ${symbol} to ${b.system} (scout probe, ${b.hops} hop(s))`);
+    } catch (err) {
+      this.freshNote(`scout probe: send ${symbol} to ${b.system} failed: ${describeError(err)}; giving it the tour role so the next pass sends it`);
+      try { await this.setShipRole(symbol, "tour"); } catch { /* the role card stays for the operator */ }
     }
   }
 

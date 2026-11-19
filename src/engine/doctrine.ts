@@ -682,6 +682,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "stagedScoutProbe",
+    name: "Fresh systems: buy a scout probe for a staged system with no tour ship close",
+    description: "On = when a staged system needs a tour and no free tour ship is within 'scout probe: how close a tour ship must be' gate hops, buy a probe at the shipyard where one of our ships is docked that is cheapest counting its jumps (price + jumps x 6,500), and send it on the tour (listed-first if stagedTourListedFirst is on). The value is the most one probe may cost, price plus jumps. One a pass (every 5 minutes); the wallet must keep the jump floor (or the cash floor) after it. The probe's tour is saved, so a restart does not buy a second one. Added 2026-11-19 after the ZU90 test: a probe bought 16:51 at FR50 reached ZU90 at 17:27 and the system was released at 17:55, about 51k in all against 250-300k for seven keepers. Off (the default) = no probes are bought for tours.",
+    value: 80000, min: 20000, max: 300000, step: 5000, unit: "c",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
+    key: "stagedScoutProbeShipHops",
+    name: "Fresh systems: scout probe: how close a tour ship must be",
+    description: "With stagedScoutProbe on: a free tour ship this many gate hops from the staged system or nearer is sent instead of buying a probe; farther (or none free) and a probe is bought. Operator, 2026-11-19: 2.",
+    value: 2, min: 0, max: 12, step: 1, unit: " hops",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "stagedTourListedFirst",
     name: "Fresh systems: a tour in a staged system visits its listed markets first",
     description: "A staged system is released by the tour path once releaseOnTourPct of its listed markets (the ones picked for keepers when it was queued) are priced. On = a tour ship in a staged or scouted system visits only those listed markets that have never been priced, nearest first; once all are priced it tours the rest of the system as usual. Added 2026-11-19 (operator idea, during the probe-tour test on X1-ZU90): a normal tour visits every market, stale first then nearest, so a slow probe could spend hours on markets that do not count toward the release. Off (the default) = tours pick every market the same way, as before. Takes effect on the next leg.",
