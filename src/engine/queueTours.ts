@@ -80,6 +80,9 @@ export interface TourSignals {
   hops: (from: string, to: string) => number | undefined;
   /** Ships the caller left out because an operator assignment holds them (named in the "none free" note so the log says why). */
   pinned?: readonly string[];
+  /** Systems a ship this module does not manage is already in or walking to (an operator's tour): covered, so no second ship is
+   *  sent there. 2026-11-19: THEO-32, operator-sent, was already touring XD69 when the queue sent THEO-37 on 8 jumps to it. */
+  coveredElsewhere?: readonly string[];
 }
 
 export interface TourSend {
@@ -157,11 +160,12 @@ export function decideQueueTours(s: TourSignals, p: QueueTourPolicy): TourDecisi
 
   // A ship working a system that still needs it (in it, or walking to it) keeps that system covered and uses a slot.
   const working = s.ships.filter((x) => !x.held && needs.has(x.heading ?? x.system));
-  const covered = new Set(working.map((x) => x.heading ?? x.system));
+  const covered = new Set([...working.map((x) => x.heading ?? x.system), ...(s.coveredElsewhere ?? [])]);
   let slots = p.maxShips - working.length;
   const uncovered = needing.filter((t) => !covered.has(t.system));
   if (!uncovered.length) {
-    out.notes.push(`${needing.length} system(s) need a tour and each has a ship (${working.map((x) => `${x.symbol}→${x.heading ?? x.system}`).join(", ")})`);
+    const others = (s.coveredElsewhere ?? []).filter((x) => needs.has(x));
+    out.notes.push(`${needing.length} system(s) need a tour and each has a ship (${[...working.map((x) => `${x.symbol}→${x.heading ?? x.system}`), ...others.map((x) => `operator's ship→${x}`)].join(", ")})`);
     return out;
   }
   if (slots <= 0) {

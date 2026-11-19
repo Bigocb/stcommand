@@ -6599,6 +6599,7 @@ export class FleetManager {
       }));
       const ships: TourShip[] = [];
       const pinned: string[] = [];
+      const coveredElsewhere: string[] = [];
       const pinExpires = this.doctrine.isEnabledOr("freshTourPinExpires", false);
       for (const [symbol, agent] of [...this.tours, ...this.explorers]) {
         const dest = this.tourDestinations.get(symbol);
@@ -6612,7 +6613,12 @@ export class FleetManager {
           isTourRole: this.tours.has(symbol), destinationNeedsTour: destinationNeedsTour(dest, targets, policy),
           operatorAssigned: assigned !== undefined,
           assignmentExpires: pinExpires, assignmentNeedsTour: destinationNeedsTour(assigned, targets, policy),
-        })) { if (assigned !== undefined) pinned.push(symbol); continue; }
+        })) {
+          if (assigned !== undefined) pinned.push(symbol);
+          // A ship we leave alone still covers the system it is in or walking to: do not send a second ship there.
+          if (!this.isHeld(symbol)) coveredElsewhere.push(dest ?? assigned ?? sh.nav.systemSymbol);
+          continue;
+        }
         ships.push({
           symbol, system: sh.nav.systemSymbol, fuel: sh.fuel?.current ?? 0, fuelCap: sh.fuel?.capacity ?? 0,
           ...(dest !== undefined ? { heading: dest } : {}), held: this.isHeld(symbol), sentAt: this.queueTourSentAt.get(symbol),
@@ -6621,7 +6627,7 @@ export class FleetManager {
       const d = decideQueueTours({
         now, targets, ships,
         hops: (a, b) => { const p = this.findSystemPath(a, b); return p ? p.length - 1 : undefined; },
-        pinned,
+        pinned, coveredElsewhere,
       }, policy);
       for (const n of d.notes) this.freshNote(`tours: ${n}`);
       for (const s of d.send) {

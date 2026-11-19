@@ -36,6 +36,9 @@ THEO-AD also failed the fuel check, `fuelCap > 0 && fuel / fuelCap >= minFuelSha
   Off reproduces the #46 behaviour (tested).
 - A ship with no tank counts as fuelled (a probe flies without fuel); fuel-share ties use the same rule.
 - The "none free" note now names the ships left out as operator-assigned.
+- A ship the queue leaves alone (operator-sent) still counts as covering the system it is in or walking to, so no second ship
+  is sent there. 2026-11-19 13:50 the queue sent THEO-37 (80 hold) on 8 jumps to XD69 while THEO-32, sent by hand, was already
+  touring it; THEO-37 was held at the KJ19 gate before its first jump. Not behind the clause: it only stops duplicates.
 
 `src/engine/queueTours.ts`, `src/engine/fleet.ts` (queue-tour pass), `src/engine/doctrine.ts`, `src/engine/doctrineGroups.ts`;
 tests in `tests/queueTours.test.ts`.

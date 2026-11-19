@@ -139,3 +139,15 @@ test("#57 the none-free note names the ships left out as operator-assigned", () 
   assert.equal(d.send.length, 0);
   assert.match(d.notes.join(" "), /2 more left out as operator-assigned \(THEO-37, THEO-4\)/);
 });
+
+test("a system an operator's ship already covers gets no second ship (2026-11-19: THEO-37 sent 8 jumps to XD69, where THEO-32 was)", () => {
+  const targets = [target("X5"), target("X9")];
+  const ships = [ship("FREE", "X4")];
+  const without = decideQueueTours(sig(targets, ships), on);
+  assert.equal(without.send[0]!.system, "X5", "the old behaviour: the nearest uncovered system, X5, even though someone is there");
+  const withCover = decideQueueTours({ ...sig(targets, ships), coveredElsewhere: ["X5"] }, on);
+  assert.deepEqual(withCover.send.map((x) => x.system), ["X9"], "X5 is covered by the operator's ship: the free ship goes to X9");
+  const allCovered = decideQueueTours({ ...sig([target("X5")], ships), coveredElsewhere: ["X5"] }, on);
+  assert.equal(allCovered.send.length, 0);
+  assert.match(allCovered.notes.join(" "), /operator's ship→X5/);
+});
