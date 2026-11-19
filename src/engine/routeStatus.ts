@@ -79,7 +79,7 @@ export function notListedReason(route: RouteRef, gatedSystems: readonly string[]
   if (gated) return `not on the dispatcher's list (${gated} is held behind the fresh-system gate)`;
   const sameSystem = route.buySystem !== undefined && route.buySystem === route.sellSystem;
   if (sameSystem) return "not on the dispatcher's list (no rule named it: its sell market may be in use, or the route list changed since the last cycle)";
-  return "not on the dispatcher's list (no open gate between the systems, or the route list changed since the last cycle)";
+  return "not on the dispatcher's list (its systems are further apart than the jump limit by finished gates, or the route list changed since the last cycle)";
 }
 
 /**

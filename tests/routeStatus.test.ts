@@ -67,7 +67,7 @@ test("notListedReason: a same-system route never mentions a gate", () => {
 
 test("notListedReason: cross-system keeps the gate wording, a gated system is named", () => {
   const r = { good: "X", buyAt: "A-1", sellAt: "B-1", buySystem: "A", sellSystem: "B" };
-  assert.match(notListedReason(r), /no open gate/);
+  assert.match(notListedReason(r), /further apart than the jump limit/);
   assert.match(notListedReason(r, ["B"]), /B is held behind the fresh-system gate/);
 });
 

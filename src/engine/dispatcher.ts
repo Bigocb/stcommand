@@ -1384,7 +1384,7 @@ export class RouteDispatcher {
         // open yet: otherwise this burns the good's assignment slot for a
         // full minute on a route no trader could actually take, while the
         // dashboard shows it as "assigned" and profitable.
-        if (!legConnected(route.buySystem, route.sellSystem)) { hold(route, `no open gate between ${route.buySystem} and ${route.sellSystem}`); continue; }
+        if (!legConnected(route.buySystem, route.sellSystem)) { hold(route, `${route.buySystem} and ${route.sellSystem} are further apart than the jump limit (positioningHops) by finished gates`); continue; }
         // A busy trader already flying this exact good into this exact
         // market: don't hand a second trader the same leg. The secondary
         // "different market" loop below still gets a chance at this good —
@@ -1433,7 +1433,7 @@ export class RouteDispatcher {
     for (const route of routes) {
       if (targetsByGood.has(route.good)) continue; // warehousing owns this good's split
       if (firstSeen.get(route.good) === route) continue; // already considered above
-      if (!legConnected(route.buySystem, route.sellSystem)) { hold(route, `no open gate between ${route.buySystem} and ${route.sellSystem}`); continue; }
+      if (!legConnected(route.buySystem, route.sellSystem)) { hold(route, `${route.buySystem} and ${route.sellSystem} are further apart than the jump limit (positioningHops) by finished gates`); continue; }
       const key = `${route.good}@${route.sellAt}`;
       if (emittedKeys.has(key)) continue;
       if (sellMarketsInUse.get(route.good)?.has(route.sellAt)) { hold(route, "a busy trader is already flying this good into that sell market"); continue; } // a busy trader already owns this market
