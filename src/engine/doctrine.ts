@@ -227,6 +227,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "fleet", defaultAdopted: true,
   },
   {
+    key: "arrivalSurveyReadKeepers",
+    name: "Arrival survey: count only keepers that have read their market",
+    description: "With the arrival-survey skip on, a system counted as read by keepers as soon as keepers were assigned there. A staged system has a keeper assigned to every market from the start, so the first ship through the gate skipped its read while nothing in the system was priced. On = only keepers whose market has a price on record count, so an arrival in an unpriced system reads the markets it can. Off: every assigned keeper counts, as before. This value isn't used — only the clause toggle matters.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "fleet", defaultAdopted: true,
+  },
+  {
     key: "routeSoonFreeMin",
     name: "Plan the next route for ships about to finish",
     description: "Route matching only saw idle ships, so a big hull due free in two minutes could not be saved for the best route and a small idle ship took it. With this on, a loaded ship flying the last leg of its trip to its sell market, and due free within this many minutes, joins the matching at that market. When it is the best fit for one of the top routes, that route is held back from the idle ships this cycle and the ship is matched first when it frees up. Same-system routes only for now. Needs Best ship for the best routes on. Off by default (clause disabled): turn the clause on to use it. Takes effect on the next dispatch recompute.",

@@ -11,6 +11,22 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-20 — Arrival survey counts only keepers that have read their market (clause `arrivalSurveyReadKeepers`, off)
+
+A ship that jumps into a system skips the market survey when keepers are stationed there (`arrivalSurvey.ts`, clause
+`arrivalSurveyMaxAgeMin`). It counted every keeper *assigned* to a market in the system. A staged system has a keeper assigned to
+every market from the moment it is staged, so the first probe through the gate was told "8 keeper(s) read it already" while nothing
+in the system had a price, and it flew on without reading the market it arrived at (HQ44, 2026-11-20 19:05; operator asked for the fix).
+
+With the new clause on, only keepers whose market has a price on record count. A ship arriving in an unpriced system surveys it
+("N keeper(s) assigned but none has read its market yet"), which prices the market where it stands and loads the system's
+listings. A system whose keepers are reading is still skipped, so the API saving stays.
+
+- Pure rule: `ArrivalFacts.keepersRead`, `ArrivalSurveyPolicy.readKeepersOnly` in `src/engine/arrivalSurvey.ts`.
+- Wiring: `FleetManager.keepersReadInSystem()` (keepers whose market is in the latest price snapshots), only when the clause is on.
+- Off (the default) or the price records unreadable: every assigned keeper counts, as before.
+- Tests: `tests/arrivalSurvey.test.ts` (rule cases and the `jumpShip` seam, on and off).
+
 ## 2026-11-20 — keeper staging reserve (clause `keeperStagingReserve`)
 
 From about 15:00 on 2026-11-20 no fresh system was staged or released: every check read "X1-FZ30 is next to stage but needs 5 keeper

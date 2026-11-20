@@ -2763,6 +2763,23 @@ export class FleetManager {
     return n;
   }
 
+  /**
+   * Keepers in a system whose market has a price on record (arrivalSurvey's `keepersRead`). Undefined when the price records cannot
+   * be read, so the caller falls back to counting every assigned keeper.
+   */
+  private async keepersReadInSystem(systemSymbol: string): Promise<number | undefined> {
+    if (!this.doctrine.isEnabledOr("arrivalSurveyReadKeepers", false)) return undefined;
+    let priced: Set<string>;
+    try {
+      priced = new Set(((await this.store?.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol));
+    } catch {
+      return undefined;
+    }
+    let n = 0;
+    for (const market of this.keeperMarkets.values()) if (market.startsWith(`${systemSymbol}-`) && priced.has(market)) n++;
+    return n;
+  }
+
   /** Refresh a system's waypoints, markets and shipyards (used after jumping/scouting). */
   async surveySystem(systemSymbol: string): Promise<void> {
     await this.galaxy.loadSystem(systemSymbol);
@@ -4662,8 +4679,12 @@ export class FleetManager {
     try {
       // A system our keepers already read, or one surveyed recently, needs only its waypoints and gates (arrivalSurvey.ts).
       const verdict = arrivalSurvey(
-        { surveyedAtMs: this.surveyedAt.get(targetSystem), keepers: this.keepersInSystem(targetSystem), now: Date.now() },
-        { enabled: this.doctrine.isEnabledOr("arrivalSurveyMaxAgeMin", true), maxAgeMs: this.doctrine.value("arrivalSurveyMaxAgeMin", 60) * 60_000 },
+        { surveyedAtMs: this.surveyedAt.get(targetSystem), keepers: this.keepersInSystem(targetSystem), keepersRead: await this.keepersReadInSystem(targetSystem), now: Date.now() },
+        {
+          enabled: this.doctrine.isEnabledOr("arrivalSurveyMaxAgeMin", true),
+          maxAgeMs: this.doctrine.value("arrivalSurveyMaxAgeMin", 60) * 60_000,
+          readKeepersOnly: this.doctrine.isEnabledOr("arrivalSurveyReadKeepers", false),
+        },
       );
       if (verdict.survey) {
         await this.surveySystem(targetSystem);

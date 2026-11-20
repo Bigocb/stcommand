@@ -22,6 +22,20 @@ describe("arrivalSurvey", () => {
     assert.equal(arrivalSurvey({ surveyedAtMs: now - 10 * 60_000, keepers: 0, now }, on).survey, false);
     assert.equal(arrivalSurvey({ surveyedAtMs: now - 90 * 60_000, keepers: 0, now }, on).survey, true);
   });
+  it("read keepers only: assigned keepers that have not read their market do not skip the survey", () => {
+    const v = arrivalSurvey({ surveyedAtMs: now - 5 * 60_000, keepers: 8, keepersRead: 0, now }, { ...on, readKeepersOnly: true });
+    assert.equal(v.survey, true);
+    assert.match(v.reason, /8 keeper\(s\) assigned but none has read/);
+  });
+  it("read keepers only: a keeper that has read its market still skips", () => {
+    const v = arrivalSurvey({ surveyedAtMs: now - 5 * 60_000, keepers: 8, keepersRead: 3, now }, { ...on, readKeepersOnly: true });
+    assert.equal(v.survey, false);
+    assert.match(v.reason, /3 keeper/);
+  });
+  it("read keepers only off, or the read count unknown: every assigned keeper counts, as before", () => {
+    assert.equal(arrivalSurvey({ surveyedAtMs: now - 5 * 60_000, keepers: 8, keepersRead: 0, now }, on).survey, false);
+    assert.equal(arrivalSurvey({ surveyedAtMs: now - 5 * 60_000, keepers: 8, now }, { ...on, readKeepersOnly: true }).survey, false);
+  });
   it("off surveys every arrival, as before", () => {
     assert.equal(arrivalSurvey({ surveyedAtMs: now - 1, keepers: 9, now }, { enabled: false, maxAgeMs: 0 }).survey, true);
   });
@@ -69,5 +83,20 @@ describe("FleetManager.jumpShip: market survey on arrival", () => {
     fleet.keeperMarkets.set("K-1", "X1-JM97-A1");
     await fleet.jumpShip("S-1", "X1-JM97-I57");
     assert.deepEqual([calls.survey, calls.load > 0, calls.gates > 0], [0, true, true]);
+  });
+  it("with arrivalSurveyReadKeepers on, surveys a system whose assigned keepers have not read their markets", async () => {
+    const { fleet, calls } = await rig();
+    await fleet.doctrine.set("arrivalSurveyReadKeepers", { enabled: true });
+    fleet.surveyedAt.set("X1-JM97", Date.now() - 5 * 60_000);
+    fleet.keeperMarkets.set("K-1", "X1-JM97-NOPRICE1");
+    await fleet.jumpShip("S-1", "X1-JM97-I57");
+    assert.equal(calls.survey, 1);
+  });
+  it("with arrivalSurveyReadKeepers off, the same system is skipped, as before", async () => {
+    const { fleet, calls } = await rig();
+    fleet.surveyedAt.set("X1-JM97", Date.now() - 5 * 60_000);
+    fleet.keeperMarkets.set("K-1", "X1-JM97-NOPRICE1");
+    await fleet.jumpShip("S-1", "X1-JM97-I57");
+    assert.equal(calls.survey, 0);
   });
 });

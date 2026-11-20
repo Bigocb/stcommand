@@ -163,6 +163,7 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   shipBook: ["api", "Call savings"],
   marketSnapshotReuse: ["api", "Call savings"],
   arrivalSurveyMaxAgeMin: ["api", "Call savings"],
+  arrivalSurveyReadKeepers: ["api", "Call savings"],
   traderSkipKeeperMarkets: ["api", "Call savings"],
   keeperPollMaxMin: ["api", "Keeper polling"],
   keeperLaneWorkers: ["api", "Keeper polling"],
