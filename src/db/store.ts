@@ -645,6 +645,38 @@ export class Store {
     return f.universe ? withTenantUniverse(this.pool, tenantId, f.universe, read) : withTenant(this.pool, tenantId, read);
   }
 
+  /**
+   * The ledger rolled up per market in SQL (ops `market_sales`), so a whole finished week fits: our sells and buys at each
+   * waypoint with their value, the realized profit of the sells and how many distinct goods we sold and bought there.
+   * The market tables are wiped at a reset, so for a past week this is the only per-market record left.
+   */
+  async opsLedgerByMarket(tenantId: string, f: { sinceIso: string; universe?: string }): Promise<{
+    waypoint: string; sells: number; buys: number; sellValue: number; buyValue: number; profit: number; goodsSold: number; goodsBought: number; goodsTraded: number; ships: number;
+  }[]> {
+    const read = async (c: pg.PoolClient) => {
+      const r = await c.query(
+        `SELECT waypoint_symbol AS waypoint,
+                COUNT(*) FILTER (WHERE type = 'SELL')::int AS sells,
+                COUNT(*) FILTER (WHERE type = 'PURCHASE')::int AS buys,
+                COALESCE(SUM(total) FILTER (WHERE type = 'SELL'), 0) AS sell_value,
+                COALESCE(SUM(total) FILTER (WHERE type = 'PURCHASE'), 0) AS buy_value,
+                COALESCE(SUM(realized_pnl) FILTER (WHERE type = 'SELL' AND realized_pnl IS NOT NULL), 0) AS profit,
+                COUNT(DISTINCT trade_symbol) FILTER (WHERE type = 'SELL')::int AS goods_sold,
+                COUNT(DISTINCT trade_symbol) FILTER (WHERE type = 'PURCHASE')::int AS goods_bought,
+                COUNT(DISTINCT trade_symbol)::int AS goods_traded,
+                COUNT(DISTINCT ship_symbol)::int AS ships
+         FROM ledger WHERE timestamp >= $1 AND type IN ('SELL', 'PURCHASE') AND waypoint_symbol IS NOT NULL
+         GROUP BY waypoint_symbol ORDER BY 2 DESC, 3 DESC`,
+        [f.sinceIso],
+      );
+      return r.rows.map((x: any) => ({
+        waypoint: x.waypoint, sells: x.sells, buys: x.buys, sellValue: Math.round(Number(x.sell_value)), buyValue: Math.round(Number(x.buy_value)),
+        profit: Math.round(Number(x.profit)), goodsSold: x.goods_sold, goodsBought: x.goods_bought, goodsTraded: x.goods_traded, ships: x.ships,
+      }));
+    };
+    return f.universe ? withTenantUniverse(this.pool, tenantId, f.universe, read) : withTenant(this.pool, tenantId, read);
+  }
+
   /** Every PURCHASE and SELL since `sinceIso`, oldest first, for the ops `deadhead` tool (engine/deadhead.ts). */
   async opsTradeRows(tenantId: string, sinceIso: string): Promise<{ ship_symbol: string; type: string; units: number; timestamp: Date; total: number; realized_pnl: number | null }[]> {
     return withTenant(this.pool, tenantId, async (c) => {

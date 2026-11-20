@@ -190,6 +190,21 @@ export const OPS_TOOLS: OpsTool[] = [
   },
 
   {
+    name: "market_sales",
+    title: "Our trades per market for a window or a whole finished week",
+    description:
+      "The ledger rolled up per market in SQL, so a whole week fits (the ledger tool stops at 300 rows): sells, buys, their value, the realized profit of the sells, how many distinct goods we sold, bought and traded there, and how many ships traded there, busiest first. resetDate (e.g. 2026-11-08) reads that finished week; without it, sinceHours of the current week. The market tables are wiped at each reset, so a past week has no goods lists: goodsTraded counts only the goods WE traded, a lower bound on the market's size. Read-only.",
+    input: { sinceHours: num(168), resetDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), limit: num(2000) },
+    async run(ctx, a) {
+      const universe = a.resetDate ? universeKey(ctx.w.agentSymbol, a.resetDate) : undefined;
+      if (a.resetDate && !universe) throw new Error("resetDate must look like 2026-10-11 (the day the week began)");
+      const sinceIso = a.resetDate ? `${a.resetDate}T00:00:00.000Z` : iso(ctx.now() - Math.min(Math.max(a.sinceHours, 1), 24 * 14) * 3_600_000);
+      const rows = await ctx.w.store.opsLedgerByMarket(ctx.w.tenantId, { sinceIso, universe });
+      return { since: sinceIso, ...(universe ? { universeKey: universe } : {}), markets: rows.length, rows: rows.slice(0, Math.max(1, Math.round(a.limit))) };
+    },
+  },
+
+  {
     name: "gate_history",
     title: "Gate material status by hour, this week against another week at the same elapsed hour",
     description:

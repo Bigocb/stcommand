@@ -21,6 +21,9 @@ let tenant: string;
 let agent: string;
 const WEEK1 = "2026-10-04";
 const WEEK2 = "2026-10-11";
+/** Weeks of their own for the per-market rollup test, so its rows do not change the other tests' counts. */
+const WEEK0 = "2026-09-27";
+const WEEK9 = "2026-10-25";
 const key = (week: string) => universeKey(agent, week)!;
 
 const at = (iso: string) => iso;
@@ -114,6 +117,27 @@ describe("ledger rows by universe", () => {
   it("refuses a key that could escape the SET LOCAL statement", () => {
     setTenantUniverse(tenant, "X'; DROP TABLE ledger; --");
     assert.equal(tenantUniverse(tenant), undefined, "an invalid key is never stored, so it can never reach SQL");
+  });
+});
+
+describe("opsLedgerByMarket", () => {
+  it("rolls a named past week up per market, without the current week's rows", async () => {
+    setTenantUniverse(tenant, key(WEEK0));
+    await record({ timestamp: at("2026-09-28T11:00:00Z"), shipSymbol: "MKT-1", waypointSymbol: "X1-OLD-M1", type: "PURCHASE", tradeSymbol: "GOLD", total: 1000 });
+    await record({ timestamp: at("2026-09-28T12:00:00Z"), shipSymbol: "MKT-1", waypointSymbol: "X1-OLD-M2", type: "SELL", tradeSymbol: "GOLD", total: 1500, realizedPnl: 500 });
+    await record({ timestamp: at("2026-09-28T13:00:00Z"), shipSymbol: "MKT-2", waypointSymbol: "X1-OLD-M2", type: "SELL", tradeSymbol: "IRON", total: 300, realizedPnl: 100 });
+    setTenantUniverse(tenant, key(WEEK9));
+    await record({ timestamp: at("2026-10-26T12:00:00Z"), shipSymbol: "MKT-3", waypointSymbol: "X1-OLD-M2", type: "SELL", tradeSymbol: "GOLD", total: 9999 });
+
+    const rows = await store.opsLedgerByMarket(tenant, { sinceIso: `${WEEK0}T00:00:00.000Z`, universe: key(WEEK0) });
+    const m2 = rows.find((r) => r.waypoint === "X1-OLD-M2")!;
+    assert.equal(m2.sells, 2);
+    assert.equal(m2.sellValue, 1800, "this week's 9999 sale is not counted in the past week");
+    assert.equal(m2.goodsSold, 2);
+    assert.equal(m2.ships, 2);
+    const m1 = rows.find((r) => r.waypoint === "X1-OLD-M1")!;
+    assert.equal(m1.buys, 1);
+    assert.equal(m1.sells, 0);
   });
 });
 

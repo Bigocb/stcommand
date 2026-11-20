@@ -11,6 +11,10 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-20 — ops `market_sales`: our trades per market for a whole week
+
+The operator wanted to know which kinds of market are worth a fixed keeper, and to compare this week with the two before. The `ledger` tool stops at 300 rows and a week has about 20,000 trades, so there was no way to see a finished week per market. The new read-only ops tool `market_sales` adds up the ledger per waypoint in SQL (`Store.opsLedgerByMarket`): sells, buys, their value, the realized profit of the sells, the distinct goods we sold, bought and traded there, and how many ships traded there. `resetDate` reads a finished week, the same way `profit_curve` does. The market tables are wiped at each reset, so a past week has no goods lists. `goodsTraded` counts only the goods we traded, which is a lower bound on the market's size. Test: `tests/ledgerUniverse.test.ts`.
+
 ## 2026-11-20 — keeper auto-approve cash line can go up to 50M
 
 `keeperAutoApproveMinCash` was capped at 5,000,000, so the operator's 15M (2026-11-20: hold automatic keeper buying until a 15M bulk freighter is affordable) was clamped back to 5M. The cap is now 50,000,000 (`src/engine/doctrine.ts`). Background: with the line at 5M, automatic keeper buying spent everything above 5M, about 4M on ~145 hulls between 23:54 and 01:55, so the wallet could never reach 15M. Until this deploys, `autoApproveKeeperProbes` is switched off so every keeper purchase raises a card.
