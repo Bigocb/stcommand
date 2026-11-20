@@ -864,6 +864,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperStagingReserve",
+    name: "Keepers: slots kept for staging",
+    description: "The last this-many slots under the keeper limit are only for staging fresh systems; top-up and other markets stop short of them.",
+    value: 100, min: 0, max: 1000, step: 10, unit: " keepers",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "keeperTopUpPerHour",
     name: "Keepers: top up live systems",
     description: "Add this many more worthwhile markets an hour to the keeper list, from systems that are already live, least-covered system first (a fresh system starts with only its best few markets, see Fresh systems: keepers per system). Each one is then bought like any keeper (approval card, or auto-approve under its cap). It adds nothing while the keepers' polling load is at the ceiling below, the keeper limit is reached, or 3 listed markets still wait for a keeper. Off (the default) = live systems keep only the markets they started with. See src/engine/keeperTopUp.ts.",

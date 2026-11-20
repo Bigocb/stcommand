@@ -11,6 +11,20 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-20 — keeper staging reserve (clause `keeperStagingReserve`)
+
+From about 15:00 on 2026-11-20 no fresh system was staged or released: every check read "X1-FZ30 is next to stage but needs 5 keeper
+slot(s) and 0 are free", with 288 scouted systems waiting. Keepers had reached `keeperMaxTotal` (1,000). Slots were meant to come back
+by idle parking (parked keepers are not counted), which has been off since 2026-11-19, while the keeper top-up kept filling the
+remaining slots in systems that were already live. Staging and top-up drew on one pool and top-up got there first.
+
+With `keeperStagingReserve` on (default 100), the last N slots under the keeper limit are only for markets of systems in the
+fresh-system queue that are not live yet (scouted or staged). The top-up works to the limit less the reserve (`topUpLimit`), and any
+other automatic keeper purchase for a live system's market stops at the reserve with the reason "the last N of the limit are kept for
+staging fresh systems". Staging keepers may use the reserve up to the limit itself. Off (or 0) = the old single limit. Pure helpers
+in `src/engine/keeperValue.ts` (`keeperBudget` with `reserve`/`forStaging`, `topUpLimit`); fleet wiring in `keeperAutoApproves(price,
+market)` and `maybeTopUpKeepers`. Tests: `tests/keeperStagingReserve.test.ts`. Same day the operator raised `keeperMaxTotal` to 2,000.
+
 ## 2026-11-20 — fill fit: big holds to deep markets (clause `routeFillFit`, ships off)
 
 Operator (2026-11-20): "consider hold size vs buy size when assigning ships". The dispatcher already scored a route for a ship on

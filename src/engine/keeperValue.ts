@@ -67,10 +67,23 @@ export function median(values: readonly number[]): number | undefined {
  * Whether another keeper may be bought. `max` of 0 (the clause off) means no limit. Stationed and on the way both count: a probe
  * already bought will poll as soon as it arrives.
  */
-export function keeperBudget(i: { keepers: number; max: number }): { allow: boolean; reason: string } {
+export function keeperBudget(i: { keepers: number; max: number; reserve?: number; forStaging?: boolean }): { allow: boolean; reason: string } {
   if (i.max <= 0) return { allow: true, reason: "no keeper limit" };
   if (i.keepers >= i.max) return { allow: false, reason: `${i.keepers} keepers, at the limit of ${i.max}` };
+  // Staging reserve (clause keeperStagingReserve): the last `reserve` slots below the limit are kept for staging fresh systems, so the
+  // top-up and other listed markets cannot fill the whole budget and stop new systems from opening (2026-11-20: 1,000 of 1,000 at 15:00,
+  // no system staged or released for the rest of the afternoon).
+  const reserve = Math.max(0, Math.min(i.reserve ?? 0, i.max));
+  if (!i.forStaging && reserve > 0 && i.keepers >= i.max - reserve) {
+    return { allow: false, reason: `${i.keepers} keepers: the last ${reserve} of the ${i.max} limit are kept for staging fresh systems` };
+  }
   return { allow: true, reason: `${i.keepers} of ${i.max} keepers` };
+}
+
+/** The limit the keeper top-up works to: the keeper limit less the staging reserve (never 0, which would read as "no limit"). */
+export function topUpLimit(max: number, reserve: number): number {
+  if (max <= 0) return 0;
+  return Math.max(1, max - Math.max(0, Math.min(reserve, max)));
 }
 
 /** Order uncovered markets for buying: operator-listed ones with no score first (the operator put them there), then best score first. */

@@ -16,7 +16,7 @@ function fake(lastAddAgoMin: number | undefined, factsCalls: { n: number }) {
   };
   return self;
 }
-const run = (self: any) => (FleetManager.prototype as any).maybeTopUpKeepers.call(self);
+const run = (self: any) => { self.keeperStagingReserve ??= (FleetManager.prototype as any).keeperStagingReserve.bind(self); return (FleetManager.prototype as any).maybeTopUpKeepers.call(self); };
 
 describe("keeper top-up cadence", () => {
   it("does not read the facts before an addition is due", async () => {

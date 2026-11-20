@@ -113,6 +113,7 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   autoKeeperGoodSystems: ["keeper-cover", "Intake"],
   keeperMinGoods: ["keeper-cover", "Intake"],
   keeperMinGoodsRecommended: ["keeper-cover", "Intake"],
+  keeperStagingReserve: ["keeper-buy", "Budget"],
   keeperTopUpPerHour: ["keeper-cover", "Top-up"],
   keeperTopUpMaxPending: ["keeper-cover", "Top-up"],
   keeperTopUpMaxUnpriced: ["keeper-cover", "Top-up"],

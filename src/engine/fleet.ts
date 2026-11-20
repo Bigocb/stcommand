@@ -28,7 +28,7 @@ import { parseSpaced, spaceRoute as addSpacedRoute, unspaceRoute as removeSpaced
 import { arrivalSurvey } from "./arrivalSurvey.js";
 import { keeperYardPrice, yardPaidKey, type PaidPrice } from "./keeperYardPrice.js";
 import { thinMarket, DEFAULT_THIN_POLICY, type ThinPolicy } from "./thinMarket.js";
-import { goodsFromRows, keeperBudget, marketKeeperScore, median, orderForBuying, type ScoreContext } from "./keeperValue.js";
+import { goodsFromRows, keeperBudget, topUpLimit, marketKeeperScore, median, orderForBuying, type ScoreContext } from "./keeperValue.js";
 import { OFF_POLICY as TRIAGE_OFF_POLICY, reviewParked, triageKeepers, type TriagePolicy } from "./keeperTriage.js";
 import { Reminders } from "./reminders.js";
 import { SystemQueue } from "./systemQueue.js";
@@ -6599,7 +6599,8 @@ export class FleetManager {
       nowMs: now,
       lastAddMs: timers?.book.topUp.get("lastAdd"),
       keepers: this.keeperSlotsUsed(),
-      max: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0,
+      // Top-up stops short of the staging reserve, so fresh systems can always be staged.
+      max: topUpLimit(this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0, this.keeperStagingReserve()),
       keeperCallsPerMin: f.load,
       callsPerKeeper: f.perKeeper,
       pending: f.pending,
@@ -8177,12 +8178,24 @@ export class FleetManager {
     return this.yardTimes;
   }
 
+  /** Slots below keeperMaxTotal kept for staging fresh systems (clause keeperStagingReserve); 0 with the clause off. */
+  private keeperStagingReserve(): number {
+    return this.doctrine.isEnabledOr("keeperStagingReserve", false) ? Math.max(0, this.doctrine.value("keeperStagingReserve", 100)) : 0;
+  }
+
+  /** A market of a system in the fresh-system queue that is not live yet (scouted or staged): its keeper is a staging keeper. */
+  private isStagingMarket(market: string): boolean {
+    const q = this.systemQueue.get(systemOf(market));
+    return !!q && q.state !== "live";
+  }
+
   /** autoApproveKeeperProbes: may this keeper purchase skip the approval card? (keeperBuy.ts) */
-  private keeperAutoApproves(price: number): { approve: boolean; reason: string; blocked?: boolean } {
+  private keeperAutoApproves(price: number, market?: string): { approve: boolean; reason: string; blocked?: boolean } {
     // The keeper budget (keeperMaxTotal) stops automatic buying, not manual: when it is full an automatic purchase is skipped
     // outright, with no approval card, so the queue does not turn into a stream of cards the operator must refuse one by one.
+    // The last keeperStagingReserve slots are only for markets of systems being staged (see keeperBudget()).
     if (this.doctrine.isEnabledOr("autoApproveKeeperProbes", false)) {
-      const budget = keeperBudget({ keepers: this.keeperSlotsUsed(), max: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0 });
+      const budget = keeperBudget({ keepers: this.keeperSlotsUsed(), max: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0, reserve: this.keeperStagingReserve(), forStaging: market !== undefined && this.isStagingMarket(market) });
       if (!budget.allow) return { approve: false, reason: budget.reason, blocked: true };
     }
     return keeperAutoApprove({
@@ -8238,7 +8251,7 @@ export class FleetManager {
       if (row && typeof row.purchasePrice === "number") {
         this.keeperYardPaid.set(yardPaidKey(yard, hull), { price: row.purchasePrice, at: Date.now() });
         this.saveFleetShortMemory();
-        if (row.purchasePrice > price && !this.keeperAutoApproves(row.purchasePrice).approve) {
+        if (row.purchasePrice > price && !this.keeperAutoApproves(row.purchasePrice, target).approve) {
           this.log(`keeper ${hull} for ${target} not bought at ${yard}: the live price ${row.purchasePrice} is over the auto-approve cap (stored reading ${price})`);
           await this.coolKeeperMarket(target, 10);
           return "failed";
@@ -8406,7 +8419,7 @@ export class FleetManager {
       : `${hullLabel} at ${waypointSymbol} for ${probe.price}c, will drift to ${target} — no keeper stationed there yet`;
     if (await this.otherKeeperKindTargets("buyKeeperProbeForMarket", target)) return; // the market path already asked for this one
     if (await this.keeperTargetCovered(target)) return; // already covered per the durable state (another instance may have just bought it)
-    const auto = this.keeperAutoApproves(probe.price);
+    const auto = this.keeperAutoApproves(probe.price, target);
     if (auto.blocked) { this.keeperNote(`budget:${target}`, `no keeper bought for ${target} at ${waypointSymbol}: ${auto.reason}`); return; }
     if (auto.approve) {
       // The visiting ship is docked here right now, so buy at once and let it move on instead of holding it for a card.
@@ -8559,7 +8572,7 @@ export class FleetManager {
     // provably about THIS exact shipyard/market pairing. Otherwise back off
     // silently — advanceKeeperMarketQueue() will get back to this market
     // once the kind frees up.
-    const auto = this.keeperAutoApproves(delivery ? delivery.total : best.price);
+    const auto = this.keeperAutoApproves(delivery ? delivery.total : best.price, marketWaypoint);
     if (auto.blocked) { this.keeperNote(`budget:${marketWaypoint}`, `no keeper bought for ${marketWaypoint}: ${auto.reason}`); return false; }
     if (this.store && this.tenantId) {
       const existing = await this.store.getUnconsumedApproval(this.tenantId, "buyKeeperProbeForMarket");
@@ -8583,7 +8596,7 @@ export class FleetManager {
         const summary = this.fleetStatusSummary();
         const alt = pickKeeperYardWithShip(yards, { systemSymbol: marketSystem, hulls: KEEPER_HULL_PREFERENCE, nowMs: Date.now(), distance: yardDist, shipPresentAt: (wp) => pickShipAtYard(summary, wp) !== undefined });
         if (alt && alt.waypointSymbol !== best.waypointSymbol) {
-          const altAuto = this.keeperAutoApproves(alt.purchasePrice);
+          const altAuto = this.keeperAutoApproves(alt.purchasePrice, marketWaypoint);
           if (altAuto.approve) {
             const r2 = await this.buyKeeperThroughPresentShip(alt.waypointSymbol, marketWaypoint, alt.purchasePrice, alt.shipType);
             if (r2 === "bought") {
