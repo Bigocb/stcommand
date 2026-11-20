@@ -69,6 +69,12 @@ freighters. One swap at a time: buy the heavy at the yard nearest the small hull
 unflown), and retire the small hull (`sell_ship`) only once the heavy is trading. Worst earners go first (by `ops pnl` per ship over 48 h).
 Each buy needs the operator's yes; the hourly report names the next candidate and whether the wallet clears the working-capital floor plus the hull.
 
+**Last two 80s become bulk freighters (operator, 2026-11-20):** "replacing those last 80s with two bulk. One at a time once the wallet recovers."
+THEO-6B and THEO-6C (80 cargo) are each to be replaced by a SHIP_BULK_FREIGHTER, worst earner first, one at a time, once the wallet is back to
+about 30,000,000c (where it stood before THEO-474) and the previous bulk has traded. The hourly report says when that point is reached and
+recommends the buy; the operator gives the yes. Bulk yards: X1-YQ84-XX9F (worked twice), X1-JD68-A32F. Retire the 80 only after the bulk has
+traded and the 80's hold is empty. Week-end cargo the operator recalls from last week: about 8,000 (2026-11-20 evening: about 4,290).
+
 Example (2026-11-10): for a hull meant to trade X1-FR76, `X1-FR76-DA6C` (316,860c, 0 hops) beats `X1-PT36-A2`
 (314,772c, 2 hops) despite costing about 2k more. Light-hauler yards seen: X1-PT36-A2 (314,772c), X1-FR76-DA6C
 (316,860c), X1-YN91-A2 (371,290c). Every live/candidate system was 1-2 hops from home X1-PT36 on 2026-11-10.
