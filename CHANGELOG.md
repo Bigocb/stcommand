@@ -10,6 +10,11 @@ here; link it from the entry when that happens.
 
 
 
+
+## 2026-11-20 — keeper auto-approve cash line can go up to 50M
+
+`keeperAutoApproveMinCash` was capped at 5,000,000, so the operator's 15M (2026-11-20: hold automatic keeper buying until a 15M bulk freighter is affordable) was clamped back to 5M. The cap is now 50,000,000 (`src/engine/doctrine.ts`). Background: with the line at 5M, automatic keeper buying spent everything above 5M, about 4M on ~145 hulls between 23:54 and 01:55, so the wallet could never reach 15M. Until this deploys, `autoApproveKeeperProbes` is switched off so every keeper purchase raises a card.
+
 ## 2026-11-19 — keeper auto-approve can also require the fleet to be earning
 
 Operator (2026-11-19): "5m with a rate of 0 would clean out the wallet. maybe we need that extra check". The keeper auto-approve only looked at cash (`keeperAutoApproveMinCash`, 5M), so a wallet above the line kept buying probes even while nothing sold. New clause `keeperAutoApproveMinRate` (c/h, default 500,000, ships off): a probe is auto-approved only while the fleet's net over the last hour (realized sale profit minus jump fees and fuel, from the ledger) is at least that much. Below it, or before the rate is known after a restart, the purchase raises a card as before. Both tests apply together. Pure parts in `src/engine/keeperBuy.ts` (`keeperAutoApprove` rate inputs, `hourlyNet`); `FleetManager.refreshKeeperRate()` rebuilds the rate from the ledger at most every 5 minutes in the maintenance pass (a cache of the durable ledger, nothing to persist). Tests in `tests/keeperBuy.test.ts`.

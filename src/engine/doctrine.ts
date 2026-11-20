@@ -594,7 +594,7 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     key: "keeperAutoApproveMinCash",
     name: "Keeper auto-approve: keep cash",
     description: "Auto-approve a keeper probe only while the wallet still holds at least this many credits after paying; below it the purchase asks the operator instead. Off = no extra reserve beyond the cash floor. Use it to keep early-game cash for trading, and switch it off (or raise the cash floor) once the gate is open.",
-    value: 150000, min: 0, max: 5000000, step: 10000, unit: "c",
+    value: 150000, min: 0, max: 50000000, step: 10000, unit: "c",
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
