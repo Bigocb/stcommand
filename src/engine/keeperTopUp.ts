@@ -28,6 +28,12 @@ export interface TopUpPolicy {
    * minutes to read every market once: another keeper only lengthens the wait for all of them. 0 = no such check.
    */
   maxRotationMin?: number;
+  /**
+   * Judge the API room on the keepers' measured reads instead of the planned polling figure (clause keeperTopUpMeasuredLoad, operator
+   * 2026-11-20). The planned figure (1 / poll interval summed over the keepers) read 184.7 calls/min while the keepers actually made 41.4
+   * reads a minute, so top-up stood still against a 150 ceiling. Off, or no measurement yet: the planned figure, as before.
+   */
+  useMeasured?: boolean;
 }
 
 export const DEFAULT_TOPUP_POLICY: TopUpPolicy = { perHour: 0, maxKeeperCalls: 60, maxPending: 3, maxUnpriced: 0, maxRotationMin: 0 };
@@ -58,6 +64,8 @@ export interface TopUpContext {
   pending: number;
   /** Minutes the keepers need to read every market once at the measured pace; undefined when it cannot be judged (just booted, nothing read). */
   rotationMin?: number;
+  /** The keepers' measured reads a minute (last 10 minutes); undefined or 0 when nothing has been measured yet. */
+  measuredCallsPerMin?: number;
 }
 
 export interface TopUpDecision {
@@ -74,9 +82,13 @@ export function pickTopUp(systems: readonly TopUpSystem[], ctx: TopUpContext, po
   }
   if (ctx.pending >= policy.maxPending) return { reason: `${ctx.pending} listed market(s) still wait for a keeper (limit ${policy.maxPending})` };
   if (ctx.max > 0 && ctx.keepers >= ctx.max) return { reason: `keeper limit reached (${ctx.keepers} of ${ctx.max})` };
-  const after = ctx.keeperCallsPerMin + ctx.callsPerKeeper;
+  const measured = policy.useMeasured === true && ctx.measuredCallsPerMin !== undefined && ctx.measuredCallsPerMin > 0;
+  const load = measured ? ctx.measuredCallsPerMin! : ctx.keeperCallsPerMin;
+  const perKeeper = measured ? ctx.measuredCallsPerMin! / Math.max(1, ctx.keepers) : ctx.callsPerKeeper;
+  const kind = measured ? "read (measured)" : "poll";
+  const after = load + perKeeper;
   if (after > policy.maxKeeperCalls) {
-    return { reason: `no API room: keepers poll ${ctx.keeperCallsPerMin.toFixed(1)} calls/min, one more would make ${after.toFixed(1)} against ${policy.maxKeeperCalls}` };
+    return { reason: `no API room: keepers ${kind} ${load.toFixed(1)} calls/min, one more would make ${after.toFixed(1)} against ${policy.maxKeeperCalls}` };
   }
   if (policy.maxRotationMin && ctx.rotationMin !== undefined && ctx.rotationMin > policy.maxRotationMin) {
     return { reason: `keepers are slow to read: one rotation takes ${ctx.rotationMin} min at the measured pace (limit ${policy.maxRotationMin}); more keepers would slow every market's reading` };
@@ -89,7 +101,7 @@ export function pickTopUp(systems: readonly TopUpSystem[], ctx: TopUpContext, po
   const share = (s: TopUpSystem): number => s.covered / (s.covered + s.candidates.length);
   const best = [...open].sort((a, b) => share(a) - share(b) || a.system.localeCompare(b.system))[0]!;
   const market = best.candidates[0]!;
-  return { market, system: best.system, reason: `${market}: ${best.system} has ${best.covered} of ${best.covered + best.candidates.length} worthwhile markets covered; keepers poll ${ctx.keeperCallsPerMin.toFixed(1)} -> ${after.toFixed(1)} calls/min (ceiling ${policy.maxKeeperCalls})` };
+  return { market, system: best.system, reason: `${market}: ${best.system} has ${best.covered} of ${best.covered + best.candidates.length} worthwhile markets covered; keepers ${kind} ${load.toFixed(1)} -> ${after.toFixed(1)} calls/min (ceiling ${policy.maxKeeperCalls})` };
 }
 
 /**

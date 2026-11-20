@@ -11,6 +11,22 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-20 — Keeper top-up judges API room on measured reads (clause `keeperTopUpMeasuredLoad`, off); ceiling range up to 1,800
+
+Top-up stopped at 19:11 with "no API room: keepers poll 184.7 calls/min ... against 150". That load is the planned figure (one call per
+poll interval summed over the keepers), while the keepers actually made 41.4 reads a minute, and the ceiling clause
+`keeperTopUpMaxCalls` could not go above 150 although 15 proxy lanes now carry the keepers' reads (90 a minute each). Operator: "fix the
+top up, change the setting so we can go above 150 a minute".
+
+- New clause `keeperTopUpMeasuredLoad` (off): the load is the keepers' measured reads over the last 10 minutes, and one more keeper
+  adds the measured average per keeper. Off, or nothing measured yet (just booted): the planned figure, as before.
+- `keeperTopUpMaxCalls` now ranges 10-1,800 (was 10-150). The value is unchanged.
+- ops `keeper_coverage` shows `judgedOn` (measured or planned).
+- Pure change in `pickTopUp()` (`src/engine/keeperTopUp.ts`, `TopUpPolicy.useMeasured`, `TopUpContext.measuredCallsPerMin`); tests in
+  `tests/keeperTopUp.test.ts`.
+
+Also today, by doctrine: `routeFillFit` 30 -> 40 and `apiLaneCount` 10 -> 15 (operator).
+
 ## 2026-11-20 — Arrival survey counts only keepers that have read their market (clause `arrivalSurveyReadKeepers`, off)
 
 A ship that jumps into a system skips the market survey when keepers are stationed there (`arrivalSurvey.ts`, clause

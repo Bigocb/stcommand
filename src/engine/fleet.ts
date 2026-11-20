@@ -6626,7 +6626,8 @@ export class FleetManager {
       callsPerKeeper: f.perKeeper,
       pending: f.pending,
       rotationMin: this.keeperRotationMin(now),
-    }, { ...DEFAULT_TOPUP_POLICY, perHour: this.doctrine.value("keeperTopUpPerHour"), maxKeeperCalls: this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90, maxPending: this.doctrine.isEnabledOr("keeperTopUpMaxPending", true) ? this.doctrine.value("keeperTopUpMaxPending") : DEFAULT_TOPUP_POLICY.maxPending, maxUnpriced: this.doctrine.isEnabledOr("keeperTopUpMaxUnpriced", true) ? this.doctrine.value("keeperTopUpMaxUnpriced") : 0, maxRotationMin: this.doctrine.isEnabledOr("keeperMaxRotationMin", false) ? this.doctrine.value("keeperMaxRotationMin") : 0 });
+      measuredCallsPerMin: this.keeperReads?.perMin(now),
+    }, { ...DEFAULT_TOPUP_POLICY, useMeasured: this.doctrine.isEnabledOr("keeperTopUpMeasuredLoad", false), perHour: this.doctrine.value("keeperTopUpPerHour"), maxKeeperCalls: this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90, maxPending: this.doctrine.isEnabledOr("keeperTopUpMaxPending", true) ? this.doctrine.value("keeperTopUpMaxPending") : DEFAULT_TOPUP_POLICY.maxPending, maxUnpriced: this.doctrine.isEnabledOr("keeperTopUpMaxUnpriced", true) ? this.doctrine.value("keeperTopUpMaxUnpriced") : 0, maxRotationMin: this.doctrine.isEnabledOr("keeperMaxRotationMin", false) ? this.doctrine.value("keeperMaxRotationMin") : 0 });
     this.topUpLast = { at: now, reason: decision.reason, market: decision.market };
     if (!decision.market) {
       if (decision.reason !== this.topUpNoteAt) { this.topUpNoteAt = decision.reason; this.keeperNote("topup", `keeper top-up: nothing added (${decision.reason})`); }
@@ -6655,6 +6656,8 @@ export class FleetManager {
         keeperPollingCallsPerMin: Math.round(f.load * 10) / 10,
         /** What the keepers actually did over the last 10 minutes, against the demand figure above. */
         measuredKeeperReadsPerMin: Math.round(this.keeperReads.perMin(Date.now()) * 10) / 10,
+        /** Which of the two figures top-up judges the API room on (clause keeperTopUpMeasuredLoad). */
+        judgedOn: this.doctrine.isEnabledOr("keeperTopUpMeasuredLoad", false) ? "measured" : "planned",
         rotationMin: this.keeperRotationMin(Date.now()) ?? null,
         keepers: this.keeperSlotsUsed(),
         keeperLimit: this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0,

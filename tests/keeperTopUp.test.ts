@@ -96,3 +96,23 @@ describe("top-up waits for earlier keepers to price (pure)", () => {
     assert.equal(d.market, "X1-MR27-A");
   });
 });
+
+describe("measured load (clause keeperTopUpMeasuredLoad)", () => {
+  // 2026-11-20: planned polling 184.7 calls/min against a 150 ceiling, measured reads 41.4/min.
+  const busy: TopUpContext = { ...ctx, keepers: 1185, max: 2000, keeperCallsPerMin: 184.7, callsPerKeeper: 0.16, measuredCallsPerMin: 41.4 };
+  const p = { ...policy, maxKeeperCalls: 150 };
+  it("off: the planned figure blocks, as before", () => {
+    assert.match(pickTopUp(systems, busy, p).reason, /no API room: keepers poll 184\.7/);
+  });
+  it("on: the measured reads are the load, so top-up adds", () => {
+    const d = pickTopUp(systems, busy, { ...p, useMeasured: true });
+    assert.equal(d.market, "X1-BB-1");
+    assert.match(d.reason, /read \(measured\) 41\.4/);
+  });
+  it("on: still stops when the measured load is at the ceiling", () => {
+    assert.match(pickTopUp(systems, { ...busy, measuredCallsPerMin: 150 }, { ...p, useMeasured: true }).reason, /no API room: keepers read \(measured\) 150/);
+  });
+  it("on but nothing measured yet: falls back to the planned figure", () => {
+    assert.match(pickTopUp(systems, { ...busy, measuredCallsPerMin: 0 }, { ...p, useMeasured: true }).reason, /keepers poll 184\.7/);
+  });
+});

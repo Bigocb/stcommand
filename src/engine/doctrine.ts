@@ -909,8 +909,15 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     key: "keeperTopUpMaxCalls",
     name: "Keepers: top-up polling ceiling",
     description: "Top-up stops while the keepers' own polling would pass this many API calls a minute (trading, ship moves and surveys need the rest). Up to 90 fits one IP; with the API lane on (apiLaneProxy) the keepers' reads leave from a second IP, so a higher ceiling can be used - watch the lane's calls a minute in ops api_budget and keep it under about 80% of its rate. Check ops keeper_review for the current load. Only applies while Keepers: top up live systems is on.",
-    value: 60, min: 10, max: 150, step: 5, unit: " calls/min",
+    value: 60, min: 10, max: 1800, step: 5, unit: " calls/min",
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
+    key: "keeperTopUpMeasuredLoad",
+    name: "Keepers: top-up judges API room on measured reads",
+    description: "Top-up stops when the keepers' load plus one more keeper would pass the top-up polling ceiling. The load was the planned figure (one call per poll interval for every keeper), which on 2026-11-20 read 184.7 calls a minute while the keepers actually made 41.4 reads a minute, so top-up stood still. On = the measured reads of the last 10 minutes are the load, and one more keeper adds the measured average per keeper. Off, or nothing measured yet: the planned figure, as before. This value isn't used — only the clause toggle matters.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
     key: "keeperTriage",
