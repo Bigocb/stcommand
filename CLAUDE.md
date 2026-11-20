@@ -64,6 +64,11 @@ Count cargo in transit: "3M with no cargo in transit is a lot different than 3M 
 
 **Which big hull (operator, 2026-11-19):** prefer heavy freighters (225 cargo). Buy a refining freighter (150) only when its yard is where the ship will trade; never just because it is the cheapest big hull. Once the wallet is above about **15,000,000c**, buy bulk freighters (490 cargo, about 5.6M). Operator (2026-11-20): when the wallet reaches **15M**, buy one bulk freighter; this is pre-approved and the hourly update buys it (one only). A yard sells only to a ship docked there: bulk yards seen are X1-YQ84-XX9F and X1-JD68-A32F, and none of our ships was docked at either on 2026-11-20.
 
+**Swapping small hulls for heavies (operator, 2026-11-20):** as money grows, replace the 40-unit hulls first, then the 80s, with heavy
+freighters. One swap at a time: buy the heavy at the yard nearest the small hull's working area (or a route `ops unflown_routes` shows
+unflown), and retire the small hull (`sell_ship`) only once the heavy is trading. Worst earners go first (by `ops pnl` per ship over 48 h).
+Each buy needs the operator's yes; the hourly report names the next candidate and whether the wallet clears the working-capital floor plus the hull.
+
 Example (2026-11-10): for a hull meant to trade X1-FR76, `X1-FR76-DA6C` (316,860c, 0 hops) beats `X1-PT36-A2`
 (314,772c, 2 hops) despite costing about 2k more. Light-hauler yards seen: X1-PT36-A2 (314,772c), X1-FR76-DA6C
 (316,860c), X1-YN91-A2 (371,290c). Every live/candidate system was 1-2 hops from home X1-PT36 on 2026-11-10.
