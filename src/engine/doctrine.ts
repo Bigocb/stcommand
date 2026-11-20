@@ -656,8 +656,8 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "freshStagedAhead",
     name: "Fresh systems: warming up ahead of need",
-    description: "How many systems the engine keeps staged (keepers bought and parked, gate shut) at once while it waits to release one. The dugout (scouted) holds everything found; this is the on-deck circle. 1 = buy keepers for one system at a time, so a release can find nothing ready. 2 or 3 = the next systems are warming up while the current one finishes, at the cost of keepers sitting parked sooner. Counts against Keeper limit. Takes effect on the next check.",
-    value: 1, min: 1, max: 5, step: 1, unit: " systems",
+    description: "How many systems the engine keeps staged (keepers bought and parked, gate shut) at once while it waits to release one. The dugout (scouted) holds everything found; this is the on-deck circle. 1 = buy keepers for one system at a time, so a release can find nothing ready. 2 or 3 = the next systems are warming up while the current one finishes, at the cost of keepers sitting parked sooner. Up to 12 (operator 2026-11-20): staging to pricing takes 45-60 minutes, so with a high live target several must warm at once for one to be ready whenever a slot opens; one system is staged per check (5 min). Counts against Keeper limit. Takes effect on the next check.",
+    value: 1, min: 1, max: 12, step: 1, unit: " systems",
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {

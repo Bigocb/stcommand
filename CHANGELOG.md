@@ -11,6 +11,13 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-20 — Fresh systems: stage up to 12 ahead (clause `freshStagedAhead` range 1-12, was 1-5)
+
+With the live target at 12 and releases every 10-20 minutes, five staged systems emptied within the hour (seven releases 21:16-22:27)
+and the replacements, staged together, all needed the same 45-60 minutes to be priced, so premium coverage fell from 9 to 7 of 12.
+Operator agreed to stage more ahead. The clause's maximum is now 12; its value is unchanged (set live by doctrine). Staging still adds
+one system per 5-minute check and stops at the keeper limit and the staging cash floor (`systemReleaseMinCash`).
+
 ## 2026-11-20 — Keeper top-up judges API room on measured reads (clause `keeperTopUpMeasuredLoad`, off); ceiling range up to 1,800
 
 Top-up stopped at 19:11 with "no API room: keepers poll 184.7 calls/min ... against 150". That load is the planned figure (one call per
