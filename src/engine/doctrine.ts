@@ -817,8 +817,8 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "keeperTourPlan",
     name: "Keepers: fixed only where they earn (tour plan)",
-    description: "Issue #63. Fixed keepers only on yards, good-route ends and the goods counts below. 1 = top-up adds only those, and an uncovered good-route end is listed. 2 = also move an idle keeper's hull to a promoted market in its system. Off = as before. ops keeper_plan.",
-    value: 1, min: 1, max: 2, step: 1, unit: "",
+    description: "Issue #63. Fixed keepers only on yards, good-route ends and the goods counts below. 1 = top-up adds only those, and an uncovered good-route end is listed. 2 = also move an idle keeper's hull to a promoted market in its system. 3 = also turn idle keepers into loop keepers that read a system's tour-only markets in turn. Off = as before. ops keeper_plan.",
+    value: 1, min: 1, max: 3, step: 1, unit: "",
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
@@ -847,6 +847,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     name: "Tour plan: demote after this long off every good route",
     description: "A keeper (not on a yard or goods-rule market) off every good route this long is demoted; tracking starts when the plan is on.",
     value: 6, min: 1, max: 48, step: 1, unit: " h",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
+    key: "keeperPlanLoopLapMin",
+    name: "Tour plan: second loop keeper when a lap takes over",
+    description: "Mode 3: a system whose loop keeper takes longer than this per lap gets a second one (from an idle keeper there).",
+    value: 30, min: 5, max: 180, step: 5, unit: " min",
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {

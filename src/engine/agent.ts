@@ -164,8 +164,10 @@ export interface AgentOptions {
   /** How long a keeper waits before polling this market again (at least 5 minutes). Absent = always 5. A market whose
    *  prices have sat still for a while is polled less often; see FleetManager.keeperPollMs(). */
   keeperPollMs?: (market: string) => number;
-  /** Called after each keeper market read completes (for the measured read rate). */
-  onKeeperRead?: () => void;
+  /** Called after each keeper market read completes (for the measured read rate, and to step a loop keeper to its next market). */
+  onKeeperRead?: (market: string) => void;
+  /** True for a loop keeper (tour plan mode 3): it reads a market and moves straight on, with no dock and no wait. */
+  keeperLooping?: () => boolean;
   /**
    * Whether the ship is allowed to act at all right now. False while the fleet
    * is halted.
@@ -312,7 +314,8 @@ export class ShipAgent {
   private keeperHoldSince?: { waypoint: string; at: number };
   private readonly keeperMarket?: () => string | undefined;
   private readonly keeperPollMs?: (market: string) => number;
-  private readonly onKeeperRead?: () => void;
+  private readonly onKeeperRead?: (market: string) => void;
+  private readonly keeperLooping?: () => boolean;
   private readonly intentFor?: AgentOptions["intentFor"];
   private readonly done?: () => void;
   /** Systems refreshSystemMarkets() has already been tried for this tour, so
@@ -431,6 +434,7 @@ export class ShipAgent {
     this.keeperMarket = opts.keeperMarket;
     this.keeperPollMs = opts.keeperPollMs;
     this.onKeeperRead = opts.onKeeperRead;
+    this.keeperLooping = opts.keeperLooping;
     this.intentFor = opts.intentFor;
     this.done = opts.done;
     this.onTenderAbandoned = opts.onTenderAbandoned;
@@ -2178,8 +2182,10 @@ export class ShipAgent {
       await this.refuelIfNeeded(5, market);
       await this.navigateTo(market);
     }
-    await this.ensureDocked();
-    if (this.recordMarket) { await this.recordMarket(market); this.onKeeperRead?.(); }
+    // A loop keeper only reads the market (a ship in orbit at the waypoint sees it) and leaves: docking would cost two calls a stop.
+    const looping = this.keeperLooping?.() ?? false;
+    if (!looping) await this.ensureDocked();
+    if (this.recordMarket) { await this.recordMarket(market); this.onKeeperRead?.(market); }
     // Shipyard-markets (A2/C43/H56) also need their ship stock kept fresh —
     // shipyard inventory is only visible when a ship is docked there.
     if (this.recordShipyard) await this.recordShipyard(market);
@@ -2441,6 +2447,7 @@ export class ShipAgent {
 
   /** Delay after a successful keeper poll: 5 minutes, longer for a market whose prices have not moved. */
   private keeperDelayMs(): number {
+    if (this.keeperLooping?.()) return 5_000;
     const market = this.keeperMarket?.();
     const wanted = market ? this.keeperPollMs?.(market) : undefined;
     return Math.max(5 * 60_000, wanted ?? 0);

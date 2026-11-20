@@ -37,10 +37,12 @@ function fake(opts: { planOn: boolean; mode?: number; flag?: string; keepers?: [
     recordAction: () => {},
     log: () => {},
   };
-  for (const k of ["keeperPlanPolicy", "keeperRouteSeen", "saveKeeperRouteSeen", "noteKeeperPlanRoutes", "keeperPlanInput", "maybeKeeperPlan", "repinKeeper", "coveredKeeperMarkets", "topUpFacts", "keeperPlanData"]) {
+  for (const k of ["keeperPlanPolicy", "keeperRouteSeen", "saveKeeperRouteSeen", "noteKeeperPlanRoutes", "keeperPlanInput", "maybeKeeperPlan", "repinKeeper", "coveredKeeperMarkets", "topUpFacts", "keeperPlanData", "loadLoopKeepers", "isLoopKeeper"]) {
     self[k] = (FleetManager.prototype as any)[k].bind(self);
   }
   self.lastKeeperPlanAt = 0;
+  self.loopKeeperShips = new Map();
+  self.loopKeepersLoaded = true;
   return { self, flags, added, fleetState, listed };
 }
 

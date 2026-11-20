@@ -79,6 +79,7 @@ import { rotateBySystem, rotationReason, shouldDisplaceCard, systemOf as keeperS
 import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
 import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
+import { advanceLoop, decodeLoops, DEFAULT_LOOP_POLICY, encodeLoops, planLoops, type LoopKeeper } from "./keeperLoop.js";
 import { DEFAULT_KEEPER_PLAN_POLICY, decodeRouteSeen, encodeRouteSeen, fixedReason, noteRouteEnds, planKeepers, resumeTracking, type KeeperPlan, type KeeperPlanPolicy, type PlanMarket, type RouteSeenState } from "./keeperPlan.js";
 import { DEFAULT_DELIVERY_POLICY, MAX_DELIVERY_MS, deliveryArrived, deliveryExpired, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
 import { ChangeTracker } from "./changeTracker.js";
@@ -3454,9 +3455,9 @@ export class FleetManager {
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
           hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
-            keeperMarket: () => this.keeperMarkets.get(ship.symbol),
+            keeperMarket: () => this.keeperMarkets.get(ship.symbol), keeperLooping: () => this.isLoopKeeper(ship.symbol),
             keeperPollMs: (wp) => this.keeperPollMs(wp),
-            onKeeperRead: () => this.keeperReads.note(Date.now()),
+            onKeeperRead: (m) => this.onKeeperRead(ship.symbol, m),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -3806,9 +3807,9 @@ export class FleetManager {
           scrapHere: async (sym: string) => { await this.scrapShip(sym); },
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
           hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
-            keeperMarket: () => this.keeperMarkets.get(shipSymbol),
+            keeperMarket: () => this.keeperMarkets.get(shipSymbol), keeperLooping: () => this.isLoopKeeper(shipSymbol),
             keeperPollMs: (wp) => this.keeperPollMs(wp),
-            onKeeperRead: () => this.keeperReads.note(Date.now()),
+            onKeeperRead: (m) => this.onKeeperRead(shipSymbol, m),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -6423,7 +6424,8 @@ export class FleetManager {
     const yards = new Set(((await this.store?.shipyardDirectory()) ?? []).map((y) => y.waypointSymbol));
     const listed = new Set(await this.keeperPriorityMarkets());
     const keeperOf = new Map<string, string>();
-    for (const [ship, m] of this.keeperMarkets) if (!keeperOf.has(m)) keeperOf.set(m, ship);
+    // A loop keeper is the tour, not a fixed keeper of the market it happens to be on now.
+    for (const [ship, m] of this.keeperMarkets) if (!keeperOf.has(m) && !this.loopKeeperShips.has(ship)) keeperOf.set(m, ship);
     const covered = this.coveredKeeperMarkets();
     const markets: PlanMarket[] = [];
     for (const q of this.systemQueue.list()) {
@@ -6447,8 +6449,9 @@ export class FleetManager {
       totals: { markets: markets.length, fixed: plan.systems.reduce((t, s) => t + s.fixed, 0), tourOnly: plan.systems.reduce((t, s) => t + s.tour, 0), keepersOnTourOnlyMarkets: plan.demote.length },
       promote: plan.promote, moves: plan.moves, demote: plan.demote.slice(0, 40),
       systems: plan.systems.slice(0, 40).map((s) => ({ system: s.system, fixed: s.fixed, tour: s.tour })),
+      loops: [...this.loopKeeperShips.values()].map((l) => ({ ship: l.ship, system: l.system, markets: l.markets.length, at: l.markets[l.idx], lastLapMin: l.lastLapMs !== undefined ? Math.round(l.lastLapMs / 60_000) : null })),
       lastPass: this.keeperPlanLast ? { at: new Date(this.keeperPlanLast.at).toISOString(), mode: this.keeperPlanLast.mode, acted: this.keeperPlanLast.acted } : null,
-      note: "Tracking starts when the plan is switched on: until keeperPlanDemoteHours have passed, no keeper is demoted. Mode 1 lists uncovered good-route ends for a keeper (bought like any keeper); mode 2 also moves an idle keeper's hull to a promoted market in its own system.",
+      note: "Tracking starts when the plan is switched on: until keeperPlanDemoteHours have passed, no keeper is demoted. Mode 1 lists uncovered good-route ends for a keeper (bought like any keeper); mode 2 also moves an idle keeper's hull to a promoted market in its own system; mode 3 also turns idle keepers into loop keepers (one per system, two when a lap is slow) that read the tour-only markets in turn.",
     };
   }
 
@@ -6459,6 +6462,8 @@ export class FleetManager {
    */
   private async maybeKeeperPlan(): Promise<void> {
     if (!this.store || !this.tenantId || !this.doctrine.isEnabledOr("keeperTourPlan", false)) return;
+    // Restored on the first pass after a boot, not after the first 5-minute plan, so loop keepers keep stepping across a restart.
+    await this.loadLoopKeepers();
     const now = Date.now();
     if (now - this.lastKeeperPlanAt < 5 * 60_000) return;
     this.lastKeeperPlanAt = now;
@@ -6482,7 +6487,83 @@ export class FleetManager {
         for (const p of plan.promote) { acted.push(`listed ${p.market} (${p.reason})`); this.log(`tour plan: ${p.market} put on the keeper list (${p.reason})`); }
       } catch (err) { this.log(`tour plan: keeper list add failed: ${describeError(err)}`); }
     }
+    if (mode >= 3) {
+      try { await this.planLoopKeepers(plan, now, acted); } catch (err) { this.log(`tour plan: loop keepers failed: ${describeError(err)}`); }
+    }
     this.keeperPlanLast = { at: now, mode, plan, acted };
+  }
+
+  /**
+   * Loop keepers (issue #63 part 2, keeperLoop.ts): ship -> its loop. A decision reads it (where the keeper goes next), so it is saved in
+   * the fleet flag keeperLoops on every change and restored on the first maintenance pass after a boot.
+   */
+  private loopKeeperShips = new Map<string, LoopKeeper>();
+  private loopKeepersLoaded = false;
+  private async loadLoopKeepers(): Promise<void> {
+    if (this.loopKeepersLoaded || !this.tenantId || !this.store) return;
+    const raw = await this.store.getFleetFlag(this.tenantId, "keeperLoops");
+    for (const l of decodeLoops(raw)) if (this.keeperMarkets.has(l.ship)) this.loopKeeperShips.set(l.ship, l);
+    this.loopKeepersLoaded = true;
+  }
+  private async saveLoopKeepers(): Promise<void> {
+    if (!this.tenantId || !this.store) return;
+    await this.store.setFleetFlag(this.tenantId, "keeperLoops", encodeLoops([...this.loopKeeperShips.values()]));
+  }
+
+  /** Mode 3: turn idle (demoted) keepers into loop keepers, one per system with enough tour-only markets, two when a lap is slow. */
+  private async planLoopKeepers(plan: KeeperPlan, now: number, acted: string[]): Promise<void> {
+    await this.loadLoopKeepers();
+    // A loop keeper that was sold or re-roled is no longer one.
+    for (const ship of [...this.loopKeeperShips.keys()]) if (!this.keeperMarkets.has(ship)) this.loopKeeperShips.delete(ship);
+    const moved = new Set(plan.moves.map((m) => m.ship));
+    const lapMin = this.doctrine.isEnabledOr("keeperPlanLoopLapMin", true) ? this.doctrine.value("keeperPlanLoopLapMin", 30) : 30;
+    const d = planLoops({
+      nowMs: now,
+      tourMarkets: new Map(plan.systems.map((x) => [x.system, x.tourMarkets])),
+      free: plan.demote.filter((x) => !moved.has(x.ship) && !this.loopKeeperShips.has(x.ship)).map((x) => ({ ship: x.ship, system: x.system, market: x.market })),
+      loops: [...this.loopKeeperShips.values()],
+    }, { ...DEFAULT_LOOP_POLICY, lapTargetMs: lapMin * 60_000 });
+    const before = encodeLoops([...this.loopKeeperShips.values()]);
+    for (const e of d.ended) { this.loopKeeperShips.delete(e.ship); acted.push(`loop ended ${e.ship} (${e.reason})`); this.log(`tour plan: ${e.ship} stops looping ${e.system} (${e.reason})`); }
+    const createdShips = new Set(d.created.map((c) => c.ship));
+    for (const l of d.loops) if (this.loopKeeperShips.has(l.ship) || createdShips.has(l.ship)) this.loopKeeperShips.set(l.ship, l);
+    for (const c of d.created) {
+      const from = this.keeperMarkets.get(c.ship);
+      try {
+        await this.repinKeeper(c.ship, c.start, `loop keeper for ${c.system}: ${c.reason}`);
+        // Its old market is a tour-only market now: off the keeper list, or the queue would buy it a new keeper.
+        if (from) { const list = await this.keeperPriorityMarkets(); if (list.includes(from)) await this.setKeeperPriorityMarkets(list.filter((m) => m !== from)); }
+        acted.push(`loop keeper ${c.ship} in ${c.system} (${c.reason})`);
+      } catch (err) {
+        this.loopKeeperShips.delete(c.ship);
+        this.log(`tour plan: loop keeper ${c.ship} failed: ${describeError(err)}`);
+      }
+    }
+    if (encodeLoops([...this.loopKeeperShips.values()]) !== before) await this.saveLoopKeepers();
+  }
+
+  /** A loop keeper only while mode 3 is on; otherwise it behaves as an ordinary keeper on whatever market it is pinned to. */
+  private isLoopKeeper(ship: string): boolean {
+    return this.loopKeeperShips.has(ship) && this.doctrine.isEnabledOr("keeperTourPlan", false) && this.doctrine.value("keeperTourPlan", 1) >= 3;
+  }
+
+  /** After every keeper read: the read rate, and a loop keeper steps to its next market (saved at once). */
+  private onKeeperRead(ship: string, market: string): void {
+    const now = Date.now();
+    this.keeperReads.note(now);
+    const loop = this.loopKeeperShips.get(ship);
+    if (!loop || !this.isLoopKeeper(ship)) return;
+    const at = loop.markets.indexOf(market);
+    const step = advanceLoop(at >= 0 ? { ...loop, idx: at } : loop, now);
+    if (!step) return;
+    this.loopKeeperShips.set(ship, step.loop);
+    this.keeperMarkets.set(ship, step.next);
+    void (async () => {
+      try {
+        await this.store?.setFleetState(this.tenantId!, ship, "keeper", step.next);
+        await this.saveLoopKeepers();
+      } catch (err) { this.log(`${ship}: loop keeper save failed: ${describeError(err)}`); }
+    })();
   }
 
   /** Move a stationed keeper to another market: new pin, saved role state and a keep intent. Its next poll flies it there. */
@@ -11998,9 +12079,9 @@ export class FleetManager {
         recordMarket: (wp) => this.recordMarketSnapshot(wp),
         recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
         hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
-        keeperMarket: () => this.keeperMarkets.get(sym),
+        keeperMarket: () => this.keeperMarkets.get(sym), keeperLooping: () => this.isLoopKeeper(sym),
         keeperPollMs: (wp) => this.keeperPollMs(wp),
-        onKeeperRead: () => this.keeperReads.note(Date.now()),
+        onKeeperRead: (m) => this.onKeeperRead(sym, m),
         getCredits: () => this.spendableCredits(),
         scrapHere: async (sym: string) => { await this.scrapShip(sym); },
         galaxy: this.galaxy,

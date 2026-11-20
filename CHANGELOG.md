@@ -11,6 +11,25 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-20 — keeper tour plan, part 2: loop keepers (issue #63)
+
+Part 1 decided which markets deserve a fixed keeper; the rest were "left to touring", but nothing toured them. Part 2 adds the
+touring keeper. With `keeperTourPlan` at **3**, every 5-minute plan pass turns an idle keeper (one the plan demotes: off every
+good route for `keeperPlanDemoteHours`, not a yard, not a goods-rule market) into a **loop keeper** for its own system, so no
+hull is bought for it. A loop keeper is an ordinary stationed keeper whose pin moves to the next of the system's tour-only
+markets after every read: it reads in orbit (no dock, two calls saved a stop) and leaves 5 seconds later instead of waiting
+the usual 5+ minutes. A system needs at least 3 tour-only markets to get one. When a lap takes longer than
+`keeperPlanLoopLapMin` (new clause, 30 min), a second idle keeper there joins and the markets are split between the two (never
+more than two). A loop ends when its system drops under 3 tour-only markets; the hull stays as an ordinary keeper where it is.
+The market a new loop keeper leaves is taken off the keeper list so the queue does not buy a replacement.
+
+- Pure module `src/engine/keeperLoop.ts` (`planLoops`, `advanceLoop`, `encodeLoops`/`decodeLoops`); fleet wiring in
+  `FleetManager.planLoopKeepers`, `onKeeperRead`, `isLoopKeeper`; agent option `keeperLooping` (`src/engine/agent.ts`).
+- The loops are saved in fleet flag `keeperLoops` on every step and restored on the first maintenance pass after a boot. Below
+  mode 3 a saved loop keeper behaves as a plain keeper (no stepping, no fast polls).
+- `ops keeper_plan` lists the loops (system, markets, where it is, last lap time).
+- Tests: `tests/keeperLoop.test.ts`, `tests/keeperLoopFleet.test.ts`.
+
 ## 2026-11-20 — tour plan: a gap in route tracking no longer demotes keepers
 
 Found while previewing the plan with ops `keeper_plan`. The plan only records good-route ends while `keeperTourPlan` is on, but reading the preview started the tracking clock (`trackedSince`) even with the plan off. Switching it on six hours later would have made every keeper look "off every good route for 6 h", and mode 2 would have moved them all at once. A server outage longer than the demote window had the same effect. The saved state now also keeps when routes were last recorded (`lastNoted`). Each dispatcher cycle calls `resumeTracking()` (`src/engine/keeperPlan.ts`), which restarts judging when the last recording is more than 15 minutes old, so unwatched time never counts against a keeper. Tests: `tests/keeperPlan.test.ts` and `tests/keeperPlanFleet.test.ts` (a plan switched on after 9 unrecorded hours demotes nobody).
