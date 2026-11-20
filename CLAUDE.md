@@ -62,7 +62,7 @@ worth spending on rather than hoarding.
 Count cargo in transit: "3M with no cargo in transit is a lot different than 3M with 1.5M in cargo". The buy warning checks both
 (`buyAdviceBigHullLine` 3.5M, `buyAdviceBigHullHolds` 1M).
 
-**Which big hull (operator, 2026-11-19):** prefer heavy freighters (225 cargo). Buy a refining freighter (150) only when its yard is where the ship will trade; never just because it is the cheapest big hull. Once the wallet is above about **15,000,000c**, buy bulk freighters (490 cargo, about 5.6M).
+**Which big hull (operator, 2026-11-19):** prefer heavy freighters (225 cargo). Buy a refining freighter (150) only when its yard is where the ship will trade; never just because it is the cheapest big hull. Once the wallet is above about **15,000,000c**, buy bulk freighters (490 cargo, about 5.6M). Operator (2026-11-20): when the wallet reaches **15M**, buy one bulk freighter; this is pre-approved and the hourly update buys it (one only). A yard sells only to a ship docked there: bulk yards seen are X1-YQ84-XX9F and X1-JD68-A32F, and none of our ships was docked at either on 2026-11-20.
 
 Example (2026-11-10): for a hull meant to trade X1-FR76, `X1-FR76-DA6C` (316,860c, 0 hops) beats `X1-PT36-A2`
 (314,772c, 2 hops) despite costing about 2k more. Light-hauler yards seen: X1-PT36-A2 (314,772c), X1-FR76-DA6C
