@@ -7,6 +7,13 @@ don't let it go stale. When an item closes, move it to `CHANGELOG.md`
 
 ## Live ops — needs a decision or action
 
+**From the 11-20 phase review (late week; playbook "Phase 5"):**
+- Board per-hour figure (`ratePerHour` in `src/engine/routeStatus.ts`, Tower Routes "Profit / hour"): divides by flying time only, so a 0.5-minute local trip shows 22.5M an hour.
+  Add trade time (lots x calls) and positioning from the nearest free trader, and show the runs left next to the rate.
+- A "routes with no hull in reach" view: top work-list routes whose nearest free trader is more than N jumps away, with the nearest yard selling a heavy or bulk freighter (hops, price),
+  so a hull purchase can be aimed at them (operator, 2026-11-20).
+- Keeper spend cap by profit: auto-approved keepers limited to a share of the last hour's matched profit, so lifting the cash line does not buy 500+ probes in six hours.
+
 **From the 11-18 phase review (gate open and expansion; playbook "Phase 3/4"):**
 - Route build near the cash floor: `priceLeg()` in `src/engine/fleet.ts` sizes every leg by `spendableCredits()` (wallet less `cashFloor`, 100k), so below the floor
   all stored legs are dropped and every trader is idle (11-18 12:17: 8,051 legs, 0 offered at a 31k wallet). Keep cheap same-system legs, or scale the floor to the fleet.

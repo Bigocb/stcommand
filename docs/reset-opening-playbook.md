@@ -572,3 +572,28 @@ result (42.5% refund on a light hauler), cargo left at the reset.
 **Is it in the saved template?** No. Items 2-5 are not template steps (doctrine values and code); item 3 is advice the buy warning gives. Ask before editing the template.
 
 **Code items** (added to docs/TODO.md): route build near the cash floor; release ordering by distance and a jump-fee brake; economy alert actions (opt-in) for jumps over profit.
+
+### Phase 5: late week (review at 2026-11-20 13:00 UTC, hour 120 of the 2026-11-15 week)
+
+**What happened (numbers).**
+- Matched profit by day: Sun 3.06M, Mon 4.07M, Tue 14.6M, Wed 4.28M (the 11-18 crash), Thu 19.5M, Fri 55.5M in 13 hours (3.08M an hour, peak 4.63M an hour at
+  06:00-12:00). The week stands at 101.0M matched; wallet 25.2M plus about 1.7M in holds. Last 48 h: 75.3M matched, 2,712 sales, 2,122 jumps for 13.7M (6,477 each), 40.3M on hulls and keepers.
+- Against the 2026-11-08 week at the same hour: 234M matched by the end of Friday, then 246M on Saturday alone, ending at 419.9M credits (609M matched). That week had 21-33 ships
+  selling per 6-hour bucket from Thursday on; this week tops out at 14. Profit per sale is higher this week (31-38k on Friday against 20-28k), so each hull earns well and the gap is the count of hulls.
+- Hulls: 15 traders at hour 120, 7 of them big (heavy 225, bulk 490). Big hulls were bought one at a time behind the cash gates: 3M any hull, 3.5M plus 1M in holds for a heavy, the
+  6-hour payback rule, 15M for the bulk. The bulk freighter THEO-3B8 came at 12:24 on Friday with the wallet near 27M. On Friday morning the two top routes on the board (EQUIPMENT KA17, FOOD QU54) had no free hull within reach.
+- Keepers: 903 after the keeper line was lifted to 15M on Thursday night (545 hulls bought 06:00-12:00 Friday); top-up stopped at the polling ceiling (154 calls a minute against 150),
+  reads about 55 a minute, each market about every 16 minutes. Parked: 2 keepers (XU12, staged system). Keeper triage settled 17 keepers on dead KJ19/YH41/BB74/AC26/TV64 markets on 11-17/18; none parked now.
+- Wind-down (cutoffs, scrap pilot, cargo at the reset) is not observable yet: the reset is Sunday 13:00. Review it at the 11-21 12:00 reminder.
+
+**What to change next week.**
+1. Buy trading hulls on profit, not only on cash: once the gate is open and Thursday's rate is above about 1M an hour, buy a big hull every time the wallet clears the line, near the routes no
+   hull can reach (operator, 2026-11-20: "we have to grow the trade volume anyway"). The 11-08 week reached 33 sellers by Saturday; this week stalled at 14-15. Confirmed by the two weeks' curves.
+2. Lift the keeper line earlier but cap keeper spend to a share of the hour's profit: the 15M line held keepers back until Friday, then 545 came in six hours and hit the polling ceiling at once. Likely.
+3. Keep the tour plan (issue #63) on from the start so keepers are not bought for markets nobody trades (part 1 mode 1 on 11-20; part 2 loop keepers built, off). Likely.
+4. The board's per-hour column counts flying time only and shows 20M+ an hour for 0.5-minute local trips; fix it before using the board to choose where to buy hulls. Confirmed (11-20).
+
+**Is it in the saved template?** No. Item 1 is a buying rule (manual buys bypass doctrine); items 2-3 are doctrine values; item 4 is code. Ask before editing the template.
+
+**Code items** (added to docs/TODO.md): board per-hour figure; "where is no hull" view for buying; keeper spend cap by profit.
+
