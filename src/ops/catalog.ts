@@ -22,6 +22,7 @@ import { getGameResetDate } from "../core/universe.js";
 import { GATE_SNAPSHOT_KIND, compareGateWeeks, gateReadings } from "../engine/gateSnapshot.js";
 import { deadheadFromTrades } from "../engine/deadhead.js";
 import { selectExplain } from "../engine/dispatchExplain.js";
+import { hullCargo, unflownRoutes } from "../engine/unflownRoutes.js";
 import { heapReport, heapStart, heapStop, profileCpu, runtimeStatus } from "./profiler.js";
 import type { OpsTool } from "./types.js";
 import { buildMetrics, bucketMinutesFor } from "../engine/metrics.js";
@@ -893,6 +894,40 @@ export const OPS_TOOLS: OpsTool[] = [
       const notConsidered = ctx.w.fleet.dispatchExclusions().filter((e) => a.ship === undefined || e.ship === a.ship);
       if (!snap) return { note: "The dispatcher has not completed a cycle since this process started.", notConsidered, routeBuild };
       return { ...selectExplain(snap, { ship: a.ship, good: a.good, limit: a.limit }), notConsidered, routeBuild };
+    },
+  },
+  {
+    name: "unflown_routes",
+    title: "Good routes nobody flies, the nearest trader and the nearest big-hull yards",
+    description:
+      "The best routes on the board (priced at the biggest hold, like Tower's Routes list) that no trader is assigned to, one row per buy market and good: profit per trip (and at a 225 / 490 hold), the nearest trader and the nearest free trader with gate hops, and the closest yards selling a hull over 80 cargo with hops, price and when the yard was read. Hops count finished gates only. Use it to aim a hull purchase at routes no ship can reach. Read-only; the per-trip figure is still the list's, so run the route check before buying.",
+    input: { limit: num(10), maxHops: num(4), yardsPerRoute: num(3) },
+    async run(ctx, a) {
+      const routes = await ctx.w.fleet.computeDispatchRoutesCached();
+      const assignments = ctx.w.fleet.dispatcher.list();
+      const busy = new Set(assignments.map((x) => x.shipSymbol));
+      const ships = stateShips(ctx);
+      const byShip = new Map(ships.map((s) => [s.symbol, s]));
+      const traders = ctx.w.fleet.getShipStatuses()
+        .filter((s: { role?: string; paused?: boolean }) => s.role === "trader" && !s.paused)
+        .flatMap((s: { symbol: string }) => {
+          const st = byShip.get(s.symbol) as { nav?: { systemSymbol?: string }; cargo?: { capacity?: number } } | undefined;
+          const system = st?.nav?.systemSymbol;
+          return system ? [{ ship: s.symbol, system, hold: st?.cargo?.capacity ?? 0, busy: busy.has(s.symbol) }] : [];
+        });
+      const inv = await ctx.w.store.shipyardInventory();
+      const yards = inv.map((y) => ({ waypoint: y.waypointSymbol, system: y.systemSymbol, shipType: y.shipType, cargo: hullCargo(y.modules, y.cargoCapacity), price: y.purchasePrice, at: y.timestamp }));
+      const graph = await ctx.w.store.opsGalaxyGraph();
+      const gates = await ctx.w.store.opsGateStatus();
+      // Edges leave only through a gate not marked unfinished (the same test survey_candidates uses for gateComplete).
+      const adj = new Map<string, string[]>();
+      for (const g of graph) adj.set(g.system, [...new Set(g.gates.filter((x) => gates.get(x.gate) !== false).flatMap((x) => x.to))]);
+      const rows = unflownRoutes({ routes, assignments, traders, yards, adj, limit: Math.min(a.limit, 30), maxHops: Math.min(a.maxHops, 6), yardsPerRoute: Math.min(a.yardsPerRoute, 6) });
+      return {
+        traders: traders.length, freeTraders: traders.filter((t) => !t.busy).length, routesOnBoard: routes.length,
+        note: "profitPerTrip is priced at the biggest hold in the fleet; at225/at490 are those holds where the list carries them. Hops are finished gates from the buy system.",
+        rows,
+      };
     },
   },
   {

@@ -11,6 +11,16 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-20 — ops `unflown_routes`: good routes nobody flies, and the big hulls nearby
+
+Operator (2026-11-20): "keep an eye on that good route from the list ... and what big ships are nearby that can be bought". The board's
+top routes (EQUIPMENT KA17, FOOD QU54) sat unflown because every trader was busy or several jumps away. The new read-only ops tool
+`unflown_routes` (`stcommand_ops_unflown_routes`) lists the best routes on the board that no trader is assigned to, one row per buy
+market and good: profit per trip (and at a 225 / 490 hold), the nearest trader and nearest free trader with gate hops, and the
+closest yards selling a hull over 80 cargo (cargo summed from the fitted cargo modules) with hops, price and when the yard was read.
+Hops count gates not marked unfinished. Pure module `src/engine/unflownRoutes.ts`, tests in `tests/unflownRoutes.test.ts`. The
+hourly report gains a section built from it.
+
 ## 2026-11-20 — keeper tour plan, part 2: loop keepers (issue #63)
 
 Part 1 decided which markets deserve a fixed keeper; the rest were "left to touring", but nothing toured them. Part 2 adds the
