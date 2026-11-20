@@ -79,7 +79,7 @@ import { rotateBySystem, rotationReason, shouldDisplaceCard, systemOf as keeperS
 import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
 import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
-import { DEFAULT_KEEPER_PLAN_POLICY, decodeRouteSeen, encodeRouteSeen, fixedReason, noteRouteEnds, planKeepers, type KeeperPlan, type KeeperPlanPolicy, type PlanMarket, type RouteSeenState } from "./keeperPlan.js";
+import { DEFAULT_KEEPER_PLAN_POLICY, decodeRouteSeen, encodeRouteSeen, fixedReason, noteRouteEnds, planKeepers, resumeTracking, type KeeperPlan, type KeeperPlanPolicy, type PlanMarket, type RouteSeenState } from "./keeperPlan.js";
 import { DEFAULT_DELIVERY_POLICY, MAX_DELIVERY_MS, deliveryArrived, deliveryExpired, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
 import { ChangeTracker } from "./changeTracker.js";
 import { StaleWhileRevalidate } from "./staleCache.js";
@@ -6405,10 +6405,12 @@ export class FleetManager {
     if (!this.doctrine.isEnabledOr("keeperTourPlan", false)) return;
     const now = Date.now();
     const state = await this.keeperRouteSeen(now);
+    const before = state.lastNotedMs;
+    // A gap in recording (plan was off, or the server was down) restarts judging, so unwatched time never demotes a keeper.
+    const restarted = resumeTracking(state, now);
     const r = noteRouteEnds(state.seen, routes, this.keeperPlanPolicy().routeMinProfit, now);
-    if (!r.changed) return;
     state.seen = r.seen;
-    await this.saveKeeperRouteSeen();
+    if (r.changed || restarted || before === undefined || now - before >= 5 * 60_000) await this.saveKeeperRouteSeen();
   }
 
   private keeperPlanLast?: { at: number; mode: number; plan: KeeperPlan; acted: string[] };

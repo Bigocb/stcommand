@@ -11,6 +11,10 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-20 — tour plan: a gap in route tracking no longer demotes keepers
+
+Found while previewing the plan with ops `keeper_plan`. The plan only records good-route ends while `keeperTourPlan` is on, but reading the preview started the tracking clock (`trackedSince`) even with the plan off. Switching it on six hours later would have made every keeper look "off every good route for 6 h", and mode 2 would have moved them all at once. A server outage longer than the demote window had the same effect. The saved state now also keeps when routes were last recorded (`lastNoted`). Each dispatcher cycle calls `resumeTracking()` (`src/engine/keeperPlan.ts`), which restarts judging when the last recording is more than 15 minutes old, so unwatched time never counts against a keeper. Tests: `tests/keeperPlan.test.ts` and `tests/keeperPlanFleet.test.ts` (a plan switched on after 9 unrecorded hours demotes nobody).
+
 ## 2026-11-20 — keeper tour plan, part 1: fixed keepers only where they earn (issue #63)
 
 The operator's keeper redesign. About 40% of keepers sit on markets no route of ours uses (137 of 335 on 2026-11-20), and filling the 297 uncovered markets with fixed keepers would cost 10-12M. Under the new doctrine clause `keeperTourPlan` (off by default), a fixed keeper goes only on:

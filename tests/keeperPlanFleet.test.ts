@@ -69,7 +69,7 @@ describe("tour plan at the fleet seam", () => {
   });
 
   it("mode 1 lists an uncovered good-route end; mode 2 moves an idle keeper there instead", async () => {
-    const old = JSON.stringify({ trackedSince: Date.now() - 10 * 3_600_000, seen: { "X1-AA-ROUTE": Date.now() } });
+    const old = JSON.stringify({ trackedSince: Date.now() - 10 * 3_600_000, lastNoted: Date.now() - 60_000, seen: { "X1-AA-ROUTE": Date.now() } });
     const one = fake({ planOn: true, mode: 1, flag: old, keepers: [["S-1", "X1-AA-NINE"]] });
     await one.self.maybeKeeperPlan();
     assert.deepEqual(one.added, [["X1-AA-ROUTE"]]);
@@ -81,6 +81,14 @@ describe("tour plan at the fleet seam", () => {
     assert.equal(two.self.keeperMarkets.get("S-1"), "X1-AA-ROUTE");
     assert.deepEqual(two.fleetState, ["S-1=X1-AA-ROUTE"], "the new pin is saved");
     assert.deepEqual(two.added, [], "nothing bought for the market the hull moved to");
+  });
+
+  it("switching the plan on after it was off restarts judging, so no keeper is demoted for the unwatched hours", async () => {
+    const stale = JSON.stringify({ trackedSince: Date.now() - 10 * 3_600_000, lastNoted: Date.now() - 9 * 3_600_000, seen: {} });
+    const { self } = fake({ planOn: true, mode: 2, flag: stale, keepers: [["S-1", "X1-AA-NINE"]] });
+    await self.noteKeeperPlanRoutes([]);
+    const data = await self.keeperPlanData();
+    assert.equal(data.demote.length, 0, "the 9 unrecorded hours do not count against S-1");
   });
 
   it("does nothing while the clause is off", async () => {

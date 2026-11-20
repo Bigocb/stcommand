@@ -158,21 +158,34 @@ export function noteRouteEnds(
 }
 
 /** Route tracking as saved in the fleet flag `keeperRouteSeen`: when tracking started and each market's last good-route time. */
-export interface RouteSeenState { trackedSinceMs: number; seen: Map<string, number> }
+export interface RouteSeenState { trackedSinceMs: number; seen: Map<string, number>; lastNotedMs?: number }
+
+/**
+ * Route ends are only recorded while the plan is on (and the server is up). After a gap in recording, the time not watched must not
+ * count as "off every good route", or switching the plan on hours later (or a long outage) would demote every keeper at once. So when
+ * the last recording is older than `maxGapMs` (or there was none), judging restarts now. Returns whether it restarted.
+ */
+export function resumeTracking(s: RouteSeenState, nowMs: number, maxGapMs = 15 * 60_000): boolean {
+  const gap = s.lastNotedMs === undefined || nowMs - s.lastNotedMs > maxGapMs;
+  if (gap) s.trackedSinceMs = nowMs;
+  s.lastNotedMs = nowMs;
+  return gap;
+}
 
 export function encodeRouteSeen(s: RouteSeenState): string {
-  return JSON.stringify({ trackedSince: s.trackedSinceMs, seen: Object.fromEntries(s.seen) });
+  return JSON.stringify({ trackedSince: s.trackedSinceMs, lastNoted: s.lastNotedMs, seen: Object.fromEntries(s.seen) });
 }
 
 /** Restores the saved state; anything unreadable starts tracking afresh at `nowMs` (so nobody is demoted on a bad read). */
 export function decodeRouteSeen(raw: string | undefined | null, nowMs: number): RouteSeenState {
   if (!raw) return { trackedSinceMs: nowMs, seen: new Map() };
   try {
-    const j = JSON.parse(raw) as { trackedSince?: unknown; seen?: Record<string, unknown> };
+    const j = JSON.parse(raw) as { trackedSince?: unknown; lastNoted?: unknown; seen?: Record<string, unknown> };
     const seen = new Map<string, number>();
     for (const [k, v] of Object.entries(j.seen ?? {})) if (typeof v === "number" && Number.isFinite(v)) seen.set(k, v);
     const since = typeof j.trackedSince === "number" && Number.isFinite(j.trackedSince) ? j.trackedSince : nowMs;
-    return { trackedSinceMs: since, seen };
+    const lastNotedMs = typeof j.lastNoted === "number" && Number.isFinite(j.lastNoted) ? j.lastNoted : undefined;
+    return { trackedSinceMs: since, seen, ...(lastNotedMs !== undefined ? { lastNotedMs } : {}) };
   } catch {
     return { trackedSinceMs: nowMs, seen: new Map() };
   }

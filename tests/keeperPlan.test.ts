@@ -90,3 +90,19 @@ describe("route tracking survives a restart", () => {
     assert.equal(decodeRouteSeen(undefined, 42).trackedSinceMs, 42);
   });
 });
+
+import { resumeTracking } from "../src/engine/keeperPlan.js";
+
+describe("a gap in route tracking does not demote keepers", () => {
+  it("restarts judging after a gap, and keeps the start while recording is continuous", () => {
+    const s = { trackedSinceMs: 0, seen: new Map<string, number>(), lastNotedMs: 1_000 };
+    assert.equal(resumeTracking(s, 1_000 + 60_000), false, "one minute later: no gap");
+    assert.equal(s.trackedSinceMs, 0);
+    assert.equal(resumeTracking(s, 1_000 + 60_000 + 3_600_000), true, "an hour unrecorded: judging restarts");
+    assert.equal(s.trackedSinceMs, 1_000 + 60_000 + 3_600_000);
+    const never = { trackedSinceMs: 5, seen: new Map<string, number>() };
+    assert.equal(resumeTracking(never, 9_000_000), true, "never recorded (plan was off): restart");
+    const back = decodeRouteSeen(encodeRouteSeen({ ...s }), 0);
+    assert.equal(back.lastNotedMs, s.lastNotedMs, "the last recording time survives a restart");
+  });
+});
