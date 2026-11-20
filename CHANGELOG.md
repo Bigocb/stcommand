@@ -11,6 +11,33 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-20 — keeper tour plan, part 1: fixed keepers only where they earn (issue #63)
+
+The operator's keeper redesign. About 40% of keepers sit on markets no route of ours uses (137 of 335 on 2026-11-20), and filling the 297 uncovered markets with fixed keepers would cost 10-12M. Under the new doctrine clause `keeperTourPlan` (off by default), a fixed keeper goes only on:
+- a shipyard;
+- a market at either end of a good route (`keeperPlanRouteMinProfit`, 50k per trip);
+- a market with at least `keeperPlanFixedMinGoods` goods (13);
+- a market with exactly `keeperPlanAlsoGoods` goods (7).
+
+These were this week's two strongest groups. Everything else is left to touring.
+
+Mode 1:
+- Keeper top-up only adds such markets.
+- Every 5 minutes, a good-route end with no keeper is put on the keeper list, where it is bought like any keeper (two per pass at most).
+
+Mode 2 also demotes and moves keepers. A keeper whose market has been off every good route for `keeperPlanDemoteHours` (6) is demoted. Its hull moves to a promoted market in the same system instead of a probe being bought, and the market it left comes off the keeper list. Yards and goods-rule markets are never demoted.
+
+Route tracking (when each market was last on a good route) is saved in the fleet flag `keeperRouteSeen` every time it changes and restored at boot. It starts when the clause is switched on, so nobody is demoted in the first 6 hours.
+
+The new read-only ops tool `keeper_plan` shows the plan whether the clause is on or not:
+- fixed against tour-only markets per system;
+- what it would list, demote and move;
+- what the last pass did.
+
+The decisions are in a pure module, `src/engine/keeperPlan.ts` (tests in `tests/keeperPlan.test.ts`). The wiring is tested in `tests/keeperPlanFleet.test.ts`: clause off gives the same top-up candidates as before; a fresh instance restores route tracking; mode 1 lists; mode 2 moves the hull and updates the keeper list. The settings catalog size cap in `tests/doctrineGroups.test.ts` goes from 60k to 62k for the five new clauses.
+
+Not in this part: the touring keeper itself (one per system looping over the tour-only markets with navigate plus a market read, a second when a loop passes 30 minutes), and the first probe touring a system before keeping its yard. Until then, tour-only markets are read by the existing tour ships and fresh-system tours.
+
 ## 2026-11-20 — ops `market_sales`: our trades per market for a whole week
 
 The operator wanted to know which kinds of market are worth a fixed keeper, and to compare this week with the two before. The `ledger` tool stops at 300 rows and a week has about 20,000 trades, so there was no way to see a finished week per market. The new read-only ops tool `market_sales` adds up the ledger per waypoint in SQL (`Store.opsLedgerByMarket`): sells, buys, their value, the realized profit of the sells, the distinct goods we sold, bought and traded there, and how many ships traded there. `resetDate` reads a finished week, the same way `profit_curve` does. The market tables are wiped at each reset, so a past week has no goods lists. `goodsTraded` counts only the goods we traded, which is a lower bound on the market's size. Test: `tests/ledgerUniverse.test.ts`.

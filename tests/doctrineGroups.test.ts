@@ -95,7 +95,8 @@ describe("doctrine groups: helpers", () => {
   it("the full brief catalog is far smaller than today's get_doctrine reply", () => {
     const all = DOCTRINE_CATALOG.filter((d) => !RETIRED_POLICIES.has(d.key)).map((d) => briefClause(input(d.key)));
     const size = JSON.stringify(all).length;
-    assert.ok(size < 60_000, `brief catalog is ${size} bytes`);
+    // 60k until 2026-11-20; raised to 62k for the five tour-plan clauses (issue #63). Still a third of the old 180 KB reply.
+    assert.ok(size < 62_000, `brief catalog is ${size} bytes`);
   });
 });
 

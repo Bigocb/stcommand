@@ -118,6 +118,11 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   keeperTopUpMaxCalls: ["keeper-cover", "Top-up"],
   keeperMaxRotationMin: ["keeper-cover", "Top-up"],
   keeperTriage: ["keeper-cover", "Triage"],
+  keeperTourPlan: ["keeper-cover", "Tour plan"],
+  keeperPlanFixedMinGoods: ["keeper-cover", "Tour plan"],
+  keeperPlanAlsoGoods: ["keeper-cover", "Tour plan"],
+  keeperPlanRouteMinProfit: ["keeper-cover", "Tour plan"],
+  keeperPlanDemoteHours: ["keeper-cover", "Tour plan"],
   freshGate: ["fresh", "Master"],
   freshTarget: ["fresh", "Release rule"],
   freshStagedAhead: ["fresh", "Release rule"],
@@ -212,6 +217,7 @@ export const CLAUSE_NEEDS: Readonly<Record<string, readonly string[]>> = {
   shipBudget: ["autoBuyShips"], minerTarget: ["autoBuyShips"], siphonTarget: ["autoBuyShips"], explorerTarget: ["autoBuyShips"],
   keeperAutoApproveMinCash: ["autoApproveKeeperProbes"],
   keeperAutoApproveMinRate: ["autoApproveKeeperProbes"],
+  keeperPlanFixedMinGoods: ["keeperTourPlan"], keeperPlanAlsoGoods: ["keeperTourPlan"], keeperPlanRouteMinProfit: ["keeperTourPlan"], keeperPlanDemoteHours: ["keeperTourPlan"],
   buyAdviceAnyHullLine: ["buyAdvice"], buyAdviceBigHullCargo: ["buyAdvice"], buyAdviceBigHullLine: ["buyAdvice"], buyAdviceBigHullLoad: ["buyAdvice"],
   buyAdvicePaybackHours: ["buyAdvice"], buyAdviceBigHullHolds: ["buyAdvice"], buyAdviceTraderReserve: ["buyAdvice"],
   economyNetNegativeHours: ["economyAlerts"], economyDroughtHours: ["economyAlerts"], economyMarginDecayPct: ["economyAlerts"],
@@ -227,7 +233,7 @@ export const COMMON_KNOBS: readonly string[] = [
 ];
 
 /** Small-integer state clauses (value picks a mode). */
-const MODE_KEYS = new Set(["freshGate", "apiLaneProxy"]);
+const MODE_KEYS = new Set(["freshGate", "apiLaneProxy", "keeperTourPlan"]);
 /** Clauses whose value is meaningless or duplicates the switch (doc 2.1). */
 const SWITCH_KEYS = new Set([
   "chainCircuitCrossSystem", "marketSnapshotReuse", "avoidStrippedFields", "fieldSpreadEnabled", "avoidDriftFields", "protectChainGoods",

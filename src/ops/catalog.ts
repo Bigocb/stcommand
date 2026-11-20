@@ -205,6 +205,17 @@ export const OPS_TOOLS: OpsTool[] = [
   },
 
   {
+    name: "keeper_plan",
+    title: "Keeper tour plan: which markets keep a fixed keeper and which are left to touring",
+    description:
+      "The tour plan (doctrine keeperTourPlan, off by default; issue #63, src/engine/keeperPlan.ts) worked out now, whether it is on or not: per live system how many markets earn a fixed keeper (a shipyard, either end of a good route, or the goods counts in keeperPlanFixedMinGoods / keeperPlanAlsoGoods) and how many are left to touring; the uncovered good-route ends it would put on the keeper list (promote); keepers on markets that no longer earn one (demote: off every good route for keeperPlanDemoteHours); the hull moves it would make in mode 2 (a demoted keeper to a promoted market in its own system); when route tracking started; and what the last pass did. Read-only.",
+    input: {},
+    async run(ctx) {
+      return ctx.w.fleet.keeperPlanData();
+    },
+  },
+
+  {
     name: "gate_history",
     title: "Gate material status by hour, this week against another week at the same elapsed hour",
     description:

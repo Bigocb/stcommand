@@ -79,6 +79,7 @@ import { rotateBySystem, rotationReason, shouldDisplaceCard, systemOf as keeperS
 import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
 import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
+import { DEFAULT_KEEPER_PLAN_POLICY, decodeRouteSeen, encodeRouteSeen, fixedReason, noteRouteEnds, planKeepers, type KeeperPlan, type KeeperPlanPolicy, type PlanMarket, type RouteSeenState } from "./keeperPlan.js";
 import { DEFAULT_DELIVERY_POLICY, MAX_DELIVERY_MS, deliveryArrived, deliveryExpired, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
 import { ChangeTracker } from "./changeTracker.js";
 import { StaleWhileRevalidate } from "./staleCache.js";
@@ -6324,6 +6325,7 @@ export class FleetManager {
     const priced = new Set(((await this.store?.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol));
     // A shipyard is always viable, however few goods it trades: a keeper docked at it reads its stock and prices (operator, 2026-11-03).
     const yardMarkets = new Set(((await this.store?.shipyardDirectory()) ?? []).map((y) => y.waypointSymbol));
+    const plan = this.doctrine.isEnabledOr("keeperTourPlan", false) ? { policy: this.keeperPlanPolicy(), state: await this.keeperRouteSeen(now) } : undefined;
     for (const q of this.systemQueue.list()) {
       if (q.state !== "live" || q.held) continue;
       const rows = dir.get(q.system) ?? [];
@@ -6333,7 +6335,9 @@ export class FleetManager {
       // A system whose keepers were parked for want of sales gets no new market: its premium is gone and they would only be parked too.
       const parked = parkedSystems.has(q.system);
       const unpriced = ranked.filter((m) => (covered.has(m.market) || listed.has(m.market)) && !priced.has(m.market)).length;
-      systems.push({ system: q.system, covered: have, unpriced, candidates: parked ? [] : yardsFirst(ranked.filter((m) => !covered.has(m.market) && !listed.has(m.market)).map((m) => m.market), yardMarkets) });
+      // Tour plan (issue #63): top-up only adds markets that earn a fixed keeper; the rest is left to touring.
+      const planFixed = plan ? (m: { market: string; goods: number }) => fixedReason({ market: m.market, system: q.system, goods: m.goods, yard: yardMarkets.has(m.market) }, plan.policy, plan.state.seen, now, plan.state.trackedSinceMs) !== undefined : () => true;
+      systems.push({ system: q.system, covered: have, unpriced, candidates: parked ? [] : yardsFirst(ranked.filter((m) => !covered.has(m.market) && !listed.has(m.market) && planFixed(m)).map((m) => m.market), yardMarkets) });
       viable.set(q.system, ranked.length);
     }
     const polls = [...this.keeperMarkets.values()].map((m) => 60_000 / Math.max(this.keeperPollMs(m), 60_000));
@@ -6363,6 +6367,132 @@ export class FleetManager {
   /** Minutes one pass over every keeper takes at the pace they are measured to read, or undefined right after a boot (keeperThroughput.ts). */
   private keeperRotationMin(now: number): number | undefined {
     return rotationMin(this.keeperSlotsUsed(), this.keeperReads.perMin(now), now - this.startedAtMs);
+  }
+
+  /** Tour plan policy from doctrine (keeperPlan.ts). */
+  private keeperPlanPolicy(): KeeperPlanPolicy {
+    const d = this.doctrine;
+    return {
+      ...DEFAULT_KEEPER_PLAN_POLICY,
+      fixedMinGoods: d.isEnabledOr("keeperPlanFixedMinGoods", true) ? d.value("keeperPlanFixedMinGoods", 13) : 0,
+      fixedExactGoods: d.isEnabledOr("keeperPlanAlsoGoods", true) ? [d.value("keeperPlanAlsoGoods", 7)] : [],
+      routeMinProfit: d.isEnabledOr("keeperPlanRouteMinProfit", true) ? d.value("keeperPlanRouteMinProfit", 50_000) : DEFAULT_KEEPER_PLAN_POLICY.routeMinProfit,
+      demoteAfterMs: (d.isEnabledOr("keeperPlanDemoteHours", true) ? d.value("keeperPlanDemoteHours", 6) : 6) * 3_600_000,
+    };
+  }
+
+  /**
+   * When each market was last at either end of a good route. A decision reads it (demotion), so it is saved in the fleet flag
+   * keeperRouteSeen every time it changes and restored from it on first use after a boot (operator rule: nothing a decision depends
+   * on lives only in memory). Tracking starts the first time the plan reads it.
+   */
+  private keeperRouteSeenState?: RouteSeenState;
+  private async keeperRouteSeen(now: number): Promise<RouteSeenState> {
+    if (this.keeperRouteSeenState) return this.keeperRouteSeenState;
+    const raw = this.tenantId ? await this.store?.getFleetFlag(this.tenantId, "keeperRouteSeen") : undefined;
+    this.keeperRouteSeenState = decodeRouteSeen(raw, now);
+    if (!raw) await this.saveKeeperRouteSeen();
+    return this.keeperRouteSeenState;
+  }
+
+  private async saveKeeperRouteSeen(): Promise<void> {
+    if (!this.tenantId || !this.store || !this.keeperRouteSeenState) return;
+    await this.store.setFleetFlag(this.tenantId, "keeperRouteSeen", encodeRouteSeen(this.keeperRouteSeenState));
+  }
+
+  /** Called every dispatcher cycle with its routes: marks both ends of every good route as seen now (tour plan only). */
+  private async noteKeeperPlanRoutes(routes: readonly DispatchRoute[]): Promise<void> {
+    if (!this.doctrine.isEnabledOr("keeperTourPlan", false)) return;
+    const now = Date.now();
+    const state = await this.keeperRouteSeen(now);
+    const r = noteRouteEnds(state.seen, routes, this.keeperPlanPolicy().routeMinProfit, now);
+    if (!r.changed) return;
+    state.seen = r.seen;
+    await this.saveKeeperRouteSeen();
+  }
+
+  private keeperPlanLast?: { at: number; mode: number; plan: KeeperPlan; acted: string[] };
+  private lastKeeperPlanAt = 0;
+
+  /** The tour plan's inputs: every market of the live, unheld systems, with goods, yard, keeper and listing (keeperPlan.ts). */
+  private async keeperPlanInput(now: number): Promise<{ markets: PlanMarket[]; state: RouteSeenState }> {
+    const dir = new Map<string, DirectoryRow[]>();
+    for (const r of (await this.store?.marketDirectory()) ?? []) dir.set(r.systemSymbol, [...(dir.get(r.systemSymbol) ?? []), r]);
+    const yards = new Set(((await this.store?.shipyardDirectory()) ?? []).map((y) => y.waypointSymbol));
+    const listed = new Set(await this.keeperPriorityMarkets());
+    const keeperOf = new Map<string, string>();
+    for (const [ship, m] of this.keeperMarkets) if (!keeperOf.has(m)) keeperOf.set(m, ship);
+    const covered = this.coveredKeeperMarkets();
+    const markets: PlanMarket[] = [];
+    for (const q of this.systemQueue.list()) {
+      if (q.state !== "live" || q.held) continue;
+      for (const m of summarizeDirectory(dir.get(q.system) ?? [], new Set(), now, 1)[0]?.ranked ?? []) {
+        markets.push({ market: m.market, system: q.system, goods: m.goods, yard: yards.has(m.market), keeper: keeperOf.get(m.market), listed: listed.has(m.market) || (covered.has(m.market) && !keeperOf.has(m.market)) });
+      }
+    }
+    return { markets, state: await this.keeperRouteSeen(now) };
+  }
+
+  /** For the ops keeper_plan tool: the plan as it stands now, and what the last pass did. Read-only. */
+  async keeperPlanData(): Promise<Record<string, unknown>> {
+    const now = Date.now();
+    const on = this.doctrine.isEnabledOr("keeperTourPlan", false);
+    const { markets, state } = await this.keeperPlanInput(now);
+    const plan = planKeepers({ nowMs: now, markets, routeSeenAt: state.seen, trackedSinceMs: state.trackedSinceMs }, this.keeperPlanPolicy());
+    return {
+      enabled: on, mode: on ? this.doctrine.value("keeperTourPlan", 1) : 0,
+      trackedSince: new Date(state.trackedSinceMs).toISOString(), marketsOnGoodRoutes: state.seen.size,
+      totals: { markets: markets.length, fixed: plan.systems.reduce((t, s) => t + s.fixed, 0), tourOnly: plan.systems.reduce((t, s) => t + s.tour, 0), keepersOnTourOnlyMarkets: plan.demote.length },
+      promote: plan.promote, moves: plan.moves, demote: plan.demote.slice(0, 40),
+      systems: plan.systems.slice(0, 40).map((s) => ({ system: s.system, fixed: s.fixed, tour: s.tour })),
+      lastPass: this.keeperPlanLast ? { at: new Date(this.keeperPlanLast.at).toISOString(), mode: this.keeperPlanLast.mode, acted: this.keeperPlanLast.acted } : null,
+      note: "Tracking starts when the plan is switched on: until keeperPlanDemoteHours have passed, no keeper is demoted. Mode 1 lists uncovered good-route ends for a keeper (bought like any keeper); mode 2 also moves an idle keeper's hull to a promoted market in its own system.",
+    };
+  }
+
+  /**
+   * The tour plan pass (issue #63, keeperPlan.ts), every 5 minutes while keeperTourPlan is on. Mode 1: an uncovered market at either
+   * end of a good route goes on the keeper list. Mode 2: also, a keeper whose market has been off every good route for the demote time
+   * moves to a promoted market in the same system, so no probe has to be bought for it.
+   */
+  private async maybeKeeperPlan(): Promise<void> {
+    if (!this.store || !this.tenantId || !this.doctrine.isEnabledOr("keeperTourPlan", false)) return;
+    const now = Date.now();
+    if (now - this.lastKeeperPlanAt < 5 * 60_000) return;
+    this.lastKeeperPlanAt = now;
+    const mode = this.doctrine.value("keeperTourPlan", 1);
+    const { markets, state } = await this.keeperPlanInput(now);
+    const policy = this.keeperPlanPolicy();
+    const plan = planKeepers({ nowMs: now, markets, routeSeenAt: state.seen, trackedSinceMs: state.trackedSinceMs }, mode >= 2 ? policy : { ...policy, maxMovesPerPass: 0 });
+    const acted: string[] = [];
+    for (const mv of plan.moves) {
+      try {
+        await this.repinKeeper(mv.ship, mv.to, `tour plan: ${mv.reason}`);
+        // The market left behind comes off the keeper list (or the queue would buy it a new keeper at once), and the new one goes on it.
+        const list = await this.keeperPriorityMarkets();
+        await this.setKeeperPriorityMarkets([...list.filter((m) => m !== mv.from), mv.to]);
+        acted.push(`moved ${mv.ship} ${mv.from} -> ${mv.to}`);
+      } catch (err) { this.log(`tour plan: move of ${mv.ship} to ${mv.to} failed: ${describeError(err)}`); }
+    }
+    if (plan.promote.length) {
+      try {
+        await this.addKeeperPriorityMarkets(plan.promote.map((p) => p.market));
+        for (const p of plan.promote) { acted.push(`listed ${p.market} (${p.reason})`); this.log(`tour plan: ${p.market} put on the keeper list (${p.reason})`); }
+      } catch (err) { this.log(`tour plan: keeper list add failed: ${describeError(err)}`); }
+    }
+    this.keeperPlanLast = { at: now, mode, plan, acted };
+  }
+
+  /** Move a stationed keeper to another market: new pin, saved role state and a keep intent. Its next poll flies it there. */
+  private async repinKeeper(ship: string, market: string, reason: string): Promise<void> {
+    const from = this.keeperMarkets.get(ship);
+    if (!from) throw new Error(`${ship} is not a stationed keeper`);
+    if (systemOf(from) !== systemOf(market)) throw new Error(`${market} is not in ${ship}'s system`);
+    this.keeperMarkets.set(ship, market);
+    await this.store?.setFleetState(this.tenantId!, ship, "keeper", market);
+    this.intents.propose({ ship, priority: 3, goal: { kind: "keep", waypoint: market }, reason: `stationed to keep ${market} prices fresh (${reason})`, source: "keeper" });
+    this.log(`${ship}: keeper moved ${from} -> ${market} (${reason})`);
+    this.recordAction(configChangeEvent({ setting: "keeperPin", before: from, after: market, actor: "engine", shipSymbol: ship, atIso: new Date().toISOString(), reason }));
   }
 
   private async maybeTopUpKeepers(): Promise<void> {
@@ -11571,6 +11701,7 @@ export class FleetManager {
       // dispatcher already computed them this tick, so reading them back costs
       // nothing (recomputing would double the pass).
       this.lastDispatchRoutes = routes;
+      try { await this.noteKeeperPlanRoutes(routes); } catch (err) { this.log(`tour plan: route tracking failed: ${describeError(err)}`); }
       const [warehouseTargets, haulTargets, missionBuyTargets, contractBuyTargets] = winding.active
         ? [[], [], [], []] as [WarehouseTarget[], HaulTarget[], MissionBuyTarget[], ContractBuyTarget[]]
         : await this.timed("computeTargets", () => Promise.all([
@@ -11772,6 +11903,7 @@ export class FleetManager {
       await this.timed("maybeManageFreshSystems", () => this.maybeManageFreshSystems());
       await this.timed("maybeRemoteSurvey", () => this.maybeRemoteSurvey());
       await this.timed("maybeTopUpKeepers", () => this.maybeTopUpKeepers());
+      await this.timed("maybeKeeperPlan", () => this.maybeKeeperPlan());
       await this.timed("advanceKeeperDeliveries", () => this.advanceKeeperDeliveries());
       await this.timed("maybeRepairFleet", () => this.maybeRepairFleet());
       await this.timed("repairSuspendedShips", () => this.repairSuspendedShips());
