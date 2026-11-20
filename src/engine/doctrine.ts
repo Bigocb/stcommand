@@ -206,6 +206,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "trading", defaultAdopted: true,
   },
   {
+    key: "routeFillFit",
+    name: "Fill fit: big holds to deep markets",
+    description: "A route that fills only part of a ship's hold scores lower for it: score x (1 - w + w x fill), fill = route depth / hold. Big hulls go to deep markets, shallow ones to small hulls (fillFit.ts).",
+    value: 50, min: 0, max: 100, step: 10, unit: "%",
+    enabled: false, enforced: true, category: "trading", defaultAdopted: true,
+  },
+  {
     key: "routeFitBigHold",
     name: "Big hull size",
     description: "The hold size from which a hull counts as big for Keep big hulls off small routes. 150 covers the Heavy and Bulk Freighters; the 80-unit hulls and smaller are never restricted. Does nothing while that clause is off. Takes effect on the next dispatch recompute.",

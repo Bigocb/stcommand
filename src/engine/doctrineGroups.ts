@@ -57,6 +57,7 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   chainCircuitCrossSystem: ["routes", "Circuits & follow-on"],
   routeMatchTopN: ["routes", "Hull matching"],
   routeHoldAware: ["routes", "Hull matching"],
+  routeFillFit: ["routes", "Hull matching"],
   routeSoonFreeMin: ["routes", "Hull matching"],
   shipSpeedWeight: ["routes", "Hull matching"],
   routeFitMinTrip: ["routes", "Hull matching"],

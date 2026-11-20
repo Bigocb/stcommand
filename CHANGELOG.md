@@ -11,6 +11,20 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-20 — fill fit: big holds to deep markets (clause `routeFillFit`, ships off)
+
+Operator (2026-11-20): "consider hold size vs buy size when assigning ships". The dispatcher already scored a route for a ship on
+what its own hold earns there (`routeHoldAware`), with the per-hold figure capped at the route's depth (the units at which the trip's
+profit peaks after our price impact, `sizeForImpact`). It did not count the hold left empty: a 225-hold heavy on a market that
+takes 48 units earned what an 80-hold ship would, so it took the shallow route while a deep route that only it could fill went
+unflown (THEO-408 on 2026-11-20 bought 48 SHIP_PLATING 3 jumps away instead of the URANITE route in its own system; issue #64).
+
+With `routeFillFit` on (weight w, default 50%), a route's score for a ship is multiplied by `1 - w + w x fill`, fill = route depth /
+the ship's hold, capped at 1. The same factor applies in route-first matching (`matching.ts` `fitValue`), and the `dispatch match`
+log line says e.g. "fills 48/80 (60%), score x0.80". Off (or weight 0) = the old scores exactly. Pure module `src/engine/fillFit.ts`;
+tests `tests/fillFit.test.ts` and a dispatcher seam test in `tests/dispatcherMatch.test.ts` (alone, a heavy takes the deep route;
+with an 80-hold ship as well, the shallow route goes to the 80 and the deep one to the heavy).
+
 ## 2026-11-20 — ops `unflown_routes`: good routes nobody flies, and the big hulls nearby
 
 Operator (2026-11-20): "keep an eye on that good route from the list ... and what big ships are nearby that can be bought". The board's

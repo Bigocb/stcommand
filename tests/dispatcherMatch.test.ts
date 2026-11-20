@@ -86,3 +86,30 @@ describe("dispatcher: planning the next route for ships about to finish (clause 
     assert.equal(run2({ matchTopN: 2, soonFreeSec: 30 }), "B");
   });
 });
+
+describe("dispatcher: fill fit (clause routeFillFit, fillFit.ts)", () => {
+  // SHALLOW: the market takes 48 units, worth 110k to any hold of 48 or more. DEEP: takes 225, worth 90k to a 225 hold, 32k to an 80.
+  const SHALLOW = route("SHALLOW", "X1-A-400", "X1-A-450", 110_000, 48, { "80": 110_000, "225": 110_000 });
+  const DEEP = route("DEEP", "X1-A-410", "X1-A-460", 90_000, 225, { "80": 32_000, "225": 90_000 });
+  const heavy = { shipSymbol: "HEAVY", capacity: 225, system: "X1-A", waypoint: "X1-A-400", fuelCapacity: 5000 };
+  const eighty = { shipSymbol: "EIGHTY", capacity: 80, system: "X1-A", waypoint: "X1-A-410", fuelCapacity: 5000 };
+  const go = (ships: typeof heavy[], tuning: Record<string, unknown>, lines: string[] = []) => {
+    const d = new RouteDispatcher();
+    d.recompute([SHALLOW, DEEP], ships, [], [], [], [], () => false, distance, (m) => lines.push(m), undefined, undefined, tuning);
+    return d;
+  };
+  it("off, a heavy alone takes the shallow route that pays more per trip, as before", () => {
+    assert.equal(go([heavy], { holdAware: true }).assignmentFor("HEAVY")?.good, "SHALLOW");
+    assert.equal(go([heavy], { holdAware: true, fillWeightPct: 0 }).assignmentFor("HEAVY")?.good, "SHALLOW");
+  });
+  it("on, the heavy takes the deep route it can fill", () => {
+    assert.equal(go([heavy], { holdAware: true, fillWeightPct: 50 }).assignmentFor("HEAVY")?.good, "DEEP");
+  });
+  it("on, with both ships, the shallow route goes to the 80 and the deep one to the heavy; the match log says why", () => {
+    const lines: string[] = [];
+    const d = go([heavy, eighty], { holdAware: true, fillWeightPct: 50, matchTopN: 2 }, lines);
+    assert.equal(d.assignmentFor("HEAVY")?.good, "DEEP");
+    assert.equal(d.assignmentFor("EIGHTY")?.good, "SHALLOW");
+    assert.ok(lines.some((l) => l.includes("dispatch match") && l.includes("fills 48/80")), lines.join("\n"));
+  });
+});

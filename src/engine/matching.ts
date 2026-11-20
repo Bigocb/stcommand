@@ -15,9 +15,13 @@
  * buying) comes in through `MatchContext`. Policy is data (`MatchPolicy`), backed by a doctrine clause.
  */
 
+import { fillFactor, fillNote } from "./fillFit.js";
+
 export interface MatchPolicy {
   /** How many of the best routes are matched, in rank order. 0 switches the feature off. */
   topN: number;
+  /** Fill fit weight (fillFit.ts, 0-100): a route that fills only part of a ship's hold is worth less to it. 0/absent = off. */
+  fillWeightPct?: number;
 }
 
 export const DEFAULT_MATCH_POLICY: MatchPolicy = { topN: 0 };
@@ -73,12 +77,12 @@ export function holdShare(item: Pick<MatchItem, "profitByHold" | "rawProfit" | "
 }
 
 /** What this ship would earn from this route: its hold's share of the profit, less the time spent getting there. */
-export function fitValue(item: MatchItem, ship: MatchShip, positioningSeconds: number): number {
+export function fitValue(item: MatchItem, ship: MatchShip, positioningSeconds: number, fillWeightPct = 0): number {
   const share = holdShare(item, ship.capacity);
   const gain = item.flightBound ? Math.max(0, ship.speedGain ?? 1) || 1 : 1;
   const trip = item.tripSeconds && item.tripSeconds > 0 ? item.tripSeconds / gain : item.tripSeconds;
   const timeScale = trip && trip > 0 ? trip / (trip + Math.max(0, positioningSeconds) / gain) : 1;
-  return item.profitPerTrip * share * timeScale * gain;
+  return item.profitPerTrip * share * timeScale * gain * fillFactor(item.volume, ship.capacity, { weightPct: fillWeightPct });
 }
 
 /**
@@ -97,7 +101,7 @@ export function matchShips(items: readonly MatchItem[], ships: readonly MatchShi
     for (const ship of free.values()) {
       const pos = ctx.positioningSeconds(ship, item);
       if (pos === undefined) continue;
-      scored.push({ ship, value: fitValue(item, ship, pos) });
+      scored.push({ ship, value: fitValue(item, ship, pos, policy.fillWeightPct ?? 0) });
     }
     if (scored.length === 0) continue;
     scored.sort((a, b) => b.value - a.value || b.ship.capacity - a.ship.capacity);
@@ -108,7 +112,8 @@ export function matchShips(items: readonly MatchItem[], ships: readonly MatchShi
     result.pairs.push({ ship: best.ship.shipSymbol, key: item.key });
     result.notes.push(
       `dispatch match: ${item.key} -> ${best.ship.shipSymbol} (${best.ship.capacity}u, worth ${Math.round(best.value)})` +
-        (next ? `, next ${next.ship.shipSymbol} (${next.ship.capacity}u, ${Math.round(next.value)})` : ", no other ship can take it"),
+        (next ? `, next ${next.ship.shipSymbol} (${next.ship.capacity}u, ${Math.round(next.value)})` : ", no other ship can take it") +
+        (() => { const n = fillNote(item.volume, best.ship.capacity, { weightPct: policy.fillWeightPct ?? 0 }); return n ? `; ${n}` : ""; })(),
     );
   }
   return result;

@@ -135,6 +135,7 @@ import { DEFAULT_MATCH_POLICY, holdShare, matchShips, type MatchPolicy } from ".
 import { routeFit, type FitPolicy } from "./routeFit.js";
 import { DEFAULT_SPEED_POLICY, scaleSeconds, speedGain, speedReason, type SpeedPolicy } from "./shipSpeed.js";
 import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
+import { fillFactor } from "./fillFit.js";
 import { goodOfKey, type DispatchExplainSnapshot, type ExplainHeld, type ExplainRejection, type ExplainRoute, type ExplainTrader } from "./dispatchExplain.js";
 
 /** How far circuits have got since the process started, and why the rest were dropped (reason text with numbers masked as N). */
@@ -1109,7 +1110,7 @@ export class RouteDispatcher {
     // the defaults are the exported constants, and `marginFloor` (credits per
     // unit, the existing doctrine value) is the least predicted margin an extra
     // buyer at an already-chosen market must still clear.
-    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; spacingAutoPct?: number; marketRecoveryMin?: number; routeBlockMin?: number; fitMinTrip?: number; fitBigHold?: number; slowHullSpeed?: number; slowHullHauledHops?: number; slowHullPositioningHops?: number; jumpCashFloor?: number; credits?: number; positioningCostScaled?: boolean; minTripSeconds?: number },
+    tuning?: { buyImpactPerUnit?: number; maxTradersPerBuyMarket?: number; marginFloor?: number; followOnWeight?: number; followOnHorizonMin?: number; circuitWeight?: number; circuitHorizonMin?: number; circuitCash?: number; circuitReturnShare?: number; circuitCrossSystem?: boolean; circuitMinGain?: number; circuitMinGainShare?: number; circuitMinLeg2Runs?: number; matchTopN?: number; holdAware?: boolean; soonFreeSec?: number; speedWeight?: number; modelSpeed?: number; jumpSeconds?: number; coolOffMin?: number; roundsMax?: number; buyRoundsMax?: number; spacingMin?: number; spacingAutoPct?: number; marketRecoveryMin?: number; routeBlockMin?: number; fitMinTrip?: number; fitBigHold?: number; slowHullSpeed?: number; slowHullHauledHops?: number; slowHullPositioningHops?: number; jumpCashFloor?: number; credits?: number; positioningCostScaled?: boolean; minTripSeconds?: number; fillWeightPct?: number },
     // Legs traders are already flying with cargo aboard (from each agent's own
     // held-route pin), whether or not that ship is in `traders` — a hull
     // committed to a run drops out of the dispatcher's list, and after a
@@ -1809,7 +1810,7 @@ export class RouteDispatcher {
       }
     }
     let loopOrder = sorted;
-    const matchPolicy: MatchPolicy = { ...DEFAULT_MATCH_POLICY, topN: Math.max(0, Math.floor(tuning?.matchTopN ?? 0)) };
+    const matchPolicy: MatchPolicy = { ...DEFAULT_MATCH_POLICY, topN: Math.max(0, Math.floor(tuning?.matchTopN ?? 0)), fillWeightPct: tuning?.fillWeightPct ?? 0 };
     if (matchPolicy.topN > 0) {
       const idle = sorted.filter((t) => !t.busy && !this.manual.has(t.shipSymbol) && !next.has(t.shipSymbol) && !this.committed.has(t.shipSymbol));
       const tradeItems = work.filter((w) => w.sellAt !== undefined && w.buyAt !== undefined && !usedKeys.has(w.key));
@@ -1954,7 +1955,10 @@ export class RouteDispatcher {
         // earns (the route's own figure for that hold, else its share of the units the trip moves), so far routes stop looking as
         // rich to a small ship as to a big one while the positioning cost is the same for both. Off = the old, hold-blind score.
         const share = tuning?.holdAware ? holdShare(w, t.capacity) : 1;
-        let score = w.profitPerTrip * share * gain - penalty;
+        // Fill fit (fillFit.ts): a route that fills only part of this ship's hold scores lower, so big hulls go to deep markets and
+        // the shallow ones to small hulls. Factor 1 with the clause off.
+        const fill = fillFactor(w.volume, t.capacity, { weightPct: tuning?.fillWeightPct ?? 0 });
+        let score = w.profitPerTrip * share * fill * gain - penalty;
         let positioning = 0;
         if (w.tripSeconds && w.secPerDist && w.buyAt && t.waypoint && t.system !== undefined && w.buySystem === t.system) {
           positioning = scaleSeconds(distanceBetween(t.waypoint, w.buyAt) * w.secPerDist, gain);
