@@ -7481,6 +7481,11 @@ export class FleetManager {
   }
 
   /** Which kind of ship a scheduler task belongs to, for the limiter's per-role call counts (stats only). */
+  /** Every ship running as a trader now (trade lanes enrol the first N of these by symbol). */
+  traderSymbols(): string[] {
+    return [...this.traders.keys()];
+  }
+
   apiRoleOf(shipSymbol: string): string {
     if (this.keepers.has(shipSymbol)) return "keeper";
     if (this.explorers.has(shipSymbol)) return "explorer";

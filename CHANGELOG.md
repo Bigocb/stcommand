@@ -11,6 +11,37 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Trade lanes: enrolled traders' own calls leave through their own proxy (issue #71, off by default)
+
+Every buy, sell, dock, navigation and jump left from the box's one IP, capped at 105 calls a minute. At about 1.6 calls a minute per
+trader, that cap, not cash, decided how many traders the fleet could run. On 2026-11-21, 28 of 34 freshly released systems had no
+sales because every trader was busy. The operator has 100 proxies, and the read lanes used 15 of them at about 10 of 90 calls a minute each.
+
+New pure module `src/engine/tradeLanes.ts`, behind the doctrine clause `tradeLaneShips` (value 5, **off**):
+- With it on, the first N traders by symbol send every call made from their own scheduler task through a proxy pinned to the ship,
+  by rendezvous hashing over the proxies after the `apiLaneCount` read lanes. Writes are included.
+- If a ship's proxy breaker is open, the next proxy in that ship's order takes over; the box takes over when all are out.
+- Calls from the fleet loops, the dispatcher and boot stay on the box.
+- **A write that fails at the network level through a trade lane is not retried anywhere.** The caller gets
+  `TRADE_LANE_UNKNOWN`, and the ship book keeps the action as unknown until the next read settles it. This avoids a repeat of the
+  10-08 double buy.
+- A proxy 401/403 on a write is not resent on the box; only 407, which is the proxy refusing us, is.
+
+Supporting changes:
+- The scheduler now tags each ship task with its ship (`runWithApiShip` in `src/core/client.ts`).
+- `FleetManager.traderSymbols()` lists the traders to enrol from.
+- `MAX_POOL` rises from 20 to 100.
+- 429 headers from a trade lane carry `x-stcommand-lane: trade`.
+
+Rollout:
+1. Add the extra proxies to `API_LANE_PROXY_URLS` on the box.
+2. Turn on `tradeLaneShips` at 5.
+3. Watch `x-ratelimit-type` on any trade-lane 429 in ops api_budget. Anything other than `IP Address` means there is also a
+   per-account limit.
+
+Tests: `tests/tradeLanes.test.ts` (the pure rules, plus the client seam through a real CONNECT proxy). The doctrine catalog size
+limit in `tests/doctrineGroups.test.ts` goes from 68k to 70k.
+
 ## 2026-11-21 — Agent rank in the Tower and Deck top bars
 
 Operator request: show the agent's current rank. Deck's top bar has a new Rank field after Ships ("#3 / 1,204"), and Tower shows

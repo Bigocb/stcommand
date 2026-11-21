@@ -6,7 +6,8 @@ import { rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { LaneBreaker, LANES_OFF, type LanePolicy } from "./apiLanes.js";
 import { poolFromEnv, ByteMeter } from "./lanePool.js";
 import type { LaneSlot } from "../core/client.js";
-import { Client, RateLimiter, apiBurstFromEnv, apiRateFromEnv, SpaceTradersAPI, runWithApiPriority, runWithApiRole, taskToApiPriority, API_PRIORITY } from "../core/client.js";
+import { Client, RateLimiter, apiBurstFromEnv, apiRateFromEnv, SpaceTradersAPI, runWithApiPriority, runWithApiRole, runWithApiShip, taskToApiPriority, API_PRIORITY } from "../core/client.js";
+import { enrolledShips, TRADE_LANES_OFF, type TradeLanePolicy } from "./tradeLanes.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
 import { LiveFeed } from "./liveFeed.js";
@@ -149,6 +150,33 @@ export class TenantRegistry {
     try { return { enabled: d.isEnabledOr("apiLaneProxy", false), minPriority: d.value("apiLaneProxy", LANES_OFF.minPriority), active: d.isEnabledOr("apiLaneCount", true) ? d.value("apiLaneCount", 3) : 1 }; } catch { return LANES_OFF; }
   }
 
+  /** Trade lanes (tradeLanes.ts): enrolled set cached a short while, since it is read on every request. */
+  private tradeLaneCache = new Map<string, { at: number; policy: TradeLanePolicy }>();
+
+  /**
+   * The clause tradeLaneShips as this tenant's doctrine has it: on = the first N traders by symbol send their own calls through the
+   * proxies after the read lanes' active ones. Off, or the tenant not booted, = no trade lanes.
+   */
+  private tradeLanePolicyFor(agentSymbol: string): TradeLanePolicy {
+    const now = Date.now();
+    const cached = this.tradeLaneCache.get(agentSymbol);
+    if (cached && now - cached.at < 15_000) return cached.policy;
+    let policy = TRADE_LANES_OFF;
+    const fleet = [...this.workers.values()].find((w) => w.agentSymbol === agentSymbol)?.fleet;
+    const d = fleet?.doctrine;
+    if (fleet && d) {
+      try {
+        if (d.isEnabledOr("tradeLaneShips", false)) {
+          const reads = this.lanePolicyFor(agentSymbol);
+          const firstSlot = reads.enabled ? Math.min(this.laneSlots.length, Math.max(1, Math.floor(reads.active ?? this.laneSlots.length))) : 0;
+          policy = { enabled: true, ships: enrolledShips(fleet.traderSymbols(), d.value("tradeLaneShips", 5)), firstSlot };
+        }
+      } catch { policy = TRADE_LANES_OFF; }
+    }
+    this.tradeLaneCache.set(agentSymbol, { at: now, policy });
+    return policy;
+  }
+
   /** How many proxies are active now, read from any booted tenant's doctrine (the pool is shared by the process). */
   private activeLaneCount(): number {
     for (const w of this.workers.values()) {
@@ -210,7 +238,7 @@ export class TenantRegistry {
           proxyUrl,
           label: agentSymbol,
           ...(proxyUrl ? {} : { sharedLimiter: this.apiLimiter }),
-          ...(proxyUrl || this.laneSlots.length === 0 ? {} : { lanes: { slots: this.laneSlots, policy: () => this.lanePolicyFor(agentSymbol) } }),
+          ...(proxyUrl || this.laneSlots.length === 0 ? {} : { lanes: { slots: this.laneSlots, policy: () => this.lanePolicyFor(agentSymbol), tradePolicy: () => this.tradeLanePolicyFor(agentSymbol) } }),
           onRateLimited: (sec, attempt, headers) => {
             rateLimitMonitor.record(agentSymbol, headers);
             this.log("?", `rate limited, backing off ${sec}s (attempt ${attempt})`);
@@ -522,7 +550,7 @@ export class TenantRegistry {
     // point it's long since been assigned. Same forward-reference pattern
     // MissionManager's own callbacks into FleetManager already use.
     let fleet!: FleetManager;
-    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused(), log, setClientPriority: (p) => api.setPriority(p), runWithPriority: (p, fn, sym) => runWithApiRole(sym ? fleet.apiRoleOf(sym) : "fleet", () => runWithApiPriority(taskToApiPriority(p), fn)), lowPriorityWorkers: () => (fleet?.doctrine ? fleet.doctrine.value("keeperLaneWorkers", 0) : 0), onTaskTimed: (task, ms, timer) => fleet?.noteTaskTiming(task.id, ms, timer) });
+    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused(), log, setClientPriority: (p) => api.setPriority(p), runWithPriority: (p, fn, sym) => runWithApiRole(sym ? fleet.apiRoleOf(sym) : "fleet", () => (sym ? runWithApiShip(sym, () => runWithApiPriority(taskToApiPriority(p), fn)) : runWithApiPriority(taskToApiPriority(p), fn))), lowPriorityWorkers: () => (fleet?.doctrine ? fleet.doctrine.value("keeperLaneWorkers", 0) : 0), onTaskTimed: (task, ms, timer) => fleet?.noteTaskTiming(task.id, ms, timer) });
     fleet = new FleetManager({
       api,
       contracts,

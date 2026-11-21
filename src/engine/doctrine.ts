@@ -808,6 +808,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "tradeLaneShips",
+    name: "API: traders whose own calls leave through a proxy",
+    description: "On = the first this-many traders (by symbol) send every call made by their own task, buys, sells, docks, navigation, jumps and market reads included, through a proxy pinned to the ship, instead of the box's IP (tradeLanes.ts, issue #71). Trade lanes use the proxies in API_LANE_PROXY_URLS after the apiLaneCount read lanes, so trading never queues behind keeper reads; when a ship's proxy keeps failing the next one takes over, and the box when all are out. A write that fails at the network level through a proxy is not retried (the game may have done it); the next read settles it. Calls from the fleet loops, the dispatcher and boot stay on the box. Start at 5 and watch the 429 headers in ops api_budget: an x-ratelimit-type other than IP Address means a per-account limit, and this stops helping. Off (the default) = every trade leaves from the box, as before. Takes effect within 15 s.",
+    value: 5, min: 1, max: 100, step: 1, unit: " ships",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "apiLaneCount",
     name: "API: how many of the configured proxies are active",
     description: "With several proxies in API_LANE_PROXY_URLS (the box's environment), this many of them, counted from the first one written, carry the proxy lane's reads; the rest are spares to switch in when one is slow or blocked. Each system's market reads keep to one proxy (chosen by the system, so adding or dropping a proxy moves only a few systems), the next proxy takes over when one fails, and the box's IP is used only when every active proxy is out. More than are configured = all of them. The proxy plan is billed in bytes, not by the number of proxies: watch the projected GB a month per proxy in ops api_budget (proxyLane). No effect unless the clause apiLaneProxy is on. Takes effect on the next request.",

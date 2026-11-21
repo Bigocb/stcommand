@@ -25,7 +25,8 @@ export interface PoolProxy {
   ratePerSec: number;
 }
 
-export const MAX_POOL = 20;
+/** Read lanes plus trade lanes (tradeLanes.ts); the operator has 100 proxies (2026-11-21). */
+export const MAX_POOL = 100;
 
 /** The configured proxies, in order. Invalid or repeated entries are skipped (so a typo costs one proxy, not the pool). */
 export function poolFromEnv(env: Record<string, string | undefined>, defaultRate: number): PoolProxy[] {

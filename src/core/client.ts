@@ -10,6 +10,7 @@ import type { components } from "./schema.js";
 // global one.
 import { fetch as undiciFetch, ProxyAgent, type Dispatcher } from "undici";
 import { chooseLane, type LaneBreaker, type LanePolicy, type Lane } from "../engine/apiLanes.js";
+import { tradeLaneFor, retryAfterNetworkFailure, retryOnBoxAfterProxyRefusal, type TradeLanePolicy } from "../engine/tradeLanes.js";
 import { pickProxy, laneKeyOf, type ByteMeter } from "../engine/lanePool.js";
 import { maskProxyUrl } from "../engine/crawlerProxy.js";
 
@@ -111,6 +112,8 @@ export interface ClientLanes {
   breaker?: LaneBreaker;
   /** Read per request, so the doctrine clause switches it live. */
   policy: () => LanePolicy;
+  /** Trade lanes (tradeLanes.ts, clause tradeLaneShips): which ships send their own calls through a proxy. Absent = none. */
+  tradePolicy?: () => TradeLanePolicy;
 }
 
 type RequestOptions = {
@@ -161,6 +164,16 @@ const roleContext = new AsyncLocalStorage<string>();
  */
 export function runWithApiRole<T>(role: string, fn: () => Promise<T>): Promise<T> {
   return roleContext.run(role, fn);
+}
+
+const shipContext = new AsyncLocalStorage<string>();
+
+/**
+ * Run `fn` with every API call made inside it attributed to `ship`: the scheduler wraps each ship's own task in it. Trade lanes
+ * (tradeLanes.ts) use it to send an enrolled trader's calls through that ship's proxy; nothing else reads it.
+ */
+export function runWithApiShip<T>(ship: string, fn: () => Promise<T>): Promise<T> {
+  return shipContext.run(ship, fn);
 }
 
 /** The priority the running async context asked for, if any. */
@@ -664,6 +677,8 @@ export class Client {
     let attempt = 0;
     // After a failure on the proxy lane the retry goes out on the normal path, once, whatever the breaker says.
     let forceBox = false;
+    // Whether the request just sent went through a trade lane (tradeLanes.ts): a write that fails there is not sent again.
+    let viaTradeLane = false;
     for (;;) {
       // Boot (priority 0) always wins; otherwise the calling context's own
       // urgency (see runWithApiPriority), then this Client's ambient priority.
@@ -674,7 +689,14 @@ export class Client {
       // With a pool of proxies (lanePool.ts) the call's system or ship picks a preferred proxy, the next one in its order when that
       // one's breaker is open, and the box only when every active proxy is out.
       let slot: (LaneSlot & { dispatcher: Dispatcher }) | undefined;
-      if (this.lanes && this.laneSlots.length > 0 && !forceBox) {
+      // Trade lanes (tradeLanes.ts) first: an enrolled trader's own calls, writes included, leave through the proxy pinned to it.
+      viaTradeLane = false;
+      if (this.lanes?.tradePolicy && this.laneSlots.length > 0 && !forceBox) {
+        const now = Date.now();
+        const pick = tradeLaneFor({ ship: shipContext.getStore(), priority }, this.lanes.tradePolicy(), this.laneSlots.map((s) => s.id), (id) => this.laneSlots.find((s) => s.id === id)!.breaker.allows(now));
+        if (pick) { slot = this.laneSlots[pick.slotIndex]; viaTradeLane = slot !== undefined; }
+      }
+      if (!slot && this.lanes && this.laneSlots.length > 0 && !forceBox) {
         const policy = this.lanes.policy();
         if (chooseLane({ priority, method: req.method }, policy) === "proxy") {
           const now = Date.now();
@@ -729,6 +751,16 @@ export class Client {
         noteStep("api.request", Date.now() - sentAt);
         // The proxy failed (refused, timed out, plan limit): count it against the breaker and send the retry on the normal path.
         if (slot) { slot.breaker.failure(Date.now()); forceBox = true; }
+        // A write through a trade lane may have reached the game even though the answer never came back: do not send it again.
+        // The ship book has the action as started and not done, so its effect is unknown until the next read settles it.
+        if (!retryAfterNetworkFailure(req.method, viaTradeLane)) {
+          const timedOut = err instanceof Error && err.name === "AbortError";
+          throw new APIError(
+            `${req.method} through the trade lane ${timedOut ? "timed out" : "failed"} (${err instanceof Error ? err.message : String(err)}); not retried, the game may have done it`,
+            0,
+            "TRADE_LANE_UNKNOWN",
+          );
+        }
         // A stalled connection (or any other fetch-level rejection) must not
         // dead-end the caller's whole scheduler task the way it did before
         // this timeout existed — see REQUEST_TIMEOUT_MS's own comment. Retry
@@ -755,7 +787,7 @@ export class Client {
       noteStep("api.request", Date.now() - sentAt);
       // A proxy that answers 401, 403 or 407 is refusing us, not the game answering: count it, and send the retry on the normal path
       // instead of showing the caller an auth error the box would not have produced.
-      if (slot && (res.status === 401 || res.status === 403 || res.status === 407) && attempt < this.maxRetries) {
+      if (slot && (res.status === 401 || res.status === 403 || res.status === 407) && attempt < this.maxRetries && retryOnBoxAfterProxyRefusal(req.method, res.status, viaTradeLane)) {
         slot.breaker.failure(Date.now());
         forceBox = true;
         attempt += 1;
@@ -769,7 +801,7 @@ export class Client {
         const delayMs = (wait && !Number.isNaN(wait) ? wait * 1000 : undefined) ?? this.retryBackoffMs * 2 ** attempt;
         const limitHeaders: Record<string, string> = {};
         res.headers.forEach((value, key) => { if (/rate|retry|limit/i.test(key)) limitHeaders[key.toLowerCase()] = value; });
-        if (lane === "proxy") limitHeaders["x-stcommand-lane"] = "proxy";
+        if (lane === "proxy") limitHeaders["x-stcommand-lane"] = viaTradeLane ? "trade" : "proxy";
         this.onRateLimited?.(delayMs / 1000, attempt, limitHeaders);
         if (attempt < this.maxRetries) {
           attempt += 1;

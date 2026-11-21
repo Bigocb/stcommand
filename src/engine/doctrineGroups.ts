@@ -161,6 +161,7 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   sensorScanIntervalMin: ["explore", "Charting"],
   apiLaneProxy: ["api", "Second IP"],
   apiLaneCount: ["api", "Second IP"],
+  tradeLaneShips: ["api", "Second IP"],
   shipBook: ["api", "Call savings"],
   marketSnapshotReuse: ["api", "Call savings"],
   arrivalSurveyMaxAgeMin: ["api", "Call savings"],
