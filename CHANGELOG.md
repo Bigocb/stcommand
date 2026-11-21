@@ -11,6 +11,12 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Keeper cap can go to 5,000 (was 2,000)
+
+`keeperMaxTotal` was capped at 2,000 in the catalog. On 2026-11-21 the fleet sat at 2,004 keepers with 86 listed markets waiting and
+no fresh system staged or released for two hours, while one read pass took about 14 minutes at 139 reads a minute (room to spare).
+The operator asked for 3,000. Only the clause's maximum changes; the value is set live.
+
 ## 2026-11-21 — Dispatcher: cool-off filter in linear time (SEV0, part 5; ported from a hand edit on the box)
 
 A session working directly on the box had edited `dispatcher.ts` in the box's checkout at 05:50 and rebuilt by hand. The
