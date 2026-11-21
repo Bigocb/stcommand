@@ -11,6 +11,28 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Memory: /api/state built once per update, and the price pairs filtered in the database (both off by default)
+
+These are items 1 and 2 of `docs/memory-analysis-2026-11-21.md`, requested by the operator after the hourly profit dropped.
+
+**`stateResponseSlim`** (`src/http/stateBody.ts`):
+- `GET /api/state` is serialised and gzipped once per fleet update and variant (`lean` or full).
+- Every open screen reuses that body for up to 10 s; concurrent misses share one build.
+- Each ship's frame, reactor, engine, modules and mounts are sent without their `description` and `requirements`. Every field
+  a screen reads is kept, older UI versions included; the engine's own copy is unchanged.
+- Before, every poll from every screen stringified about 2,470 full ship objects: 752 MB, 66% of what the heap sampler saw allocated.
+
+**`tradeLegsPrefilter`** (value 12):
+- `Store.tradeLegs` keeps only markets in charted, reachable systems.
+- It leaves out blocked and protected goods.
+- It returns the best 12 sell markets per good and buy market (`ROW_NUMBER()` in SQL).
+- The filters in `computeDispatchRoutes` still run on what comes back.
+- Before, the plain join returned 1.38M rows a pass, each built twice in memory, of which 433k survived. That was most of the
+  17 s route build and its memory spikes.
+
+Both settings ship off and are turned on live after the deploy, so the change can be measured. Tests are in
+`tests/stateBodyAndLegs.test.ts`: slim rows, the cache, and the query against a real database.
+
 ## 2026-11-21 — Each server process gets its own instance id; memory analysis written
 
 `INSTANCE_ID` (`src/core/rateLimitMonitor.ts`) was hostname plus PID. In Docker every process is PID 1 with the same hostname,

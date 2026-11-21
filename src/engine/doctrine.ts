@@ -808,6 +808,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "stateResponseSlim",
+    name: "Dashboard state: build once per update, without part descriptions",
+    description: "On = GET /api/state (what Deck and Tower poll) is serialised and gzipped once per fleet update and reused for up to 10 s by every open screen, and each ship's frame, reactor, engine, modules and mounts are sent without their long description text and requirements (src/http/stateBody.ts). Every field a screen reads is kept. Before, every poll from every screen stringified about 2,470 full ship objects: 752 MB, 66% of the heap sampler's allocations on 2026-11-21 (docs/memory-analysis-2026-11-21.md). The engine's own copy is unchanged. Off (the default) = one full body per request, as before. Takes effect on the next request.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
+    key: "tradeLegsPrefilter",
+    name: "Route build: filter the price pairs in the database (best N sell markets per buy)",
+    description: "On = the route build's price-pair query keeps only markets in systems we have charted and can gate to, leaves out blocked and protected goods, and returns only the best this-many sell markets for each good and buy market (Store.tradeLegs, src/engine/fleet.ts computeDispatchRoutes). On 2026-11-21 the plain join returned 1,381,097 rows a pass, built twice in memory before filters cut it to 433,496; this was most of the route build's 17 s and its memory spikes (docs/memory-analysis-2026-11-21.md). The filters in code still run on what comes back. Lower values make the list smaller and the build faster, at the cost of the dispatcher seeing fewer far-away sell markets. Off (the default) = the plain query, as before. Takes effect on the next route build.",
+    value: 12, min: 1, max: 100, step: 1, unit: " sell markets",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "tradeLaneShips",
     name: "API: traders whose own calls leave through a proxy",
     description: "On = the first this-many traders (by symbol) send every call made by their own task, buys, sells, docks, navigation, jumps and market reads included, through a proxy pinned to the ship, instead of the box's IP (tradeLanes.ts, issue #71). Trade lanes use the proxies in API_LANE_PROXY_URLS after the apiLaneCount read lanes, so trading never queues behind keeper reads; when a ship's proxy keeps failing the next one takes over, and the box when all are out. A write that fails at the network level through a proxy is not retried (the game may have done it); the next read settles it. Calls from the fleet loops, the dispatcher and boot stay on the box. Start at 5 and watch the 429 headers in ops api_budget: an x-ratelimit-type other than IP Address means a per-account limit, and this stops helping. Off (the default) = every trade leaves from the box, as before. Takes effect within 15 s.",

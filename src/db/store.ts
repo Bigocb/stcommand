@@ -2982,7 +2982,17 @@ export class Store {
    * caps what it will actually accept. So a longer window for the expensive
    * side buys real opportunities at the price of some wasted trips.
    */
-  async tradeLegs(maxAgeMinutes = 90, crossSystemMaxAgeMinutes = maxAgeMinutes): Promise<
+  async tradeLegs(
+    maxAgeMinutes = 90,
+    crossSystemMaxAgeMinutes = maxAgeMinutes,
+    /**
+     * Clause tradeLegsPrefilter (docs/memory-analysis-2026-11-21.md, item 2): with 205 live systems the plain join returned 1.38M
+     * rows a pass, every one built twice in JS before six filters cut it to 433k. Given, the query keeps only markets in `systems`
+     * (charted and reachable), leaves out `excludeGoods`, and keeps the `topSellsPerBuy` best sell markets for each good and buy
+     * market. Absent = the plain join, as before.
+     */
+    pre?: { systems?: readonly string[]; excludeGoods?: readonly string[]; topSellsPerBuy?: number },
+  ): Promise<
     {
       goodSymbol: string;
       buyAt: string;
@@ -3000,7 +3010,38 @@ export class Store {
     }[]
   > {
     return withPool(this.pool, async (c) => {
-      const res = await c.query<{
+      const res = pre ? await c.query<{
+        buy_volume: number; sell_volume: number; good_symbol: string; buy_at: string; buy_system: string; buy_price: number;
+        sell_at: string; sell_system: string; sell_price: number; volume: number; stalest_ms: number;
+      }>(
+        `WITH latest AS (
+           SELECT * FROM market_latest
+           WHERE timestamp >= now() - make_interval(mins => GREATEST($1::int, $2::int))
+             AND ($3::text[] IS NULL OR system_symbol = ANY($3::text[]))
+             AND ($4::text[] IS NULL OR NOT (good_symbol = ANY($4::text[])))
+         ), pairs AS (
+           SELECT
+             b.good_symbol AS good_symbol, b.waypoint_symbol AS buy_at, b.system_symbol AS buy_system, b.purchase_price AS buy_price,
+             s.waypoint_symbol AS sell_at, s.system_symbol AS sell_system, s.sell_price AS sell_price,
+             LEAST(b.trade_volume, s.trade_volume) AS volume, b.trade_volume AS buy_volume, s.trade_volume AS sell_volume,
+             (EXTRACT(EPOCH FROM LEAST(b.timestamp, s.timestamp)) * 1000)::float8 AS stalest_ms,
+             ROW_NUMBER() OVER (PARTITION BY b.good_symbol, b.waypoint_symbol ORDER BY s.sell_price DESC) AS rn
+           FROM latest b
+           JOIN latest s ON s.good_symbol = b.good_symbol AND s.waypoint_symbol != b.waypoint_symbol
+           WHERE s.sell_price > b.purchase_price
+             AND b.purchase_price > 0
+             AND CASE
+                   WHEN b.system_symbol = s.system_symbol
+                     THEN b.timestamp >= now() - make_interval(mins => $1::int)
+                      AND s.timestamp >= now() - make_interval(mins => $1::int)
+                   ELSE b.timestamp >= now() - make_interval(mins => $2::int)
+                    AND s.timestamp >= now() - make_interval(mins => $2::int)
+                 END
+         )
+         SELECT good_symbol, buy_at, buy_system, buy_price, sell_at, sell_system, sell_price, volume, buy_volume, sell_volume, stalest_ms
+           FROM pairs WHERE $5::int IS NULL OR rn <= $5::int`,
+        [maxAgeMinutes, crossSystemMaxAgeMinutes, pre.systems ? [...pre.systems] : null, pre.excludeGoods && pre.excludeGoods.length ? [...pre.excludeGoods] : null, pre.topSellsPerBuy && pre.topSellsPerBuy > 0 ? Math.floor(pre.topSellsPerBuy) : null],
+      ) : await c.query<{
         buy_volume: number;
         sell_volume: number;
         good_symbol: string;

@@ -2457,10 +2457,6 @@ export class FleetManager {
     const bidStats = sanityOn ? await this.bidStats().catch(() => undefined) : undefined;
     const sanityPolicy = { maxOverMedian: this.doctrine.value("routePriceSanityPct", 0) / 100, minSamples: 4 };
     let sanityLogged = 0;
-    const queryStart = Date.now();
-    const storedLegs = (await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin())) ?? [];
-    timing.queryMs = Date.now() - queryStart;
-    const filterStart = Date.now();
     // Where our ships can gate to: from the home system and wherever a trader stands. A graph too small to mean anything (not
     // hydrated yet) filters nothing.
     const netStarts = [...new Set([this.systemSymbol, ...[...this.traders.values()].map((a) => a.getShip().nav.systemSymbol)].filter((x): x is string => !!x))];
@@ -2468,6 +2464,20 @@ export class FleetManager {
     const network = reach.size >= 5 ? reach : undefined;
     const blocked = blockedSet(await this.blockedGoodsEntries());
     const protectedNow = new Set(dropProtected ? this.protectedGoodList() : []);
+    // Clause tradeLegsPrefilter (docs/memory-analysis-2026-11-21.md, item 2): the systems, blocked and protected goods the filters
+    // below would drop are dropped in the query instead, and only the best N sell markets per good and buy market come back. The
+    // filters still run on what remains (so their drop counts now cover only those rows). Off = the plain query, as before.
+    const prefilter = this.doctrine.isEnabledOr("tradeLegsPrefilter", false)
+      ? {
+          systems: [...charted].filter((sys) => network === undefined || network.has(sys)),
+          excludeGoods: [...new Set([...blocked, ...protectedNow])],
+          topSellsPerBuy: this.doctrine.value("tradeLegsPrefilter", 12),
+        }
+      : undefined;
+    const queryStart = Date.now();
+    const storedLegs = (await this.store?.tradeLegs(this.intelMaxAgeMin(), this.crossSystemMaxAgeMin(), prefilter)) ?? [];
+    timing.queryMs = Date.now() - queryStart;
+    const filterStart = Date.now();
     const legs = storedLegs
       .filter((l) => {
         if (!blocked.has(l.goodSymbol)) return true;

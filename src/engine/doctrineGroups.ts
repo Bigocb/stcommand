@@ -162,6 +162,8 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   apiLaneProxy: ["api", "Second IP"],
   apiLaneCount: ["api", "Second IP"],
   tradeLaneShips: ["api", "Second IP"],
+  stateResponseSlim: ["api", "Dispatcher cost"],
+  tradeLegsPrefilter: ["api", "Dispatcher cost"],
   shipBook: ["api", "Call savings"],
   marketSnapshotReuse: ["api", "Call savings"],
   arrivalSurveyMaxAgeMin: ["api", "Call savings"],

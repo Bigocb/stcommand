@@ -36,6 +36,7 @@ import { contractsOverview } from "./contractsOverview.js";
 import { routeUnreachableReason } from "../engine/routeReach.js";
 import { buyPreflight } from "../ops/economy.js";
 import { rankAgent } from "../engine/agentRank.js";
+import { StateBodyCache, slimShip } from "./stateBody.js";
 
 /**
  * The command-center dashboard's JSON API — a tenant-scoped port of
@@ -229,6 +230,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   router.use("/compare", createCompareRouter(worker));
   router.use("/analysis", createAnalysisRouter(worker));
 
+  const stateBodies = new StateBodyCache(10_000);
   router.get("/state", async (req, res) => {
     const w = worker(req);
     if (!w) {
@@ -246,9 +248,34 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       res.status(503).json({ error: "engine not ready" });
       return;
     }
+    const snapshot = w.state.get();
+    // Clause stateResponseSlim (src/http/stateBody.ts): one serialised, gzipped body per fleet update and variant, shared by every
+    // screen, with the ship parts' description text left out. Off = the path below, as before.
+    if (w.fleet.doctrine.isEnabledOr("stateResponseSlim", false)) {
+      const lean = req.query.lean === "1";
+      try {
+        const body = await stateBodies.get(`${req.tenantId}|${lean ? "lean" : "full"}`, snapshot, async () => {
+          const cargoValues = await w.fleet.cargoValues(new Map(snapshot.ships.map((sh) => [sh.symbol, sh.cargo]))).catch(() => ({}));
+          const ships = snapshot.ships.map((sh) => slimShip(sh as unknown as Record<string, unknown>));
+          if (lean) {
+            const { systems: _systems, jumpConnections: _connections, ...rest } = snapshot;
+            return { ...rest, ships, galaxyVersion: galaxyVersion(snapshot), cargoValues, stale: false };
+          }
+          return { ...snapshot, ships, cargoValues, stale: false };
+        });
+        res.setHeader("Vary", "Accept-Encoding");
+        res.type("application/json");
+        if (/\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""))) {
+          res.setHeader("Content-Encoding", "gzip");
+          res.end(body.gzipped);
+        } else {
+          res.end(body.text);
+        }
+        return;
+      } catch { /* fall through to the uncached path */ }
+    }
     // Value of what each ship is carrying, for Deck's Value column and Tower's hold line. Best-effort: a failure here
     // must not take the whole state response down.
-    const snapshot = w.state.get();
     const cargoValues = await w.fleet.cargoValues(new Map(snapshot.ships.map((sh) => [sh.symbol, sh.cargo]))).catch(() => ({}));
     // ?lean=1 (the current screens): leave out the galaxy, which is most of the payload and rarely changes, and send
     // its version instead. A screen fetches GET /galaxy only when the version moves (a gate finishes, a system is
