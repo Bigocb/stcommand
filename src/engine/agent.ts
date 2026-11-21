@@ -164,6 +164,9 @@ export interface AgentOptions {
   /** How long a keeper waits before polling this market again (at least 5 minutes). Absent = always 5. A market whose
    *  prices have sat still for a while is polled less often; see FleetManager.keeperPollMs(). */
   keeperPollMs?: (market: string) => number;
+  /** How long until this market's next read is due under its value tier (clause keeperReadTiers, keeperReadTiers.ts): a keeper
+   *  standing at its market waits that long without a call. Absent, or undefined (clause off) = read on every poll, as before. */
+  keeperReadWaitMs?: (market: string) => number | undefined;
   /** Called after each keeper market read completes (for the measured read rate, and to step a loop keeper to its next market). */
   onKeeperRead?: (market: string) => void;
   /** True for a loop keeper (tour plan mode 3): it reads a market and moves straight on, with no dock and no wait. */
@@ -314,6 +317,7 @@ export class ShipAgent {
   private keeperHoldSince?: { waypoint: string; at: number };
   private readonly keeperMarket?: () => string | undefined;
   private readonly keeperPollMs?: (market: string) => number;
+  private readonly keeperReadWaitMs?: (market: string) => number | undefined;
   private readonly onKeeperRead?: (market: string) => void;
   private readonly keeperLooping?: () => boolean;
   private readonly intentFor?: AgentOptions["intentFor"];
@@ -433,6 +437,7 @@ export class ShipAgent {
     this.hasPendingKeeperApproval = opts.hasPendingKeeperApproval;
     this.keeperMarket = opts.keeperMarket;
     this.keeperPollMs = opts.keeperPollMs;
+    this.keeperReadWaitMs = opts.keeperReadWaitMs;
     this.onKeeperRead = opts.onKeeperRead;
     this.keeperLooping = opts.keeperLooping;
     this.intentFor = opts.intentFor;
@@ -2467,6 +2472,21 @@ export class ShipAgent {
     return (goal?.kind === "hold" && !!goal.waypoint) || away;
   }
 
+  /**
+   * How long a keeper should wait before its next read under the market's value tier, or 0 to read now. Only a keeper standing
+   * at its market with no fleet-driven goal waits: one that still has to fly there, a loop keeper, or one with a repair, scrap,
+   * hold, explore or tender goal runs as before. Clause keeperReadTiers off = 0 always.
+   */
+  private keeperReadWait(): number {
+    if (!this.keeperReadWaitMs || this.keeperDriven() || this.keeperLooping?.()) return 0;
+    const market = this.keeperMarket?.();
+    if (!market || this.ship.nav.waypointSymbol !== market || this.ship.nav.status === "IN_TRANSIT") return 0;
+    const kind = this.intentFor?.()?.goal?.kind;
+    if (kind === "repair" || kind === "scrap" || kind === "hold" || kind === "explore" || kind === "tender") return 0;
+    const wait = this.keeperReadWaitMs(market);
+    return wait !== undefined && wait > 0 ? wait : 0;
+  }
+
   /** Unlike the other three, a successful keeper poll backs off 5 minutes (KEEPER_POLL_MS-equivalent), not 0 — same as keeperLoop()'s own sleep(5 * 60_000) after a snapshot. */
   nextKeeperTask(earliestRunAt = Date.now()): Task {
     // See nextTask()'s comment: not set here, only by external enqueue sites.
@@ -2479,6 +2499,9 @@ export class ShipAgent {
       run: async (): Promise<TaskResult> => {
         if (!this.running) return { actualCalls: 0 };
         if (this.halted()) return { actualCalls: 0, next: this.nextKeeperTask(Date.now() + HALT_POLL_MS) };
+        // Value tiers (keeperReadTiers): this market's read is not due yet, so wait for it without a call.
+        const wait = this.keeperReadWait();
+        if (wait > 0) return { actualCalls: 0, next: this.nextKeeperTask(Date.now() + wait) };
         const before = this.api.getCallCount();
         this.schedulerDriven = true;
         // See TraderAgent.nextTask()'s comment on inFlight.

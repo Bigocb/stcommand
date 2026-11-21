@@ -548,6 +548,19 @@ export class RouteDispatcher {
     return use;
   }
 
+  /** Market -> when we last bought or sold a lot there, from the lots kept for the impact model (4 hours, saved across
+   *  restarts by impactsSnapshot()). For the keeper read tiers (keeperReadTiers.ts). */
+  lastTradeByMarket(): Map<string, number> {
+    const out = new Map<string, number>();
+    for (const m of [this.saleImpacts, this.buyImpacts]) {
+      for (const [key, lots] of m) {
+        const at = key.slice(key.indexOf("@") + 1);
+        for (const l of lots) if (l.at > (out.get(at) ?? -Infinity)) out.set(at, l.at);
+      }
+    }
+    return out;
+  }
+
   /** What a lot of ours moves the price at this (good, market) on this side: the flat default, or what our own recent
    *  runs there measured when the policy is on (lotImpact.ts). */
   impactFor(side: "buy" | "sell", good: string, at: string, tradeVolume: number, policy: ImpactPolicy): Learned {

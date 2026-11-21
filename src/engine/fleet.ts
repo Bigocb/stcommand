@@ -55,6 +55,7 @@ import { WindDownScrapper, shipsToRetire, shouldRetire, retireReasonKey, windDow
 import { traderShouldRecord } from "./traderRecord.js";
 import { haulLegVerdict } from "./haulLimit.js";
 import { KEEPER_POLL_MIN_MS, cadenceSeeds, keeperPollDelayMs, marketSignature } from "./keeperCadence.js";
+import { KeeperReadTiersLive } from "./keeperReadTiersLive.js";
 import { cargoValue, cargoSignature, type CargoValue } from "./cargoValue.js";
 import { GalaxyAtlas } from "./galaxy.js";
 import { SurveyPool } from "./survey.js";
@@ -446,6 +447,14 @@ export class FleetManager {
   readonly bootWatch = new BootWatch(Date.now());
   /** Keeper market reads, measured (keeperThroughput.ts); the process start time is the boot watch's. */
   private readonly keeperReads = new ReadRate();
+  /** Keeper read tiers (keeperReadTiers.ts, clause keeperReadTiers, off by default): a one-minute cache rebuilt from the dispatcher and registry. */
+  private readonly readTiers = new KeeperReadTiersLive({
+    doctrine: { isEnabledOr: (k, f) => this.doctrine.isEnabledOr(k, f), value: (k, w) => this.doctrine.value(k, w) },
+    routes: () => this.dispatcher.routeList(),
+    assignments: () => this.dispatcher.list(),
+    lastTrades: () => this.dispatcher.lastTradeByMarket(),
+    lastReadAt: (wp) => { const t = Date.parse(this.registry.market(wp)?.fetchedAt ?? ""); return Number.isFinite(t) ? t : undefined; },
+  });
   private readonly startedAtMs = Date.now();
   private readonly recordLedger: FleetOptions["recordLedger"];
   private readonly recordMovement: FleetOptions["recordMovement"];
@@ -3195,6 +3204,9 @@ export class FleetManager {
    * working keeps its fast cadence. 30 is well inside the 90-minute intel window (snapshotMaxAgeMin).
    */
   keeperPollMs(waypointSymbol: string): number {
+    // Clause keeperReadTiers on: the market's tier sets the interval instead (keeperReadTiers.ts). Off = undefined, the cadence below.
+    const tiered = this.readTiers.intervalMs(waypointSymbol, Date.now());
+    if (tiered !== undefined) return tiered;
     this.seedMarketCadence();
     const seen = this.marketSignatures.get(waypointSymbol);
     if (!seen) return KEEPER_POLL_MIN_MS;
@@ -3473,7 +3485,7 @@ export class FleetManager {
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
           hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             keeperMarket: () => this.keeperMarkets.get(ship.symbol), keeperLooping: () => this.isLoopKeeper(ship.symbol),
-            keeperPollMs: (wp) => this.keeperPollMs(wp),
+            keeperPollMs: (wp) => this.keeperPollMs(wp), keeperReadWaitMs: (wp) => this.readTiers.waitMs(wp, Date.now()),
             onKeeperRead: (m) => this.onKeeperRead(ship.symbol, m),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
@@ -3825,7 +3837,7 @@ export class FleetManager {
                 recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
           hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             keeperMarket: () => this.keeperMarkets.get(shipSymbol), keeperLooping: () => this.isLoopKeeper(shipSymbol),
-            keeperPollMs: (wp) => this.keeperPollMs(wp),
+            keeperPollMs: (wp) => this.keeperPollMs(wp), keeperReadWaitMs: (wp) => this.readTiers.waitMs(wp, Date.now()),
             onKeeperRead: (m) => this.onKeeperRead(shipSymbol, m),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
@@ -6641,7 +6653,7 @@ export class FleetManager {
   }
 
   /** For the ops tool keeper_coverage: per live system, its viable markets, how many have a keeper and how many top-up still has to add, and why top-up is or is not adding. */
-  async keeperCoverageData(): Promise<{ rows: CoverageRow[]; topUp: Record<string, unknown> }> {
+  async keeperCoverageData(): Promise<{ rows: CoverageRow[]; topUp: Record<string, unknown>; readTiers: Record<string, unknown> }> {
     const now = Date.now();
     const f = await this.topUpFacts(now);
     const timers = this.timers();
@@ -6666,6 +6678,7 @@ export class FleetManager {
         lastAddedAt: lastAdd ? new Date(lastAdd).toISOString() : null,
         lastCheck: this.topUpLast ? { at: new Date(this.topUpLast.at).toISOString(), reason: this.topUpLast.reason, market: this.topUpLast.market ?? null } : null,
       },
+      readTiers: this.readTiers.report(this.keeperMarkets.values(), now, this.keeperReads.perMin(now)),
     };
   }
 
@@ -12117,7 +12130,7 @@ export class FleetManager {
         recordShipyard: (wp) => this.recordShipyardSnapshot(wp),
         hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
         keeperMarket: () => this.keeperMarkets.get(sym), keeperLooping: () => this.isLoopKeeper(sym),
-        keeperPollMs: (wp) => this.keeperPollMs(wp),
+        keeperPollMs: (wp) => this.keeperPollMs(wp), keeperReadWaitMs: (wp) => this.readTiers.waitMs(wp, Date.now()),
         onKeeperRead: (m) => this.onKeeperRead(sym, m),
         getCredits: () => this.spendableCredits(),
         scrapHere: async (sym: string) => { await this.scrapShip(sym); },

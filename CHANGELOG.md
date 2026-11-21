@@ -11,6 +11,29 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Keepers read the markets that matter more often (clause `keeperReadTiers`, off; issue #68)
+
+Every keeper market was read on one rotation, so a quiet market cost as much reading as one at the end of a live 600k route; with
+about 1,700 keepers a pass took 30-60 minutes. With the new clause on, each keeper market gets a tier and the tier sets its read interval:
+
+- **HOT** (`keeperReadHotMin`, 10 min): the buy or sell end of a route a trader is assigned to, or of one of the board's
+  `keeperReadTopRoutes` (10) most profitable routes.
+- **WARM** (`keeperReadWarmMin`, 30 min): a board leg worth at least `keeperReadWarmMinProfit` (10,000c a trip) touches it, or we bought
+  or sold there within `keeperReadRecentTradeHours` (3 h, from the dispatcher's trade lots, which are saved across restarts).
+- **COLD** (`keeperReadColdMin`, 100 min): nothing worth trading there. Every interval is capped 5 minutes under Intel freshness
+  (`snapshotMaxAgeMin`, 90), so a cold market's prices never drop out of the route list, which would keep it cold for good.
+
+The interval replaces the price-change cadence (`keeperPollMaxMin`) in `FleetManager.keeperPollMs`, and a keeper docked at its market
+whose read is not due yet waits for it without a call (after a restart, or when another ship read the market). A keeper still flying to
+its market, a loop keeper, or one with a fleet-driven goal is never held back. Tiers come from the dispatcher's board and assignments
+and are worked out again every minute; nothing new is kept only in memory. `ops keeper_coverage` gains `readTiers`: counts per tier, the
+interval, the reads a minute each tier asks for, the effective pass time at the measured read rate, read ages and a few example reasons.
+
+Off (the default) = today's behaviour exactly, with a test. The logic is the pure module `src/engine/keeperReadTiers.ts` (its
+`keeperReadIntervals` gives the `Map<waypoint, intervalMs>` the rate-based keeper read scheduler takes); `keeperReadTiersLive.ts`
+reads doctrine and the fleet's sources. Tests: `tests/keeperReadTiers.test.ts`. The brief doctrine catalog limit in
+`tests/doctrineGroups.test.ts` goes from 64k to 66k for the seven new clauses.
+
 ## 2026-11-20 — Fresh systems: stage up to 12 ahead (clause `freshStagedAhead` range 1-12, was 1-5)
 
 With the live target at 12 and releases every 10-20 minutes, five staged systems emptied within the hour (seven releases 21:16-22:27)
