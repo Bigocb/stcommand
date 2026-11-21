@@ -11,6 +11,16 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Dispatcher: cool-off filter in linear time (SEV0, part 5; ported from a hand edit on the box)
+
+A session working directly on the box had edited `dispatcher.ts` in the box's checkout at 05:50 and rebuilt by hand. The
+uncommitted edit left the checkout dirty, so the box's 5-minute autodeploy skipped every run from 05:35 on
+(`skip: working tree dirty`) and none of the commits after 31b93e5 reached it. Its useful part is ported here: the route
+cool-off filter called `open.includes(r)` for every route (O(routes^2)) and `routeCoolOff()` three times per route; now
+each route is asked once and membership is a Set. Same routes held, same log line. Not ported: its `[recompute-timing]`
+debug lines, and a guard that skipped second routes for a good whenever there were fewer traders than work items, which
+changes what ships can be given (two ships on one good into different markets) rather than only how fast it is decided.
+
 ## 2026-11-21 — Screens stop starting their own route builds (SEV0, part 4)
 
 The 06:35 profile was back at 99.7% busy, with 12.6% in serialising dashboard responses and route builds of 15-25 s. Every

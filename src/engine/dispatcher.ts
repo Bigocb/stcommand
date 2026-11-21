@@ -1212,10 +1212,19 @@ export class RouteDispatcher {
     // Any of the three rests a route, so any one being on needs this pass to run; with all at 0 it is skipped exactly as
     // before, and coolOffReason() returns undefined at 0 minutes.
     if (this.coolOffMin > 0 || this.roundsMax > 0 || this.buyRoundsMax > 0 || this.spacingMin > 0) {
-      const open = routes.filter((r) => !this.routeCoolOff(r.good, r.buyAt, r.sellAt));
+      // 2026-11-21 SEV0 (found by a session working on the box): `open.includes(r)` per route was O(routes^2), and
+      // routeCoolOff() (a scan of the trip lists) ran three times per route. One answer per route, and a Set for membership.
+      const coolOff = new Map<DispatchRoute, string | undefined>();
+      for (const r of routes) coolOff.set(r, this.routeCoolOff(r.good, r.buyAt, r.sellAt));
+      const open = routes.filter((r) => !coolOff.get(r));
       if (open.length !== routes.length) {
-        for (const r of routes) if (!open.includes(r)) hold(r, `resting: ${this.routeCoolOff(r.good, r.buyAt, r.sellAt)}`);
-        const rested = routes.filter((r) => !open.includes(r)).map((r) => `${r.good} ${r.buyAt}>${r.sellAt} (${this.routeCoolOff(r.good, r.buyAt, r.sellAt)})`);
+        const openSet = new Set(open);
+        const rested: string[] = [];
+        for (const r of routes) {
+          if (openSet.has(r)) continue;
+          hold(r, `resting: ${coolOff.get(r)}`);
+          rested.push(`${r.good} ${r.buyAt}>${r.sellAt} (${coolOff.get(r)})`);
+        }
         this.logger(`[dispatcher] route cool-off skips ${rested.length}: ${[...new Set(rested)].slice(0, 5).join("; ")}`);
         routes = open;
       }
