@@ -90,7 +90,7 @@ describe("Store.tradeLegs prefilter (clause tradeLegsPrefilter)", () => {
     }
   });
   after(async () => { await pool.query("DELETE FROM market_latest WHERE good_symbol LIKE $1", [`${tag}%`]); await pool.end(); });
-  const mine = (legs: { goodSymbol: string }[]) => legs.filter((l) => l.goodSymbol.startsWith(tag));
+  const mine = <L extends { goodSymbol: string }>(legs: L[]): L[] => legs.filter((l) => l.goodSymbol.startsWith(tag));
 
   it("off: the plain join, unchanged", async () => {
     const legs = mine(await store.tradeLegs(90, 360));

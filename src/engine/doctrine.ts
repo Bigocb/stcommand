@@ -815,6 +815,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "fleetListOnCountChange",
+    name: "State refresh: list every ship only when the ship count changes",
+    description: "On = the 2-minute full state refresh pages through the game's ship list (about 124 calls for 2,470 ships) only when the agent's ship count differs from the ships the fleet drives, or when the last list is older than this many minutes (src/engine/fleetListPolicy.ts). The fleet's own copy of each ship is kept current by every action's response; the list only ever added ships the fleet did not know. On 2026-11-21 it was 37 calls a minute, 23% of the API budget and 18 of 21 429s. Off (the default) = list every 2 minutes, as before. Takes effect on the next refresh.",
+    value: 30, min: 2, max: 240, step: 1, unit: " min",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "tradeLegsPrefilter",
     name: "Route build: filter the price pairs in the database (best N sell markets per buy)",
     description: "On = the route build's price-pair query keeps only markets in systems we have charted and can gate to, leaves out blocked and protected goods, and returns only the best this-many sell markets for each good and buy market (Store.tradeLegs, src/engine/fleet.ts computeDispatchRoutes). On 2026-11-21 the plain join returned 1,381,097 rows a pass, built twice in memory before filters cut it to 433,496; this was most of the route build's 17 s and its memory spikes (docs/memory-analysis-2026-11-21.md). The filters in code still run on what comes back. Lower values make the list smaller and the build faster, at the cost of the dispatcher seeing fewer far-away sell markets. Off (the default) = the plain query, as before. Takes effect on the next route build.",

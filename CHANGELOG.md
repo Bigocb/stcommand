@@ -11,6 +11,14 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Full fleet list only when the ship count changes (clause `fleetListOnCountChange`, ships off)
+
+The 2-minute full state refresh (`src/engine/tenantRegistry.ts`) paged through every ship, about 124 calls for 2,470 ships, yet only
+used the result for ships the fleet did not already drive. On 2026-11-21 that was 37 calls a minute, 23% of the API budget and 18 of 21
+429s. With the clause on, the list is read only when the agent's `shipCount` (already read every refresh) differs from the ships the fleet
+drives, or when the last list is older than the clause value (30 min). When it skips, extras from an older list are dropped, so a sold
+ship does not linger on screens. Decision in the pure `src/engine/fleetListPolicy.ts` (tests `tests/fleetListPolicy.test.ts`). Off = list
+every 2 minutes, as before. Also fixes a type error in `tests/stateBodyAndLegs.test.ts`.
 ## 2026-11-21 — Memory: /api/state built once per update, and the price pairs filtered in the database (both off by default)
 
 These are items 1 and 2 of `docs/memory-analysis-2026-11-21.md`, requested by the operator after the hourly profit dropped.

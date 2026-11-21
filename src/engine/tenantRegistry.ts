@@ -1,6 +1,7 @@
 import { NotificationService } from "./notify/service.js";
 import { liveSnapshotProvider } from "./notify/live.js";
 import { vapidFromEnv, WebPushTransport, type PushTransport } from "./notify/transport.js";
+import { needFleetList } from "./fleetListPolicy.js";
 import type pg from "pg";
 import { rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { LaneBreaker, LANES_OFF, type LanePolicy } from "./apiLanes.js";
@@ -691,11 +692,34 @@ export class TenantRegistry {
     let apiShips: Ship[] = bootedShips;
     let openContracts: Awaited<ReturnType<typeof api.getContracts>> = [];
     let lastFullAt = 0;
+    let lastShipListAt = 0;
     const refreshState = async (mode: "fast" | "full", prefetched?: { agent: Awaited<ReturnType<typeof api.getMyAgent>>; ships: Ship[] }) => {
       try {
         const freshAgent = prefetched?.agent ?? (await api.getMyAgent());
         if (mode === "full") {
-          apiShips = prefetched?.ships ?? (await api.listAllShips());
+          // Clause fleetListOnCountChange (src/engine/fleetListPolicy.ts): page through every ship only when the agent's
+          // ship count differs from what the fleet drives, or the last list is older than the safety window.
+          const listing = prefetched
+            ? { list: false, reason: "boot list" }
+            : needFleetList(
+                { agentShipCount: freshAgent.shipCount, knownShips: fleet.currentShips().length, lastListAt: lastShipListAt, now: Date.now() },
+                {
+                  enabled: !!fleet.doctrine?.isEnabledOr("fleetListOnCountChange", false),
+                  safetyMs: (fleet.doctrine?.value("fleetListOnCountChange", 30) ?? 30) * 60_000,
+                },
+              );
+          if (prefetched) {
+            apiShips = prefetched.ships;
+            lastShipListAt = Date.now();
+          } else if (listing.list) {
+            apiShips = await api.listAllShips();
+            lastShipListAt = Date.now();
+            if (fleet.doctrine?.isEnabledOr("fleetListOnCountChange", false)) log(`ship list read: ${listing.reason}`);
+          } else {
+            // The counts match, so the fleet already drives every ship the game has: an older list's extras would only be ships
+            // since sold. Keep none of them.
+            apiShips = [];
+          }
           // Through the ContractManager's own cache, not a second GET /my/contracts: the fleet already keeps
           // this list warm (30s, or ten minutes once the operator has stood every contract down).
           openContracts = await contracts.listActive();
