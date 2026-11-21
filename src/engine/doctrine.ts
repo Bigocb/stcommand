@@ -929,7 +929,7 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   {
     key: "routeReuseMaxSec",
     name: "Dispatcher: reuse the route list this long",
-    description: "The dispatcher's core tick rebuilds the whole route list each time, which with many live systems takes ~15 s of a ~35 s tick and starves the keepers' market reads (2026-11-15: 12 reads a minute against ~100 wanted). With this on, a list built less than twice its own build time ago (and never older than this many seconds) is reused. Prices move on a ~30 minute tick so a minute-old list is nearly as good. Off (the default) = rebuild every tick, as before. See src/engine/routeReuse.ts.",
+    description: "The dispatcher's core tick rebuilds the whole route list each time, which with many live systems takes ~15 s of a ~35 s tick and starves the keepers' market reads (2026-11-15: 12 reads a minute against ~100 wanted). With this on, a list built less than twice its own build time ago (and never older than this many seconds) is reused; between the dispatcher's once-a-minute recomputes, when the list only feeds bookkeeping, it is reused up to this many seconds (2026-11-21). Prices move on a ~30 minute tick so a minute-old list is nearly as good. Off (the default) = rebuild every tick, as before. See src/engine/routeReuse.ts.",
     value: 60, min: 15, max: 180, step: 15, unit: " s",
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },

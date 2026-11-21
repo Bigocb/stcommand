@@ -23,6 +23,9 @@ export interface RouteReuseSignals {
   buildMs?: number;
   /** Something changed that makes the held list wrong (wind-down toggled, a clause flipped): rebuild. */
   invalidated?: boolean;
+  /** False when the dispatcher will not reassign this pass (its once-a-minute throttle): the list then only feeds
+   *  bookkeeping, and may be reused up to the ceiling. Undefined = the twice-the-build rule alone, as before. */
+  recomputeDue?: boolean;
 }
 
 export interface RouteReuseDecision {
@@ -37,7 +40,9 @@ export function decideRouteReuse(sig: RouteReuseSignals, policy: RouteReusePolic
   if (sig.buildMs < policy.minBuildMs) return { reuse: false, reason: `last build took ${Math.round(sig.buildMs)} ms, cheap enough to repeat` };
   const ageMs = sig.nowMs - sig.builtAtMs;
   // Allow a list up to twice the build time old, never past the ceiling: a slower build earns a longer reuse.
-  const allowMs = Math.min(policy.maxAgeSec * 1000, sig.buildMs * 2);
+  // Between recomputes the list is not used to assign anything (2026-11-21: an 8 s build every 10 s core pass was most of
+  // the process's CPU, for a list the dispatcher reads once a minute), so it may be as old as the ceiling.
+  const allowMs = sig.recomputeDue === false ? policy.maxAgeSec * 1000 : Math.min(policy.maxAgeSec * 1000, sig.buildMs * 2);
   if (ageMs < 0) return { reuse: false, reason: "held list is from the future" };
   if (ageMs >= allowMs) return { reuse: false, reason: `held list is ${Math.round(ageMs / 1000)}s old, over ${Math.round(allowMs / 1000)}s` };
   return { reuse: true, reason: `reusing a ${Math.round(ageMs / 1000)}s old list (build took ${Math.round(sig.buildMs / 1000)}s)` };

@@ -2393,7 +2393,7 @@ export class FleetManager {
   private async coreRoutes(): Promise<DispatchRoute[]> {
     const policy = { ...DEFAULT_ROUTE_REUSE_POLICY, maxAgeSec: this.doctrine.isEnabledOr("routeReuseMaxSec", false) ? this.doctrine.value("routeReuseMaxSec", 60) : 0 };
     const hold = this.coreRouteHold;
-    const d = decideRouteReuse({ nowMs: Date.now(), builtAtMs: hold?.at, buildMs: hold?.buildMs }, policy);
+    const d = decideRouteReuse({ nowMs: Date.now(), builtAtMs: hold?.at, buildMs: hold?.buildMs, recomputeDue: this.dispatcher.recomputeDue() }, policy);
     if (d.reuse && hold) return hold.routes.slice();
     const start = Date.now();
     const routes = await this.computeDispatchRoutes(true);

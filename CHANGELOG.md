@@ -11,6 +11,15 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Route list reused between recomputes (SEV0, part 3)
+
+With the recompute and the path search fixed the process was still 90% busy: the core pass rebuilt the whole route list
+(about 8 s of pricing and database rows) every ~10 s, while the dispatcher only reassigns ships once a minute. Switched
+on `routeReuseMaxSec` (60 s; it had shipped off), which brought the process to about 63% busy and the health endpoint from
+up to 4.5 s to 0.3-0.7 s. Its rule still rebuilt every other pass (a list may be at most twice its build time old), so
+now, when the dispatcher's recompute is not due, the list is reused up to the ceiling; a recompute still gets a list no
+older than twice its build time. `src/engine/routeReuse.ts` (`recomputeDue` signal), test in `tests/routeReuse.test.ts`.
+
 ## 2026-11-21 — Galaxy: cache each system's usable gates (SEV0, part 2)
 
 After the recompute fix the process was still 99% busy, a quarter of it in the galaxy's path search: `usableNeighbors()`
