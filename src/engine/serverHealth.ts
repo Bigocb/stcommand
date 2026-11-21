@@ -44,6 +44,11 @@ export interface HealthPolicy {
   apiWaitBadMs: number;
   /** Uptime at which a planned restart is advised (both known stalls came at ~30-31 h). */
   uptimeWarnMs: number;
+  /** Memory tile: JS heap (or resident memory against the container limit) at this share of its limit: warn / bad. */
+  memoryWarnShare: number;
+  memoryBadShare: number;
+  /** Last-restart tile: a crash or unexplained restart this recent shows as a warning. */
+  restartWarnMs: number;
 }
 
 export const DEFAULT_HEALTH_POLICY: HealthPolicy = {
@@ -66,6 +71,9 @@ export const DEFAULT_HEALTH_POLICY: HealthPolicy = {
   apiWaitWarnMs: 30_000,
   apiWaitBadMs: 120_000,
   uptimeWarnMs: 28 * 3_600_000,
+  memoryWarnShare: 0.8,
+  memoryBadShare: 0.9,
+  restartWarnMs: 6 * 3_600_000,
 };
 
 /** One coordinator loop's last pass (FleetManager.passTimings()). */
@@ -112,6 +120,29 @@ export interface ProcessInput {
   instances: { instanceId: string; startedAt: string; lastSeen: string; aliveNow: boolean }[];
   /** Null when the limiter has not reported yet. */
   api: ApiInput | null;
+  /** This process's memory and the container's (src/ops/containerRead.ts); absent when it could not be read. */
+  memory?: MemoryInput | null;
+  /** How the process before this one ended (src/ops/containerStats.ts classifyEnd); absent when there was none in the window. */
+  lastRestart?: LastRestartInput | null;
+}
+
+export interface MemoryInput {
+  rssMb: number;
+  heapUsedMb: number;
+  heapLimitMb: number;
+  cgroupCurrentMb: number | null;
+  /** Null = the container has no memory limit. */
+  cgroupLimitMb: number | null;
+  cgroupPeakMb: number | null;
+  oomKills: number | null;
+}
+
+export interface LastRestartInput {
+  /** When the previous process sent its last heartbeat. */
+  endedAt: string;
+  kind: "deploy" | "heap_oom_likely" | "container_oom_likely" | "unknown" | "running";
+  reason: string;
+  gapSec?: number;
 }
 
 export interface Tile {
@@ -316,6 +347,8 @@ export function assessProcess(pr: ProcessInput, anyTraders: boolean, p: HealthPo
     detail: `${alive} instance${alive === 1 ? "" : "s"} alive now${alive > 1 ? " (deploy overlap: two share one rate limit)" : ""}; ${restarts} restart${restarts === 1 ? "" : "s"} in the last 6 h.` +
       (pr.uptimeMs >= p.uptimeWarnMs ? ` Both known stalls came at ~30-31 h; plan a restart in a quiet hour.` : "") });
 
+  tiles.push(...memoryTiles(pr, p));
+
   const a = pr.api;
   if (!a) {
     tiles.push({ key: "api", label: "API calls a minute", value: "—", word: "NO DATA", level: "warn", detail: "The shared rate limiter has not reported yet." });
@@ -338,6 +371,46 @@ export function assessProcess(pr: ProcessInput, anyTraders: boolean, p: HealthPo
   tiles.push({ key: "queue", label: "API queue: oldest waiting", value: formatDuration(a.oldestWaitMs),
     word: waitLevel === "bad" ? "BLOCKED" : waitLevel === "warn" ? "BACKED UP" : "FLOWING", level: waitLevel,
     detail: `${fmtInt(a.queueDepth)} request${a.queueDepth === 1 ? "" : "s"} waiting; average wait ${formatDuration(a.avgWaitMs)}, worst ${formatDuration(a.maxWaitMs)} in the last ${a.windowMin} min.` });
+  return tiles;
+}
+
+const gb = (mb: number) => `${(mb / 1024).toFixed(1)} GB`;
+
+/**
+ * Memory and the last restart (operator 2026-11-21: "add some of the container metrics to the Health dashboard"). The heap tile warns
+ * as the JS heap nears V8's limit, where the process dies; with a container limit set, resident memory against it counts too. The
+ * restart tile says how the previous process ended, from its last heartbeat 10 s or less before the end: a likelihood, not proof.
+ */
+export function memoryTiles(pr: ProcessInput, p: HealthPolicy = DEFAULT_HEALTH_POLICY): Tile[] {
+  const tiles: Tile[] = [];
+  const m = pr.memory;
+  if (m) {
+    const heapShare = m.heapLimitMb > 0 ? m.heapUsedMb / m.heapLimitMb : 0;
+    const cgShare = m.cgroupLimitMb ? m.rssMb / m.cgroupLimitMb : 0;
+    const share = Math.max(heapShare, cgShare);
+    const level: HealthLevel = share >= p.memoryBadShare ? "bad" : share >= p.memoryWarnShare ? "warn" : "ok";
+    const container = m.cgroupLimitMb
+      ? `container ${gb(m.cgroupCurrentMb ?? m.rssMb)} of ${gb(m.cgroupLimitMb)} (${Math.round(cgShare * 100)}% resident)`
+      : `container ${m.cgroupCurrentMb !== null ? gb(m.cgroupCurrentMb) : "?"}, no memory limit set`;
+    tiles.push({
+      key: "memory", label: "Memory (JS heap)", value: `${(m.heapUsedMb / 1024).toFixed(1)} / ${gb(m.heapLimitMb)}`,
+      word: level === "bad" ? "NEAR LIMIT" : level === "warn" ? "HIGH" : "OK", level,
+      detail: `${Math.round(heapShare * 100)}% of the heap limit (the process dies at 100%). Resident ${gb(m.rssMb)}; ${container}` +
+        `${m.cgroupPeakMb !== null ? `; peak ${gb(m.cgroupPeakMb)}` : ""}${m.oomKills !== null ? `; ${m.oomKills} OOM kill${m.oomKills === 1 ? "" : "s"} recorded by the kernel` : ""}.`,
+    });
+  }
+  const r = pr.lastRestart;
+  if (r && r.kind !== "running") {
+    // The restart is this process's start, so its age is this process's uptime.
+    const recent = pr.uptimeMs < p.restartWarnMs;
+    const crash = r.kind === "heap_oom_likely" || r.kind === "container_oom_likely";
+    const level: HealthLevel = recent && (crash || r.kind === "unknown") ? "warn" : "ok";
+    const word = r.kind === "deploy" ? "DEPLOY" : r.kind === "heap_oom_likely" ? "HEAP OOM?" : r.kind === "container_oom_likely" ? "CONTAINER OOM?" : "UNEXPLAINED";
+    tiles.push({
+      key: "restart", label: "Last restart", value: formatDuration(pr.uptimeMs) + " ago", word, level,
+      detail: `${r.reason.charAt(0).toUpperCase()}${r.reason.slice(1)}.${r.gapSec !== undefined ? ` Down ${formatDuration(r.gapSec * 1000)} between processes.` : ""} Judged from the last heartbeat (every 10 s), so a likelihood, not proof.`,
+    });
+  }
   return tiles;
 }
 

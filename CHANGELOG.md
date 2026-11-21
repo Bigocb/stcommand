@@ -11,6 +11,23 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Health board: memory and last-restart tiles
+
+Operator request: put the new container metrics on the admin Health board. The server section gains two tiles, built in
+`memoryTiles()` in `src/engine/serverHealth.ts` and fed by `src/ops/serverHealthSources.ts`.
+
+**Memory (JS heap):** heap used of V8's limit, for example "3.4 / 4.0 GB".
+- The level is OK below 80% of the limit, HIGH from 80%, and NEAR LIMIT from 90%.
+- With a container memory limit set, resident memory against that limit counts too.
+- The detail line gives resident memory, the container's use and limit (or "no memory limit set"), its peak, and the kernel's OOM-kill count.
+
+**Last restart:** how the previous process ended, from `ops container`'s classification: DEPLOY, HEAP OOM?, CONTAINER OOM? or UNEXPLAINED.
+- It shows how long ago the restart was and the downtime between processes.
+- A likely crash, or an unexplained restart, in the last 6 h is a warning. A deploy is OK.
+
+Both tiles feed the board's overall word, the same as the other tiles. Thresholds are in `DEFAULT_HEALTH_POLICY`
+(`memoryWarnShare`, `memoryBadShare`, `restartWarnMs`). Tests are in `tests/serverHealth.test.ts`.
+
 ## 2026-11-21 — ops `container`: container memory, and how each server process ended
 
 The box restarted at 20:40 with no deploy behind it. Nobody in a cloud session can run `docker inspect`, and the in-memory logs die

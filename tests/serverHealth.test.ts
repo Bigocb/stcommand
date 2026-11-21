@@ -314,3 +314,39 @@ describe("health push detector", () => {
     assert.equal(ev[0]!.category, "health");
   });
 });
+
+import { memoryTiles } from "../src/engine/serverHealth.js";
+
+describe("serverHealth: memory and last restart tiles", () => {
+  const mem = { rssMb: 3000, heapUsedMb: 2000, heapLimitMb: 4144, cgroupCurrentMb: 3100, cgroupLimitMb: null, cgroupPeakMb: 3800, oomKills: 0 };
+  it("no memory input and no previous process: no tiles, so the board looks as before", () => {
+    assert.deepEqual(memoryTiles(proc()), []);
+  });
+  it("heap share sets the level: under 80% ok, 80% high, 90% near the limit", () => {
+    const lvl = (heapUsedMb: number) => memoryTiles(proc({ memory: { ...mem, heapUsedMb } }))[0]!;
+    assert.equal(lvl(2000).level, "ok");
+    assert.equal(lvl(3400).word, "HIGH");
+    assert.equal(lvl(3800).word, "NEAR LIMIT");
+    assert.equal(lvl(3800).level, "bad");
+    assert.match(lvl(2000).detail, /no memory limit set/);
+  });
+  it("with a container limit, resident memory against it counts too", () => {
+    const t = memoryTiles(proc({ memory: { ...mem, rssMb: 7300, cgroupLimitMb: 8000 } }))[0]!;
+    assert.equal(t.level, "bad");
+    assert.match(t.detail, /of 7\.8 GB/);
+  });
+  it("last restart: a recent likely OOM warns, a deploy does not, and an old crash is no longer a warning", () => {
+    const tile = (kind: "deploy" | "heap_oom_likely" | "unknown", uptimeMs = HOUR) =>
+      memoryTiles(proc({ uptimeMs, lastRestart: { endedAt: "2026-11-21T20:40:30Z", kind, reason: "x", gapSec: 22 } })).find((x) => x.key === "restart")!;
+    assert.equal(tile("deploy").level, "ok");
+    assert.equal(tile("deploy").word, "DEPLOY");
+    assert.equal(tile("heap_oom_likely").word, "HEAP OOM?");
+    assert.equal(tile("heap_oom_likely").level, "warn");
+    assert.equal(tile("unknown").level, "warn");
+    assert.equal(tile("heap_oom_likely", 7 * HOUR).level, "ok");
+  });
+  it("the board carries the new tiles with the existing process tiles", () => {
+    const keys = assessProcess(proc({ memory: mem, lastRestart: { endedAt: "2026-11-21T20:40:30Z", kind: "deploy", reason: "x" } }), true).map((t) => t.key);
+    assert.deepEqual(keys, ["uptime", "memory", "restart", "api", "ratelimit", "queue"]);
+  });
+});

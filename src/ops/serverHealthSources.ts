@@ -8,6 +8,8 @@ import type { TenantWorker } from "../engine/tenantRegistry.js";
 import type { Store } from "../db/store.js";
 import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { OPS_BY_NAME } from "./catalog.js";
+import { processHistory } from "./containerStats.js";
+import { processMemorySample, readCgroupMemory } from "./containerRead.js";
 import { DEFAULT_HEALTH_POLICY, assessServerHealth, type HealthPolicy, type HealthReport, type ProcessInput, type TenantHealthInput } from "../engine/serverHealth.js";
 
 export interface HealthSources {
@@ -60,10 +62,26 @@ export async function tenantHealthInput(agent: string, w: TenantWorker | undefin
   };
 }
 
-export async function processHealthInput(store: Pick<Store, "opsInstances">, uptimeMs: number): Promise<ProcessInput & { errors?: string[] }> {
+export async function processHealthInput(store: Pick<Store, "opsInstances"> & Partial<Pick<Store, "instanceHistory">>, uptimeMs: number): Promise<ProcessInput & { errors?: string[] }> {
   const errors: string[] = [];
   let instances: ProcessInput["instances"] = [];
   try { instances = await store.opsInstances(6); } catch (err) { errors.push(`instances: ${errText(err)}`); }
+  // Memory now and how the previous process ended (src/ops/containerStats.ts, migration 070).
+  let memory: ProcessInput["memory"] = null;
+  try {
+    const s = processMemorySample();
+    const cg = readCgroupMemory();
+    memory = { ...s, cgroupPeakMb: cg.peakBytes === null ? null : Math.round(cg.peakBytes / 1048576) };
+  } catch (err) { errors.push(`memory: ${errText(err)}`); }
+  let lastRestart: ProcessInput["lastRestart"] = null;
+  if (store.instanceHistory) {
+    try {
+      const hist = processHistory(await store.instanceHistory(48));
+      const me = hist.findIndex((h) => h.instanceId === INSTANCE_ID);
+      const prev = me > 0 ? hist[me - 1] : me < 0 && hist.length > 0 ? hist[hist.length - 1] : undefined;
+      if (prev) lastRestart = { endedAt: prev.lastSeen, kind: prev.end.kind, reason: prev.end.reason, ...(prev.end.gapSec !== undefined ? { gapSec: prev.end.gapSec } : {}) };
+    } catch (err) { errors.push(`restart history: ${errText(err)}`); }
+  }
   const snap = rateLimitMonitor.snapshot();
   const st = snap.limiter;
   return {
@@ -74,6 +92,8 @@ export async function processHealthInput(store: Pick<Store, "opsInstances">, upt
       callsPerMin: st.callsPerMin, cap: st.ratePerMin, queueDepth: st.queueDepth, oldestWaitMs: st.oldestWaitMs,
       avgWaitMs: st.avgWaitMs, maxWaitMs: st.maxWaitMs, hits429Last60s: snap.hits60s, windowMin: Math.round(st.windowMs / 60_000),
     } : null,
+    memory,
+    lastRestart,
     ...(errors.length ? { errors } : {}),
   };
 }
