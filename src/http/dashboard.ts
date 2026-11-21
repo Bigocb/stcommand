@@ -35,6 +35,7 @@ import { parseRouteTag } from "../engine/routeTag.js";
 import { contractsOverview } from "./contractsOverview.js";
 import { routeUnreachableReason } from "../engine/routeReach.js";
 import { buyPreflight } from "../ops/economy.js";
+import { rankAgent } from "../engine/agentRank.js";
 
 /**
  * The command-center dashboard's JSON API — a tenant-scoped port of
@@ -112,6 +113,23 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     if (!w) return res.status(503).json({ error: "engine not ready" });
     try {
       res.json({ agents: await leaderboardCache(w.fleet.getApi()) });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  // The agent's rank by credits (src/engine/agentRank.ts) for the Tower and Deck top bars. The directory is the crawler's latest
+  // hourly pass, read from the database (so it survives a restart) and cached five minutes; our own credits are the live wallet.
+  const agentDirectoryCache = makeTTLCache(5 * 60_000, async (store: TenantWorker["store"]) => store.latestAgentDirectory());
+  router.get("/agent-rank", async (req, res) => {
+    const w = worker(req);
+    if (!w) return res.status(503).json({ error: "engine not ready" });
+    const self = req.agentSymbol;
+    if (!self) return res.json({ rank: null, reason: "no agent on this session" });
+    try {
+      const dir = await agentDirectoryCache(w.store);
+      const r = rankAgent(dir.agents, self, w.fleet.walletCredits());
+      res.json(r ? { ...r, directoryAt: dir.at } : { rank: null, directoryAt: dir.at, reason: "the agent directory has not been read yet" });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }

@@ -20,7 +20,7 @@ import {
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   subscribe, loadState, loadBridge, loadApprovals, loadDispatch, loadMarkets,
   loadProgramme, loadDoctrine, setDoctrine, loadActivity,
-  loadGoods, loadPrices, loadKeepers, jumpConnections,
+  loadGoods, loadPrices, loadKeepers, jumpConnections, loadAgentRank, agentRankText,
   attention as storeAttention,
 } from "/shared/store.js";
 import { startLive, liveConnected } from "/shared/live.js";
@@ -386,6 +386,16 @@ function renderStatusbar() {
   $("sb-time").textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 setInterval(renderStatusbar, 30_000);
+/** Rank by credits next to the brand in the top bar (shared/store.js agentRankText). */
+function renderRank() {
+  const el = $("tb-rank");
+  if (!el) return;
+  const t = agentRankText();
+  el.textContent = t.of ? `${t.short}/${t.of}` : t.short;
+  el.title = t.title;
+  el.setAttribute("aria-label", t.title);
+}
+subscribe("agentRank", renderRank);
 startRateLimitIndicator($("sb-time"));
 fetch("/version.json").then((r) => r.json()).then((v) => { $("build-label").textContent = v.build; }).catch(() => {});
 startCooldownTicker();
@@ -2662,6 +2672,8 @@ function pollTick() {
   if (fullRead) loadActivity();
   // Attention and the programme (feeds, missions, contracts) are pushed too while the stream is up.
   if (fullRead) loadAttention();
+  // Rank in the top bar: once a minute (the server caches the directory five minutes).
+  if (fullRead) loadAgentRank();
   // Feed/mission claims drive the "unassigned" count on Home and every ship card's job, so they
   // refresh on every tick when the stream is down, not only while Fleet or More is open (a feed carrier read
   // "unassigned" until one of those tabs had been visited).

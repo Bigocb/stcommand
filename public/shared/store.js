@@ -117,6 +117,9 @@ export let decidedApprovals = [];
 export let notes = [];
 
 export let leaderboard = [];
+/** The agent's rank by credits among every agent in the public directory (/api/agent-rank, src/engine/agentRank.ts):
+ *  {rank, of, credits, nextUp?, leader, directoryAt} or null before the first directory pass. */
+export let agentRank = null;
 export let factions = [];
 /** Other agents headquartered in this tenant's own home system, sorted by
  *  ship count — see loadGalaxy(). Empty until the background galaxy crawl's
@@ -634,6 +637,29 @@ export async function loadGalaxy() {
     systemAgentsHistory = sysAgentsHist.history ?? [];
     notify("galaxy");
   } catch (e) { console.error(e); }
+}
+
+/** Load the agent rank (the top bars). Cheap: the server caches the directory five minutes. */
+export async function loadAgentRank() {
+  try {
+    const res = await fetch("/api/agent-rank");
+    const body = res.ok ? await res.json() : null;
+    agentRank = body && typeof body.rank === "number" ? body : null;
+    notify("agentRank");
+  } catch (e) { console.error(e); }
+}
+
+/** "#3 of 1,204" plus a tooltip naming who is next and how old the directory is; shared by Tower and Deck. */
+export function agentRankText(r = agentRank) {
+  if (!r) return { short: "—", title: "Rank appears after the first pass over the public agent directory (hourly)." };
+  const n = (v) => Math.round(v).toLocaleString("en-US");
+  const age = r.directoryAt ? Math.max(0, Math.round((Date.now() - Date.parse(r.directoryAt)) / 60_000)) : null;
+  const parts = [`Rank ${n(r.rank)} of ${n(r.of)} agents by credits`];
+  if (r.nextUp) parts.push(`next up ${r.nextUp.symbol}, ${n(r.nextUp.gap)} ahead`);
+  else parts.push("in the lead");
+  if (r.rank > 1) parts.push(`leader ${r.leader.symbol} ${n(r.leader.credits)}`);
+  parts.push(`others' credits from the directory${age !== null ? ` read ${age} min ago` : ""}; ours is live`);
+  return { short: `#${n(r.rank)}`, of: n(r.of), title: parts.join(" · ") };
 }
 
 export async function loadNarrative() {

@@ -11,6 +11,18 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Agent rank in the Tower and Deck top bars
+
+Operator request: show the agent's current rank. Deck's top bar has a new Rank field after Ships ("#3 / 1,204"), and Tower shows
+"#3/1,204" next to the brand. The tooltip names the agent one place above us and the gap to it, the leader, and how old the directory is.
+
+The rank is by credits among every agent in the public directory, with ties sharing a rank. No new API calls: the galaxy crawler already
+reads GET /agents every hour into `agent_credit_snapshots`. The new route `GET /api/agent-rank` reads that table's latest pass, so the rank
+survives a restart, and caches it for five minutes. It ranks our live wallet against the other agents' directory figures, which are up to
+an hour old. Before the first pass after a reset it shows "—". The logic is a pure module, `src/engine/agentRank.ts`. Other changes:
+`Store.latestAgentDirectory()` and migration 069, an index on the snapshot timestamp. The front end polls once a minute through
+`loadAgentRank()` and `agentRankText()` in `public/shared/store.js`. Tests: `tests/agentRank.test.ts` and `tests/latestAgentDirectory.test.ts`.
+
 ## 2026-11-21 — Keeper cap can go to 5,000 (was 2,000)
 
 `keeperMaxTotal` was capped at 2,000 in the catalog. On 2026-11-21 the fleet sat at 2,004 keepers with 86 listed markets waiting and

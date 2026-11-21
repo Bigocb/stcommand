@@ -18,7 +18,7 @@ import {
   keeperMarketsCfg, keeperStationsCfg, keeperCoverList,
   connectionStatus,
   subscribe, subscribeConnection, loadState, loadBridge, loadApprovals, loadDispatch, loadActivity,
-  loadMarkets, loadGoods, loadPrices, loadMarketTransactions, loadGalaxy, loadProgramme,
+  loadMarkets, loadGoods, loadPrices, loadMarketTransactions, loadGalaxy, loadProgramme, loadAgentRank, agentRankText,
   loadDoctrine, loadDoctrineFireShips, loadKeepers, loadNotes, jumpConnections,
 } from "/shared/store.js";
 import { startLive, liveConnected } from "/shared/live.js";
@@ -2718,6 +2718,15 @@ function renderMapLeaderboard() {
 /* ── subscriptions ──────────────────────────
  * Wire render functions to data slices.
  */
+subscribe("agentRank", renderRank);
+/** Rank by credits in the top bar (shared/store.js agentRankText). */
+function renderRank() {
+  const el = $("tb-rank");
+  if (!el) return;
+  const t = agentRankText();
+  el.textContent = t.of ? `${t.short} / ${t.of}` : t.short;
+  $("tb-rank-stat").title = t.title;
+}
 subscribe("state", () => {
   renderTopbar();
   renderKPIs();
@@ -2860,6 +2869,8 @@ function pollTick() {
   // Keepers and the programme are pushed too while the stream is up.
   if (fullRead) loadKeepers();
   if (fullRead) loadProgramme();
+  // Rank in the top bar: once a minute (the server caches the directory five minutes).
+  if (fullRead) loadAgentRank();
 }
 
 setInterval(() => {

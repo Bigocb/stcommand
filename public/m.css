@@ -58,6 +58,7 @@ body {
 }
 .topbar .brand { font-family: var(--chrome); font-weight: 700; font-size: 18px; letter-spacing: 0.16em; }
 .topbar .who { font-family: var(--mono); font-size: 15px; color: var(--dim); }
+.topbar .rank { font-family: var(--mono); font-size: 14px; color: var(--amber, inherit); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 /* ── screens ── */
 .body { flex: 1 1 auto; position: relative; overflow: hidden; }

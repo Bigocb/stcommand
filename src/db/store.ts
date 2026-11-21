@@ -3810,6 +3810,18 @@ export class Store {
   /** Credit/ship-count history for every agent headquartered in `systemSymbol`,
    *  newest first per agent — the operator-facing "running tally" the
    *  dashboard's system-agents panel plots. */
+  /** The latest full agent-directory pass (every agent's credits at that pass), for the agent rank. Empty before the first pass. */
+  async latestAgentDirectory(): Promise<{ at: string | null; agents: { symbol: string; credits: number }[] }> {
+    return withPool(this.pool, async (c) => {
+      const res = await c.query<{ agent_symbol: string; credits: string; timestamp: Date }>(
+        `SELECT agent_symbol, credits, timestamp FROM agent_credit_snapshots
+          WHERE timestamp = (SELECT max(timestamp) FROM agent_credit_snapshots)`,
+      );
+      const at = res.rows[0]?.timestamp;
+      return { at: at ? new Date(at).toISOString() : null, agents: res.rows.map((r) => ({ symbol: r.agent_symbol, credits: Number(r.credits) })) };
+    });
+  }
+
   async agentCreditHistory(systemSymbol: string, since: string): Promise<{ agentSymbol: string; credits: number; shipCount: number; timestamp: string }[]> {
     return withPool(this.pool, async (c) => {
       const res = await c.query<{ agent_symbol: string; credits: string; ship_count: number; timestamp: string }>(
