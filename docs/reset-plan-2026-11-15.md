@@ -382,6 +382,9 @@ The silent ships in `ops_trade_tempo` (5-18 of about 30 per 5-minute bucket) are
 | T-5 min | Record the wallet: `get_cargo_value` (wallet), `ops_profit_curve` cumulative. | read | the final figure is the `run_results` row at about T+5 min |
 | T | Reset. Do nothing. | | |
 | T+1 to T+5 | Poll `ops_reset_watch` only (section 2). | | |
+| T+0 | **Re-enable `autoApproveKeeperProbes`** if a pre-reset cutoff turned it off (doctrine survives the reset; on 11-15 the 08:00 cutoff left it off and the first yard-keeper card sat from 13:05). The template's `o4-start` also sets it on at 60,000. | `get_doctrine`, `set_doctrine` | playbook "First hours of 2026-11-15", item 2 |
+| T+3 | **Poll `get_opening_tasks`**: the `o4-*` tasks for the new week must be there (on 11-15 the recovery did not queue the template; cause still not found). | `get_opening_tasks` | playbook item 1 |
+| T+5 | If they are missing, **apply the template by hand**: add each task of "Opening: auto at reset" with `add_opening_task`, then read back. | `get_opening_templates`, `add_opening_task` | was T+8 last week; earlier now |
 
 ### 6.4 What NOT to do near the end
 
