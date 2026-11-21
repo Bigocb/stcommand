@@ -1,8 +1,13 @@
 import { hostname } from "node:os";
 import type { LimiterStats } from "./client.js";
 
-/** Identity of this server process — Render sets RENDER_INSTANCE_ID per instance. */
-export const INSTANCE_ID = process.env.RENDER_INSTANCE_ID ?? `${hostname()}-${process.pid}`;
+/**
+ * Identity of this server process. Render set RENDER_INSTANCE_ID per instance. On the box the app runs in Docker, where every
+ * process is PID 1 and the hostname is the same each time, so hostname-pid alone named every boot the same: the heartbeat row was
+ * upserted forever (started 2026-10-10) and restarts and deploy overlap were invisible (found 2026-11-21). The start time makes
+ * each process its own row.
+ */
+export const INSTANCE_ID = process.env.RENDER_INSTANCE_ID ?? `${hostname()}-${process.pid}-${Date.now().toString(36)}`;
 
 const WINDOW_MS = 60_000;
 

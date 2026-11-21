@@ -11,6 +11,15 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Each server process gets its own instance id; memory analysis written
+
+`INSTANCE_ID` (`src/core/rateLimitMonitor.ts`) was hostname plus PID. In Docker every process is PID 1 with the same hostname,
+so every boot since 2026-10-10 upserted one heartbeat row. That hid restarts, deploy overlap, and the new `ops container`
+history and Health "Last restart" tile. The id now includes the process start time.
+
+The memory analysis requested by the operator is in `docs/memory-analysis-2026-11-21.md`. It covers live measurements, the
+heap sampler's top allocation sites, and a ranked list of fixes; the fixes themselves are not yet applied.
+
 ## 2026-11-21 — Health board: memory and last-restart tiles
 
 Operator request: put the new container metrics on the admin Health board. The server section gains two tiles, built in
