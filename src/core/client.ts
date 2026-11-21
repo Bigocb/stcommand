@@ -176,6 +176,13 @@ export function runWithApiShip<T>(ship: string, fn: () => Promise<T>): Promise<T
   return shipContext.run(ship, fn);
 }
 
+/** Why each request did or did not take a trade lane (ops api_budget, trade.decisions): off, noShip, notEnrolled, boot, noSlot, picked. */
+const tradeLaneDecisions: Record<string, number> = {};
+const tradeLaneRecent: string[] = [];
+export function tradeLaneDecisionStats(): { decisions: Record<string, number>; recent: string[] } {
+  return { decisions: { ...tradeLaneDecisions }, recent: [...tradeLaneRecent] };
+}
+
 /** The priority the running async context asked for, if any. */
 export function currentApiPriority(): number | undefined {
   return priorityContext.getStore();
@@ -693,8 +700,16 @@ export class Client {
       viaTradeLane = false;
       if (this.lanes?.tradePolicy && this.laneSlots.length > 0 && !forceBox) {
         const now = Date.now();
-        const pick = tradeLaneFor({ ship: shipContext.getStore(), priority }, this.lanes.tradePolicy(), this.laneSlots.map((s) => s.id), (id) => this.laneSlots.find((s) => s.id === id)!.breaker.allows(now));
+        const ship = shipContext.getStore();
+        const tp = this.lanes.tradePolicy();
+        const pick = tradeLaneFor({ ship, priority }, tp, this.laneSlots.map((s) => s.id), (id) => this.laneSlots.find((s) => s.id === id)!.breaker.allows(now));
         if (pick) { slot = this.laneSlots[pick.slotIndex]; viaTradeLane = slot !== undefined; }
+        const why = !tp.enabled ? "off" : !ship ? "noShip" : !tp.ships.has(ship) ? "notEnrolled" : priority <= 0 ? "boot" : viaTradeLane ? "picked" : "noSlot";
+        tradeLaneDecisions[why] = (tradeLaneDecisions[why] ?? 0) + 1;
+        if (tp.enabled && ship && tp.ships.has(ship)) {
+          tradeLaneRecent.push(`${new Date(now).toISOString().slice(11, 19)} ${ship} ${req.method} ${kind} p${priority} ${why}${pick ? ` ${pick.reason}` : ""}`);
+          if (tradeLaneRecent.length > 20) tradeLaneRecent.shift();
+        }
       }
       if (!slot && this.lanes && this.laneSlots.length > 0 && !forceBox) {
         const policy = this.lanes.policy();

@@ -6,7 +6,7 @@ import { rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { LaneBreaker, LANES_OFF, type LanePolicy } from "./apiLanes.js";
 import { poolFromEnv, ByteMeter } from "./lanePool.js";
 import type { LaneSlot } from "../core/client.js";
-import { Client, RateLimiter, apiBurstFromEnv, apiRateFromEnv, SpaceTradersAPI, runWithApiPriority, runWithApiRole, runWithApiShip, taskToApiPriority, API_PRIORITY } from "../core/client.js";
+import { Client, RateLimiter, apiBurstFromEnv, apiRateFromEnv, SpaceTradersAPI, runWithApiPriority, runWithApiRole, runWithApiShip, tradeLaneDecisionStats, taskToApiPriority, API_PRIORITY } from "../core/client.js";
 import { enrolledShips, TRADE_LANES_OFF, type TradeLanePolicy } from "./tradeLanes.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
@@ -261,7 +261,12 @@ export class TenantRegistry {
         }));
         const totalGB = Math.round(proxies.reduce((sum, p) => sum + p.bytes.projectedGBPerMonth, 0) * 10) / 10;
         // proxy / ratePerMin / limiter / breaker describe the first proxy, as when there was only one lane; proxies has every one.
-        return { proxy: firstCfg.label, ratePerMin: Math.round(firstCfg.ratePerSec * 60), limiter: first.limiter.stats(), breaker: first.breaker.state(now), activeProxies: active, configuredProxies: this.laneSlots.length, projectedGBPerMonthAllProxies: totalGB, proxies };
+        // Trade lanes (tradeLanes.ts): each tenant's policy as it stands, and why recent requests did or did not take one.
+        const trade = {
+          policies: [...this.workers.values()].map((w) => { const p = this.tradeLanePolicyFor(w.agentSymbol); return { agent: w.agentSymbol, enabled: p.enabled, firstSlot: p.firstSlot, ships: [...p.ships] }; }),
+          ...tradeLaneDecisionStats(),
+        };
+        return { proxy: firstCfg.label, ratePerMin: Math.round(firstCfg.ratePerSec * 60), limiter: first.limiter.stats(), breaker: first.breaker.state(now), activeProxies: active, configuredProxies: this.laneSlots.length, projectedGBPerMonthAllProxies: totalGB, proxies, trade };
       });
       this.log("?", `api lane: ${this.laneSlots.length} prox${this.laneSlots.length === 1 ? "y" : "ies"} configured (${this.laneProxies.map((p) => `${p.id} ${p.label} at ${p.ratePerSec} a second`).join(", ")}); the doctrine clause apiLaneProxy decides whether any call uses them and apiLaneCount how many are active`);
     }
