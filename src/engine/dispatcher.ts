@@ -134,7 +134,7 @@ import { bestFollowOn, chainScore, explainChain, DEFAULT_CHAIN_POLICY, type Chai
 import { DEFAULT_MATCH_POLICY, holdShare, matchShips, type MatchPolicy } from "./matching.js";
 import { routeFit, type FitPolicy } from "./routeFit.js";
 import { DEFAULT_SPEED_POLICY, scaleSeconds, speedGain, speedReason, type SpeedPolicy } from "./shipSpeed.js";
-import { bestCircuit, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
+import { bestCircuit, circuitBucket, circuitIndex, circuitExpired, circuitReport, circuitScore, judgeLeg2, legId, DEFAULT_CIRCUIT_POLICY, type Circuit, type CircuitPolicy, type PlannedCircuit } from "./circuit.js";
 import { fillFactor } from "./fillFit.js";
 import { goodOfKey, type DispatchExplainSnapshot, type ExplainHeld, type ExplainRejection, type ExplainRoute, type ExplainTrader } from "./dispatchExplain.js";
 
@@ -1685,6 +1685,8 @@ export class RouteDispatcher {
       unavailable: (c: ChainCandidate) => usedKeys.has(c.key) || reservedFollowOns.has(c.key) || circuitHeld.has(legId(c)) || circuitBuyHeld.has(buySide(c)) || someoneBuying(c),
     };
     const candidateByKey = new Map(chainCandidates.map((c) => [c.key, c]));
+    // Second legs grouped by the loop they close, so bestCircuit() looks only at the ones that can (circuitIndex()).
+    const circuitCandidates = circuitPolicy.weight > 0 ? circuitIndex(chainCandidates) : new Map<string, ChainCandidate[]>();
     // Can this trader take this work, from where it stands? (Hoisted out of the loop so route-first matching can ask it
     // about ships other than the one being served.)
     // Every fuel check on a multi-jump path: each intermediate system's arrival gate to its exit gate must fit the tank,
@@ -2075,7 +2077,9 @@ export class RouteDispatcher {
         const holder = lid !== undefined ? circuitHeld.get(lid) : undefined;
         if (holder !== undefined && holder !== t.shipSymbol) { noteRejected(w, "held for another ship's circuit"); continue; }
         const scored = scoreItem(w);
-        if (!scored) { noteRejected(w, whyRejected(w)); continue; }
+        // The reason is built only while the explain list has room: whyRejected() repeats the whole reachability check, and
+        // past the first EXPLAIN_MAX_REJECTIONS it was thrown away (thousands of times a trader at 6,000 routes).
+        if (!scored) { if ((explainRejections.get(t.shipSymbol)?.length ?? 0) < EXPLAIN_MAX_REJECTIONS) noteRejected(w, whyRejected(w)); continue; }
         // Contract and one-sided work is judged on its own terms; only trading routes face the prize minimum.
         const fit = slot === 0 && w.contractGood === undefined && w.buyAt !== undefined && w.sellAt !== undefined
           ? routeFit(w.profitPerTrip * holdShare(w, t.capacity), t.capacity, fitPolicy)
@@ -2090,7 +2094,7 @@ export class RouteDispatcher {
         // that time as `positioning` (seen live 2026-10-09: before it did, THEO-51 and THEO-27 were planned GY77 pairs
         // from JX83 and sat empty).
         if (circuitPolicy.weight > 0 && w.sellAt !== undefined && candidate) {
-          const found = bestCircuit(candidate, chainCandidates, shipChainCtx, circuitPolicy);
+          const found = bestCircuit(candidate, circuitBucket(circuitCandidates, candidate), shipChainCtx, circuitPolicy);
           const credited = circuitScore(score, found, scored.positioning, scored.penalty, circuitPolicy);
           if (found && credited > score) { circuit = found; score = credited; }
         }

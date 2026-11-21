@@ -11,6 +11,18 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Dispatcher: recompute from 28 s to a fraction (SEV0)
+
+At 05:27 the dispatcher's recompute took 28 s each minute and the whole process was 95% busy (ops `profile`), so tools
+timed out, the dashboard stalled and trading slowed. The work list had grown to 6,077 routes for 29 traders. Two-leg
+circuits (`chainCircuitWeight`, on) scanned all 6,077 candidates for every route every trader could take, about 10^9
+checks per recompute, although only candidates that buy in leg 1's sell system and sell in its buy system can ever pair.
+Now `circuitIndex()` (`src/engine/circuit.ts`) groups the candidates by that loop once per recompute and `bestCircuit()`
+gets only the matching group. The answer is identical: same candidates, same order (test `tests/circuitIndex.test.ts`
+compares both on 600 random legs). Two smaller fixes in the same loop: the rejection reason for `dispatch_explain` is
+built only while its 60-row list has room (it re-ran the reachability check and was thrown away), and the fuel-relay check
+(`hasFuelStop`) is memoised within a recompute.
+
 ## 2026-11-21 — Keepers: rate-based market read scheduler (clause `keeperReadScheduler`, off; issue #67)
 
 Keeper market reads came only from keeper ship tasks run by a few lane workers (`keeperLaneWorkers`), so the read rate was whatever

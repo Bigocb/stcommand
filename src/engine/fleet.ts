@@ -12004,6 +12004,8 @@ export class FleetManager {
       await this.timed("fuelStopsBySystem", () => Promise.all([...relaySystems].map(async (sys) => { fuelStopsBySystem.set(sys, await this.fuelStops(sys)); })));
       // `roundsMax` reads 0 when the clause is off: value(key, whenOff) returns `whenOff` for a disabled or unadopted
       // rule, so no isEnabledOr wrapper is needed here — same as `coolOffMin` right beside it.
+      const fuelStopsArrays = new Map<string, string[]>([...fuelStopsBySystem].map(([sys, stops]) => [sys, [...stops]]));
+      const fuelReachMemo = new Map<string, boolean>();
       this.timedSync("dispatcher.recompute", () => this.dispatcher.recompute(
         routes,
         traders,
@@ -12016,9 +12018,15 @@ export class FleetManager {
         (a, b) => this.estimatedFuelBetween(a, b),
         (m) => this.log(m),
         (system, from, to, capacity) => {
-          const stops = fuelStopsBySystem.get(system);
-          if (!stops) return false;
-          return fuelChainReaches(from, to, [...stops], capacity, (a, b) => this.estimatedFuelBetween(a, b));
+          // Same question, same answer within one recompute: it is asked for every trader x route x relay system, and an
+          // unreachable relay searches every fuel stop in the system each time (2026-11-21 SEV0).
+          const memoKey = `${system}|${from}|${to}|${capacity}`;
+          const memo = fuelReachMemo.get(memoKey);
+          if (memo !== undefined) return memo;
+          const stops = fuelStopsArrays.get(system);
+          const reaches = stops ? fuelChainReaches(from, to, stops, capacity, (a, b) => this.estimatedFuelBetween(a, b)) : false;
+          fuelReachMemo.set(memoKey, reaches);
+          return reaches;
         },
         {
           enabled: this.doctrine.isEnabledOr("autoCrossSystemRoutes", false),

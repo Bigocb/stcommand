@@ -172,6 +172,30 @@ export function bestCircuit(
 }
 
 /**
+ * Second-leg candidates grouped by the only loop closesLoop() accepts: buy system then sell system. bestCircuit(leg1, all)
+ * equals bestCircuit(leg1, circuitBucket(index, leg1)) because every candidate outside the bucket fails closesLoop() and
+ * the order within a bucket is the original order (ties go to the first, as before). Built once per recompute: scanning
+ * the whole work list for every trader and route was 25-30 s a recompute at 6,000 routes x 29 traders (2026-11-21, SEV0).
+ */
+export function circuitIndex(candidates: readonly ChainCandidate[]): Map<string, ChainCandidate[]> {
+  const index = new Map<string, ChainCandidate[]>();
+  for (const c of candidates) {
+    const key = `${c.buySystem}>${systemOf(c.sellAt)}`;
+    const bucket = index.get(key);
+    if (bucket) bucket.push(c);
+    else index.set(key, [c]);
+  }
+  return index;
+}
+
+const NO_CANDIDATES: readonly ChainCandidate[] = [];
+
+/** The candidates that can close a loop with `leg1` (start at its sell system, end at its buy system). */
+export function circuitBucket(index: ReadonlyMap<string, readonly ChainCandidate[]>, leg1: ChainCandidate): readonly ChainCandidate[] {
+  return index.get(`${systemOf(leg1.sellAt)}>${leg1.buySystem}`) ?? NO_CANDIDATES;
+}
+
+/**
  * One line for the log saying why a route got no circuit: how many second legs were even candidates, how many passed each
  * distance test, and the best pair that did (with its rate against the route's own score), so the horizon and return share
  * can be tuned from what the dispatcher actually sees.
