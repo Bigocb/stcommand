@@ -2407,9 +2407,15 @@ export class FleetManager {
    * The route list for a screen: the last pass if it is under `maxAgeMs` old, else a fresh one. For the dashboard's readers, which
    * only draw the list and so do not need this second's prices; the dispatcher keeps calling computeDispatchRoutes().
    */
-  async computeDispatchRoutesCached(maxAgeMs = 15_000): Promise<DispatchRoute[]> {
+  async computeDispatchRoutesCached(maxAgeMs = 120_000): Promise<DispatchRoute[]> {
     const hit = this.routesCache;
     if (hit && Date.now() - hit.at < maxAgeMs) return hit.routes.slice();
+    // 2026-11-21 SEV0: every open Deck/Tower screen polls this every 15 s, and with a 15 s cache each poll started a full route
+    // build of its own (8-25 s of the one shared thread at 6,000 routes). The core pass already holds a list built moments
+    // ago; a screen gets that one (it leaves out goods protected for contracts, which only matters to a buy decision, not to
+    // a list on screen) and never starts a second build while it is fresh.
+    const core = this.coreRouteHold;
+    if (core && Date.now() - core.at < maxAgeMs) return core.routes.slice();
     const routes = await this.computeDispatchRoutes();
     this.routesCache = { at: Date.now(), routes };
     return routes.slice();

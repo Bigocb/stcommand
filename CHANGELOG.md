@@ -11,6 +11,15 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Screens stop starting their own route builds (SEV0, part 4)
+
+The 06:35 profile was back at 99.7% busy, with 12.6% in serialising dashboard responses and route builds of 15-25 s. Every
+open Deck/Tower screen polls `/api/dispatch` and `/api/markets` every 15 s, and both read the route list through
+`computeDispatchRoutesCached()`, whose 15 s cache meant each poll could start a full route build of its own (a different kind
+from the core pass's, so the two never shared one). Now a screen first takes the core pass's list when it is under 2 minutes
+old, and its own cache lasts 2 minutes. The core list leaves out goods protected for contracts, which matters to a buy
+decision, not to a list on screen. Test: `tests/screenRoutesCache.test.ts`.
+
 ## 2026-11-21 — Route list reused between recomputes (SEV0, part 3)
 
 With the recompute and the path search fixed the process was still 90% busy: the core pass rebuilt the whole route list
