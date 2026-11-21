@@ -74,3 +74,19 @@ against 1.87M), and wallet plus holds roughly halved after adding back the hulls
 in Tower when jump fees exceed matched profit, when no system has opened for N hours with staged systems waiting, or when wallet
 plus holds falls two hours running; and a warning on the buy-ship button when the wallet after the buy would fall under the
 working-capital floor, or margins are falling.
+
+## 2026-11-21: keeper reads fall behind as the keeper fleet grows (third time)
+
+**What happened.** Measured keeper reads fell from 41 a minute (19:13) to 9.8 (00:13) while keepers grew from about 1,120 to 1,435
+and about 100 new probes were in flight. One read of every market took 80-385 minutes; prices went stale, the route list thinned,
+and matched profit fell from about 8.7M to a 4-5M an hour pace. The API was not the limit: the box sat at about 70 of 105 calls a
+minute and the 15 proxy lanes at 1-8 of 90 each. The keeper tasks were (`keeperLaneWorkers` = 4), busy flying new probes to
+their markets with navigate and orbit calls waiting 9-13 s.
+
+**Same pattern before.** 2026-11-01: keepers never ran behind a busy trader loop (fix: their own lane, `keeperLaneWorkers`).
+2026-11-12/13 (operator: "we had this issue last week too as the keeper fleet grew"): rotation doubled from 7 to 14 min as keepers
+passed about 500; more proxy lanes (`apiLaneCount` 3 -> 6) brought it back to 7 min.
+
+**Rule.** When the keeper count jumps (a buying spree, staging many systems), watch `measuredKeeperReadsPerMin` and `rotationMin` in
+ops `keeper_coverage` every hour. If reads fall by half while the box and lanes have room, raise `keeperLaneWorkers` (it went 4 -> 8
+on 2026-11-21) before adding lanes; if the lanes are near 90 a minute, add lanes. Stale prices cost more than the keepers save.
