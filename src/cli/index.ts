@@ -7,7 +7,8 @@ import { waitForPredecessor } from "../core/instanceGate.js";
 import express from "express";
 import { existsSync, statSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { resolveBuildInfo, setBuildInfo } from "../engine/buildInfo.js";
+import { resolveBuildInfo, setBuildInfo, currentBuildInfo } from "../engine/buildInfo.js";
+import { processMemorySample } from "../ops/containerRead.js";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createPool } from "../db/pool.js";
@@ -159,7 +160,12 @@ async function main(): Promise<void> {
   // Heartbeat so any instance can tell whether another one is alive at the
   // same time (deploy overlap — the usual 429-storm cause). See migration 034.
   const heartbeatStore = new Store(pool);
-  const beat = () => heartbeatStore.touchInstance(INSTANCE_ID, bootedAt).catch(() => {});
+  // Each beat also records this process's memory and the container's (migration 070), so the next process can say how this one ended.
+  const beat = () => {
+    let m: Parameters<Store["touchInstance"]>[2];
+    try { const b = currentBuildInfo(); m = { ...processMemorySample(), build: b?.build, codeMtime: b?.loadedFileMtime }; } catch { m = undefined; }
+    return heartbeatStore.touchInstance(INSTANCE_ID, bootedAt, m).catch(() => {});
+  };
   void beat();
   const heartbeatInterval = setInterval(beat, 10_000);
   heartbeatInterval.unref?.();

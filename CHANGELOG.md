@@ -11,6 +11,30 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — ops `container`: container memory, and how each server process ended
+
+The box restarted at 20:40 with no deploy behind it. Nobody in a cloud session can run `docker inspect`, and the in-memory logs die
+with the process, so there was no way to tell whether it ran out of memory.
+
+What changed:
+- Every 10 s heartbeat row (`instance_heartbeats`, migration 070) now also keeps:
+  - the process's resident memory, JS heap used and V8's heap limit;
+  - the container's cgroup memory and limit, and the kernel's OOM-kill counter;
+  - the build and the code file's time.
+- Rows are kept for 7 days instead of 1.
+- New ops tool `container` (`stcommand_ops_container`) shows two things:
+  - **Now:** this process's memory, the container's cgroup limit, current and peak use, and its OOM counters (cgroup v2 or v1).
+  - **Each process of the last 48 h:** its last heartbeat's memory, and how it most likely ended.
+
+How an ending is classified (pure, in `src/ops/containerStats.ts`):
+- `deploy`: the next process ran newer code.
+- `heap_oom_likely`: the heap was within 10% of its limit.
+- `container_oom_likely`: resident memory was within 10% of the container limit, or the OOM-kill counter rose.
+- `unknown` or `running` otherwise.
+- It reads a sample taken up to 10 s before the end, so it gives a likelihood, not proof.
+
+The file reading is in `src/ops/containerRead.ts`. Tests: `tests/containerStats.test.ts`.
+
 ## 2026-11-21 — Trade lanes: enrolled traders' own calls leave through their own proxy (issue #71, off by default)
 
 Every buy, sell, dock, navigation and jump left from the box's one IP, capped at 105 calls a minute. At about 1.6 calls a minute per

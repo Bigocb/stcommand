@@ -856,14 +856,40 @@ export class Store {
   // ── Instance heartbeats ─────────────────────────────────────
 
   /** Refresh this process's liveness row (see migration 034). */
-  async touchInstance(instanceId: string, startedAt: Date): Promise<void> {
+  async touchInstance(
+    instanceId: string,
+    startedAt: Date,
+    m?: { rssMb: number; heapUsedMb: number; heapLimitMb: number; cgroupCurrentMb: number | null; cgroupLimitMb: number | null; oomKills: number | null; build?: string; codeMtime?: string },
+  ): Promise<void> {
     await withPool(this.pool, (c) =>
       c.query(
-        `INSERT INTO instance_heartbeats (instance_id, started_at, last_seen) VALUES ($1, $2, now())
-         ON CONFLICT (instance_id) DO UPDATE SET last_seen = now()`,
-        [instanceId, startedAt.toISOString()],
+        `INSERT INTO instance_heartbeats (instance_id, started_at, last_seen, rss_mb, heap_used_mb, heap_limit_mb, cgroup_current_mb, cgroup_limit_mb, oom_kills, build, code_mtime)
+         VALUES ($1, $2, now(), $3, $4, $5, $6, $7, $8, $9, $10)
+         ON CONFLICT (instance_id) DO UPDATE SET last_seen = now(),
+           rss_mb = COALESCE($3, instance_heartbeats.rss_mb), heap_used_mb = COALESCE($4, instance_heartbeats.heap_used_mb),
+           heap_limit_mb = COALESCE($5, instance_heartbeats.heap_limit_mb), cgroup_current_mb = COALESCE($6, instance_heartbeats.cgroup_current_mb),
+           cgroup_limit_mb = COALESCE($7, instance_heartbeats.cgroup_limit_mb), oom_kills = COALESCE($8, instance_heartbeats.oom_kills),
+           build = COALESCE($9, instance_heartbeats.build), code_mtime = COALESCE($10, instance_heartbeats.code_mtime)`,
+        [instanceId, startedAt.toISOString(), m?.rssMb ?? null, m?.heapUsedMb ?? null, m?.heapLimitMb ?? null, m?.cgroupCurrentMb ?? null, m?.cgroupLimitMb ?? null, m?.oomKills ?? null, m?.build ?? null, m?.codeMtime ?? null],
       ),
     );
+  }
+
+  /** Every process seen in the last `withinHours` with its last heartbeat's memory (ops `container`, src/ops/containerStats.ts). */
+  async instanceHistory(withinHours: number): Promise<import("../ops/containerStats.js").ProcessBeat[]> {
+    return withPool(this.pool, async (c) => {
+      const r = await c.query(
+        `SELECT instance_id, started_at, last_seen, (last_seen > now() - interval '40 seconds') AS alive, rss_mb, heap_used_mb, heap_limit_mb,
+                cgroup_current_mb, cgroup_limit_mb, oom_kills, build, code_mtime
+           FROM instance_heartbeats WHERE last_seen > now() - ($1 || ' hours')::interval ORDER BY started_at`,
+        [String(withinHours)],
+      );
+      return r.rows.map((x: any) => ({
+        instanceId: x.instance_id, startedAt: new Date(x.started_at).toISOString(), lastSeen: new Date(x.last_seen).toISOString(), aliveNow: !!x.alive,
+        rssMb: x.rss_mb, heapUsedMb: x.heap_used_mb, heapLimitMb: x.heap_limit_mb, cgroupCurrentMb: x.cgroup_current_mb, cgroupLimitMb: x.cgroup_limit_mb,
+        oomKills: x.oom_kills, build: x.build, codeMtime: x.code_mtime ? new Date(x.code_mtime).toISOString() : null,
+      }));
+    });
   }
 
   /** Instances other than `self` that checked in within the last `withinSec`
@@ -871,7 +897,7 @@ export class Store {
    *  that have been silent for a day so the table stays tiny. */
   async otherLiveInstances(self: string, withinSec: number): Promise<{ instanceId: string; startedAt: string }[]> {
     return withPool(this.pool, async (c) => {
-      await c.query(`DELETE FROM instance_heartbeats WHERE last_seen < now() - interval '1 day'`);
+      await c.query(`DELETE FROM instance_heartbeats WHERE last_seen < now() - interval '7 days'`);
       const r = await c.query(
         `SELECT instance_id, started_at FROM instance_heartbeats
          WHERE instance_id <> $1 AND last_seen > now() - ($2 || ' seconds')::interval ORDER BY started_at`,

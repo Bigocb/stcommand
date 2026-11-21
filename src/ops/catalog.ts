@@ -24,6 +24,8 @@ import { deadheadFromTrades } from "../engine/deadhead.js";
 import { selectExplain } from "../engine/dispatchExplain.js";
 import { hullCargo, unflownRoutes } from "../engine/unflownRoutes.js";
 import { heapReport, heapStart, heapStop, profileCpu, runtimeStatus } from "./profiler.js";
+import { processHistory } from "./containerStats.js";
+import { processMemorySample, readCgroupMemory } from "./containerRead.js";
 import type { OpsTool } from "./types.js";
 import { buildMetrics, bucketMinutesFor } from "../engine/metrics.js";
 import { miningFieldsReport, type FieldWaypoint } from "../engine/miningFields.js";
@@ -419,6 +421,26 @@ export const OPS_TOOLS: OpsTool[] = [
         case "heap_stop": return heapStop();
         default: return runtimeStatus();
       }
+    },
+  },
+
+  {
+    name: "container",
+    title: "Container memory now, and how each recent server process ended",
+    description:
+      "What `docker inspect` and `docker stats` would say, from inside the container (src/ops/containerStats.ts). now: this process's memory (resident, JS heap used and V8's heap limit) and the container's cgroup memory (limit, current, peak, and the kernel's OOM-kill counter). processes: every server process of the last `hours` (default 48) with its last heartbeat's memory and how it most likely ended: deploy (the next process ran newer code), heap_oom_likely (JS heap within 10% of the limit at the last beat), container_oom_likely (resident memory within 10% of the container limit, or the OOM-kill counter rose), unknown, or running; gapSec is the time no process was up. A likelihood from a sample 10 s before the end, not proof. Rows from builds before 2026-11-21 have no memory figures. Read-only.",
+    input: { hours: num(48) },
+    async run(ctx, a) {
+      const now = processMemorySample();
+      const cg = readCgroupMemory();
+      const history = processHistory(await ctx.w.store.instanceHistory(Math.min(Math.max(a.hours, 1), 168)));
+      return {
+        asOf: iso(ctx.now()),
+        thisInstance: INSTANCE_ID,
+        uptimeMin: Math.round(process.uptime() / 60),
+        now: { ...now, heapShare: Math.round((now.heapUsedMb / now.heapLimitMb) * 100) / 100, cgroup: { ...cg, peakMb: cg.peakBytes === null ? null : Math.round(cg.peakBytes / 1048576) } },
+        processes: history.reverse(),
+      };
     },
   },
 
