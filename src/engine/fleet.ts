@@ -1,3 +1,6 @@
+import { DispatchWorkerHost } from "./dispatchWorkerHost.js";
+import { buildDispatchWorld } from "./dispatchWorld.js";
+import type { DispatchJob } from "./dispatchJob.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { StepTimer } from "../core/stepTiming.js";
 import { TaskTimingWindow, describeTiming, taskKind, type TaskTimingSummary } from "./taskTiming.js";
@@ -11968,6 +11971,16 @@ export class FleetManager {
       await this.timed("fuelStopsBySystem", () => Promise.all([...relaySystems].map(async (sys) => { fuelStopsBySystem.set(sys, await this.fuelStops(sys)); })));
       // `roundsMax` reads 0 when the clause is off: value(key, whenOff) returns `whenOff` for a disabled or unadopted
       // rule, so no isEnabledOr wrapper is needed here — same as `coolOffMin` right beside it.
+      const tuning = { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), holdAware: this.doctrine.isEnabledOr("routeHoldAware", false), soonFreeSec: this.doctrine.isEnabledOr("routeSoonFreeMin", false) ? this.doctrine.value("routeSoonFreeMin") * 60 : 0, matchTopN: this.doctrine.value("routeMatchTopN", 0), speedWeight: this.doctrine.isEnabledOr("shipSpeedWeight", false) ? this.doctrine.value("shipSpeedWeight", 0) : 0, modelSpeed: this.routeModelSpeed(), coolOffMin: this.doctrine.value("routeCoolOffMin", 0), roundsMax: this.doctrine.value("routeRoundsMax", 0), buyRoundsMax: this.doctrine.value("buyMarketRoundsMax", 0), spacingMin: this.doctrine.value("buyMarketSpacingMin", 0), spacingAutoPct: this.doctrine.value("buyMarketSpacingAutoPct", 0), marketRecoveryMin: this.doctrine.isEnabledOr("marketRecoveryMin", false) ? this.doctrine.value("marketRecoveryMin", 0) : 0, routeBlockMin: this.doctrine.isEnabledOr("deadRouteShareMin", false) ? this.doctrine.value("deadRouteShareMin", 0) : 0, fitMinTrip: this.doctrine.isEnabledOr("routeFitMinTrip", false) ? this.doctrine.value("routeFitMinTrip", 0) : 0, fitBigHold: this.doctrine.value("routeFitBigHold", 0), slowHullSpeed: this.doctrine.value("slowHullSpeed", 15), slowHullHauledHops: this.doctrine.isEnabledOr("slowHullHauledHops", false) ? this.doctrine.value("slowHullHauledHops", 1) : undefined, slowHullPositioningHops: this.doctrine.isEnabledOr("slowHullPositioningHops", false) ? this.doctrine.value("slowHullPositioningHops", 2) : undefined, jumpCashFloor: this.doctrine.isEnabled("jumpCashFloor") ? this.doctrine.value("jumpCashFloor", 0) : 0, credits: this.credits, positioningCostScaled: this.doctrine.isEnabledOr("positioningCostScaled", false), minTripSeconds: this.doctrine.isEnabledOr("routeMinTripSeconds", false) ? this.doctrine.value("routeMinTripSeconds", 300) : 0, fillWeightPct: this.doctrine.isEnabledOr("routeFillFit", false) ? this.doctrine.value("routeFillFit", 50) : 0 };
+      const inFlight = [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l })));
+      const crossSystemOn = this.doctrine.isEnabledOr("autoCrossSystemRoutes", false);
+      if (this.doctrine.isEnabledOr("dispatcherWorker", false)) {
+        // Issue #70: compute on the worker thread; this thread only builds the inputs and merges the result.
+        await this.recomputeOnWorker(
+          { routes, traders, warehouseTargets, haulTargets, missionBuyTargets, contractBuyTargets, crossSystem: { enabled: crossSystemOn, homeSystem: this.systemSymbol, homeReserve: 1 }, tuning, inFlight },
+          fuelStopsBySystem,
+        );
+      } else {
       const fuelStopsArrays = new Map<string, string[]>([...fuelStopsBySystem].map(([sys, stops]) => [sys, [...stops]]));
       const fuelReachMemo = new Map<string, boolean>();
       this.timedSync("dispatcher.recompute", () => this.dispatcher.recompute(
@@ -11993,16 +12006,17 @@ export class FleetManager {
           return reaches;
         },
         {
-          enabled: this.doctrine.isEnabledOr("autoCrossSystemRoutes", false),
+          enabled: crossSystemOn,
           path: (a, b) => (this.galaxy.canJumpInto(a, b) ? [a, b] : this.galaxy.jumpPath(a, b)),
           hopCost: (a, b) => this.crossSystemLegCost(a, b),
           homeSystem: this.systemSymbol,
           homeReserve: 1,
           gateFor: (from, to) => this.galaxy.gatesTo(from, to)[0],
         },
-        { marginFloor: this.doctrine.value("marginFloor", 0), followOnWeight: this.doctrine.value("chainFollowOnWeight", 0) / 100, circuitWeight: this.doctrine.value("chainCircuitWeight", 0) / 100, circuitCash: this.spendableCredits(), circuitHorizonMin: this.doctrine.value("chainCircuitHorizonMin", 10), circuitReturnShare: this.doctrine.value("chainCircuitReturnPct", 100) / 100, circuitCrossSystem: this.doctrine.value("chainCircuitCrossSystem", 0) > 0, circuitMinGain: this.doctrine.value("chainCircuitMinGain", 0), circuitMinGainShare: this.doctrine.value("chainCircuitMinGain", 0) > 0 ? undefined : 0, circuitMinLeg2Runs: this.doctrine.value("chainCircuitMinRuns", 0), holdAware: this.doctrine.isEnabledOr("routeHoldAware", false), soonFreeSec: this.doctrine.isEnabledOr("routeSoonFreeMin", false) ? this.doctrine.value("routeSoonFreeMin") * 60 : 0, matchTopN: this.doctrine.value("routeMatchTopN", 0), speedWeight: this.doctrine.isEnabledOr("shipSpeedWeight", false) ? this.doctrine.value("shipSpeedWeight", 0) : 0, modelSpeed: this.routeModelSpeed(), coolOffMin: this.doctrine.value("routeCoolOffMin", 0), roundsMax: this.doctrine.value("routeRoundsMax", 0), buyRoundsMax: this.doctrine.value("buyMarketRoundsMax", 0), spacingMin: this.doctrine.value("buyMarketSpacingMin", 0), spacingAutoPct: this.doctrine.value("buyMarketSpacingAutoPct", 0), marketRecoveryMin: this.doctrine.isEnabledOr("marketRecoveryMin", false) ? this.doctrine.value("marketRecoveryMin", 0) : 0, routeBlockMin: this.doctrine.isEnabledOr("deadRouteShareMin", false) ? this.doctrine.value("deadRouteShareMin", 0) : 0, fitMinTrip: this.doctrine.isEnabledOr("routeFitMinTrip", false) ? this.doctrine.value("routeFitMinTrip", 0) : 0, fitBigHold: this.doctrine.value("routeFitBigHold", 0), slowHullSpeed: this.doctrine.value("slowHullSpeed", 15), slowHullHauledHops: this.doctrine.isEnabledOr("slowHullHauledHops", false) ? this.doctrine.value("slowHullHauledHops", 1) : undefined, slowHullPositioningHops: this.doctrine.isEnabledOr("slowHullPositioningHops", false) ? this.doctrine.value("slowHullPositioningHops", 2) : undefined, jumpCashFloor: this.doctrine.isEnabled("jumpCashFloor") ? this.doctrine.value("jumpCashFloor", 0) : 0, credits: this.credits, positioningCostScaled: this.doctrine.isEnabledOr("positioningCostScaled", false), minTripSeconds: this.doctrine.isEnabledOr("routeMinTripSeconds", false) ? this.doctrine.value("routeMinTripSeconds", 300) : 0, fillWeightPct: this.doctrine.isEnabledOr("routeFillFit", false) ? this.doctrine.value("routeFillFit", 50) : 0 },
-        [...this.traders.entries()].flatMap(([sym, a]) => a.inFlightLegs().map((l) => ({ shipSymbol: sym, ...l }))),
+        tuning,
+        inFlight,
       ));
+      }
       this.watchBoot(traders);
       // Keep each trader's trip and commitment across a restart, so a ship flying to its buy market is not re-routed.
       const commitmentJson = this.dispatcher.commitmentsSnapshot();
@@ -13192,6 +13206,53 @@ export class FleetManager {
    * rather than merely wasting a trip. It read `positions` directly and
    * compared coordinates from different systems as if they shared a plane.
    */
+  /** Issue #70: the dispatcher recompute on a worker thread (clause dispatcherWorker). Builds the galaxy facts the
+   *  recompute asks about as plain data (dispatchWorld.ts), hands everything to the worker host and installs the merged
+   *  result. Logs a line per recompute with the time this thread spent on it, so the saving is visible in ops logs. */
+  private dispatchWorkerHost: DispatchWorkerHost | undefined;
+  private async recomputeOnWorker(job: DispatchJob, fuelStopsBySystem: ReadonlyMap<string, ReadonlySet<string> | readonly string[]>): Promise<void> {
+    if (!this.dispatcher.recomputeDue()) return;
+    const host = this.dispatchWorkerHost ??= new DispatchWorkerHost();
+    if (host.busy()) return;
+    const t0 = performance.now();
+    const seeds = new Set<string>();
+    const sysOf = (wp: string | undefined): string | undefined => (wp ? wp.slice(0, wp.lastIndexOf("-")) : undefined);
+    const extra = new Set<string>();
+    for (const t of job.traders) {
+      if (t.system) seeds.add(t.system);
+      if (t.waypoint) extra.add(t.waypoint);
+      if (t.freeAtWaypoint) { extra.add(t.freeAtWaypoint); const s = sysOf(t.freeAtWaypoint); if (s) seeds.add(s); }
+    }
+    for (const r of job.routes) {
+      for (const s of [r.buySystem, sysOf(r.buyAt), sysOf(r.sellAt)]) if (s) seeds.add(s);
+    }
+    for (const list of [job.warehouseTargets, job.haulTargets, job.missionBuyTargets, job.contractBuyTargets] as unknown[][]) {
+      for (const target of list) {
+        for (const v of Object.values(target as Record<string, unknown>)) {
+          if (typeof v !== "string") continue;
+          if (/^X1-[A-Z0-9]+-[A-Z0-9]+$/.test(v)) { const s = sysOf(v); if (s) seeds.add(s); }
+          else if (/^X1-[A-Z0-9]+$/.test(v)) seeds.add(v);
+        }
+      }
+    }
+    for (const l of job.inFlight ?? []) for (const wp of [l.buyAt, l.sellAt]) { const s = sysOf(wp); if (s) seeds.add(s); }
+    const world = buildDispatchWorld({
+      positioningHops: this.galaxy.maxPositioningHops,
+      usableNeighbors: (s) => this.galaxy.usableNeighbors(s),
+      jumpCandidates: (s) => this.galaxy.jumpCandidates(s),
+      canJumpInto: (a, b) => this.galaxy.canJumpInto(a, b),
+      gateFor: (a, b) => this.galaxy.gatesTo(a, b)[0],
+      hopCost: (a, b) => this.crossSystemLegCost(a, b),
+      waypointsIn: (s) => this.registry.waypointsIn(s),
+      fuelStops: fuelStopsBySystem,
+    }, seeds, extra);
+    const buildMs = performance.now() - t0;
+    const outcome = await this.timed("dispatcher.worker", () => host.run(this.dispatcher, job, world, (m) => this.log(m)));
+    if (outcome.path === "skipped") return;
+    const worker = outcome.workerMs !== undefined ? `, worker ${(outcome.workerMs / 1000).toFixed(1)} s` : "";
+    this.log(`dispatch worker: ${outcome.path} — this thread ${((buildMs + outcome.mainMs) / 1000).toFixed(2)} s (world ${(buildMs / 1000).toFixed(2)} s, ${Object.keys(world.neighbors).length} systems)${worker}${outcome.reason ? ` — ${outcome.reason}` : ""}`);
+  }
+
   private estimatedFuelBetween(a: string, b: string): number {
     const d = this.registry.distance(a, b);
     return Number.isFinite(d) ? Math.max(1, Math.round(d)) : Infinity;

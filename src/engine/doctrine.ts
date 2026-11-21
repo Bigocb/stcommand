@@ -773,6 +773,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "dispatcherWorker",
+    name: "Dispatcher: compute routes on a worker thread",
+    description: "On = the minute's route assignment (the dispatcher recompute) runs on a separate worker thread, so the API calls, keeper reads, trades and the dashboard keep going while it computes. The worker is given a copy of the dispatcher's state and the galaxy facts it needs as plain data; its result is merged back, keeping any claim, decline or sale made on the main thread while it ran (a recompute pick that collides with such a claim is dropped and logged as 'dispatch worker: dropped'). A worker error runs that minute in-thread; a worker that does not answer in 2 minutes is restarted and the minute skipped, and after 3 misses in a row the next minute runs in-thread. Why: on 2026-11-21 the recompute took 28 s every minute on the one shared thread and the process was 95% busy, so tools timed out and keeper reads halved (issue #70). Off (the default) = the recompute runs in-thread, exactly as before. Takes effect on the next recompute.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "keeperReadScheduler",
     name: "Keepers: read markets at a target pass time",
     description: "On = the fleet itself reads every keeper market once per keeperTargetPassMin (keepers / pass minutes reads a minute), through the proxy lanes at deferrable priority, most overdue first, capped by the lanes' capacity (60% of each active proxy's rate) and by keeperReadCeilingPerMin. A keeper ship then skips its own read of a market the scheduler read within 1.5 intervals, so a market is not read twice; one the scheduler falls behind on is still read by its keeper. Only markets with a keeper ship in place (docked or in orbit there, not a loop keeper) are read. Added 2026-11-21 (issue #67): with 1,600-1,700 keepers the lane workers managed about 40 reads a minute and a pass took 30-60 minutes while 15 proxy lanes sat nearly idle. Needs apiLaneProxy on and API_LANE_PROXY_URL(S) set; with no lane it does nothing. Target, planned and achieved rates are in ops keeper_coverage (readScheduler). Off (the default) = keeper ship tasks read their own markets, as before. Takes effect within a few seconds.",

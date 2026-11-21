@@ -618,6 +618,10 @@ export class RouteDispatcher {
   setOnMemoryChange(fn: (() => void) | undefined): void { this.onMemoryChange = fn; }
   /** A save failed: keep the memory marked as changed so the next attempt writes it. */
   markMemoryUnsaved(): void { this.tripHistoryDirty = true; }
+  /** The memory changed somewhere else (a recompute run on a copy in the worker thread): tell the save hook, as memoryChanged() would. */
+  notifyMemoryChanged(): void { this.memoryChanged(); }
+  /** Would recompute() run now, or return at its once-a-minute throttle? Lets the worker host skip a pointless round trip. */
+  recomputeDue(now: number = Date.now()): boolean { return now - this.lastComputed >= 60_000; }
   private memoryChanged(): void {
     this.tripHistoryDirty = true;
     try { this.onMemoryChange?.(); } catch { /* the save is best-effort; the next change or pass retries */ }

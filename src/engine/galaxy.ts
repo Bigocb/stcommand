@@ -379,6 +379,13 @@ export class GalaxyAtlas {
   }
 
   /** Systems one usable jump from `system` right now (synchronous, cache-only). */
+  /** Every system canJump(system, x) could be true for: gate connections and proven jumps (dispatchWorld.ts filters them). */
+  jumpCandidates(system: string): string[] {
+    const out = new Set(this.connectedSystems(system));
+    for (const n of this.provenJumps.get(system) ?? []) out.add(n);
+    return [...out];
+  }
+
   usableNeighbors(system: string): string[] {
     const out = this.connectedSystems(system).filter((n) => this.edgeUsable(system, n));
     // Neighbours the in-memory atlas has not loaded: the hydrated graph names them, and a proven edge counts even when

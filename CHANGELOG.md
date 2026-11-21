@@ -11,6 +11,26 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Dispatcher recompute on a worker thread (clause `dispatcherWorker`, off; issue #70)
+
+Everything in the engine shares one Node thread, so a long computation stalls API calls, keeper reads, trades and the
+dashboard together (the SEV0 earlier today: a 28 s recompute every minute, process 95% busy). With `dispatcherWorker` on,
+the minute's recompute runs on a worker thread instead:
+- `dispatchWorld.ts` turns the six galaxy and registry questions the recompute asks (can a ship jump, the jump path, its
+  gates and cost, distances, fuel relays) into plain data, built once per recompute for the systems traders, routes and
+  targets touch and their neighbourhood out to the positioning-hop limit. Tested equal to the live answers on a random galaxy.
+- `dispatcherState.ts` exports the dispatcher's whole state as cloneable data (every field, found by walking the object, so
+  a field added later is carried too) and merges the worker's result with what this thread changed meanwhile: a claim,
+  decline, sale or manual route made during the wait is kept, the recompute's other decisions are installed, and a pick
+  that collides with such a claim is dropped and logged (`dispatch worker: dropped ...`).
+- `dispatchWorkerHost.ts` runs one job at a time. A worker error runs that minute in-thread with the same code
+  (`dispatchJob.ts`); no answer in 2 minutes restarts the worker and skips the minute; 3 misses in a row and the next
+  minute runs in-thread.
+- Each recompute logs `dispatch worker: worker — this thread N s (world N s, N systems), worker N s`.
+Off (the default) runs the recompute in-thread exactly as before. Tests: `tests/dispatchWorld.test.ts`,
+`tests/dispatcherState.test.ts` (a recompute on an imported copy makes the same decisions and log lines),
+`tests/dispatchWorkerHost.test.ts` (worker result equals in-thread, throttle, error fallback, timeout).
+
 ## 2026-11-21 — Dispatcher: recompute from 28 s to a fraction (SEV0)
 
 At 05:27 the dispatcher's recompute took 28 s each minute and the whole process was 95% busy (ops `profile`), so tools
