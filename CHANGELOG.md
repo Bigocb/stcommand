@@ -11,6 +11,35 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Keepers: rate-based market read scheduler (clause `keeperReadScheduler`, off; issue #67)
+
+Keeper market reads came only from keeper ship tasks run by a few lane workers (`keeperLaneWorkers`), so the read rate was whatever
+those workers managed and the pass time (`keeper_coverage` rotationMin) fell out of it: live on 2026-11-21, 1,600-1,700 keepers, about
+40 reads a minute and a 30-60 minute pass, while 15 proxy lanes (90 calls a minute each) sat nearly idle. Now the operator can pick the
+pass time and the fleet reads at that rate itself.
+
+- New pure module `src/engine/keeperReadScheduler.ts`: given the keeper markets with a keeper in place and their last read time, the
+  target pass minutes, optional per-market intervals, the lanes' capacity, a ceiling and the reads in flight, it returns which markets to
+  read this tick (never read first, then most overdue as a share of their interval), the demand and planned rate (min of demand, lane
+  capacity, ceiling), the projected pass time, what limits it and a one-line reason. A fractional carry lets a rate under one a tick add
+  up; a long gap issues at most about 10 seconds' worth.
+- `FleetManager` runs it every 2 seconds (loop `keeperReads`) when the clause is on. Each picked market is read through the existing
+  `recordMarketSnapshot()` path at deferrable API priority, so it leaves through the proxy lanes. Lane capacity is 60% of the active
+  proxies' combined rate (`apiLaneCount` of the configured pool, passed in by the tenant registry), and 0 unless `apiLaneProxy` is on
+  for priority 3: with no lane the scheduler reads nothing and keepers read as before. Only markets whose keeper is at the waypoint (not in
+  transit, not a loop keeper, not stopped) are read. With the keeper read tiers on (`keeperReadTiers`, #68) each market's tier interval
+  replaces the target pass time.
+- A keeper ship skips its own market read when the scheduler is active and the market was read within 1.5 of its intervals, so a market
+  is not read twice; one the scheduler falls behind on is still read by its keeper. Scheduled reads count toward the measured keeper
+  read rate (rotationMin, top-up).
+- New clauses `keeperReadScheduler` (switch, off), `keeperTargetPassMin` (30 min, 5-240) and `keeperReadCeilingPerMin` (300 a minute,
+  10-1,500), in the API / Keeper polling group.
+- ops `keeper_coverage` returns `topUp.readScheduler`: target, lane capacity, ceiling, demand, planned and achieved reads a minute,
+  projected pass time, what limits the rate, markets due and in flight, and the last tick's reason.
+- Nothing a decision reads lives only in memory: the last read time is the market snapshot's own `fetchedAt`; the in-flight set, carry
+  and measured rate are rebuilt within a tick of a restart.
+- Off (the default) = exactly today's behaviour (tested). Tests: `tests/keeperReadScheduler.test.ts` (module and fleet seam).
+
 ## 2026-11-21 — Keepers read the markets that matter more often (clause `keeperReadTiers`, off; issue #68)
 
 Every keeper market was read on one rotation, so a quiet market cost as much reading as one at the end of a live 600k route; with

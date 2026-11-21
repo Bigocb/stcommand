@@ -533,6 +533,8 @@ export class TenantRegistry {
       log,
       discord,
       scheduler,
+      // Keeper read scheduler: the active proxies' combined rate a minute (apiLaneCount of the configured pool).
+      laneCapacityPerMin: () => this.laneProxies.slice(0, Math.max(0, Math.min(this.activeLaneCount(), this.laneProxies.length))).reduce((sum, p) => sum + p.ratePerSec * 60, 0),
       recordLedger: (e) => store.recordLedger(tenantId, { ...e, walletAfter: api.lastKnownCredits }),
       recordMovement: (m) => store.recordShipMovement(tenantId, m),
       recordActionEvent: (e) => store.recordActionEvent(tenantId, e),

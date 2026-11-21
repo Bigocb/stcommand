@@ -773,6 +773,27 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperReadScheduler",
+    name: "Keepers: read markets at a target pass time",
+    description: "On = the fleet itself reads every keeper market once per keeperTargetPassMin (keepers / pass minutes reads a minute), through the proxy lanes at deferrable priority, most overdue first, capped by the lanes' capacity (60% of each active proxy's rate) and by keeperReadCeilingPerMin. A keeper ship then skips its own read of a market the scheduler read within 1.5 intervals, so a market is not read twice; one the scheduler falls behind on is still read by its keeper. Only markets with a keeper ship in place (docked or in orbit there, not a loop keeper) are read. Added 2026-11-21 (issue #67): with 1,600-1,700 keepers the lane workers managed about 40 reads a minute and a pass took 30-60 minutes while 15 proxy lanes sat nearly idle. Needs apiLaneProxy on and API_LANE_PROXY_URL(S) set; with no lane it does nothing. Target, planned and achieved rates are in ops keeper_coverage (readScheduler). Off (the default) = keeper ship tasks read their own markets, as before. Takes effect within a few seconds.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
+    key: "keeperTargetPassMin",
+    name: "Keepers: minutes one pass over every keeper market should take",
+    description: "The pass time the keeper read scheduler (clause keeperReadScheduler) aims for: each keeper market is read once this often, so the read rate is keepers / this many minutes (1,650 keepers at 30 = 55 a minute). The rate is still capped by the proxy lanes' capacity and keeperReadCeilingPerMin; keeper_coverage shows which one sets it. No effect while keeperReadScheduler is off. Takes effect on the next tick.",
+    value: 30, min: 5, max: 240, step: 5, unit: " min",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
+    key: "keeperReadCeilingPerMin",
+    name: "Keepers: most scheduled market reads a minute",
+    description: "A hard cap on the keeper read scheduler's rate (clause keeperReadScheduler), whatever the target pass time asks for and the proxy lanes could carry. Off = no cap beyond the lanes' capacity. No effect while keeperReadScheduler is off. Takes effect on the next tick.",
+    value: 300, min: 10, max: 1500, step: 10, unit: "/min",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "apiLaneProxy",
     name: "API: send the calls nothing waits on through a second IP",
     description: "On = read-only GETs at this priority or lower urgency leave through the proxy lane (API_LANE_PROXY_URL in the box's environment) instead of the box's IP, each lane with its own token bucket: 3 = keeper market and shipyard reads, remote surveys and fleet-state refreshes (about 28% of calls on 2026-11-06), 4 = telemetry only. Trades, jumps, docks and every write stay on the box, and boot never moves. If the proxy fails, a read goes out on the box's IP instead, and a breaker stops trying it for two minutes after three failures in a row. The box's IP is full (104 of 105 calls a minute, keeper market waits of 3-4 s, 2-6 429s a minute), so this is the way to give the keepers more calls without taking any from the traders. Raise keeperTopUpMaxCalls once it is on, so the keeper top-up counts the new capacity. No effect unless API_LANE_PROXY_URL is set. Off (the default) = every call leaves from the box, as before. Takes effect on the next request.",

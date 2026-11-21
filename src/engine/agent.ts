@@ -169,6 +169,8 @@ export interface AgentOptions {
   keeperReadWaitMs?: (market: string) => number | undefined;
   /** Called after each keeper market read completes (for the measured read rate, and to step a loop keeper to its next market). */
   onKeeperRead?: (market: string) => void;
+  /** True when the fleet's keeper read scheduler read this market recently, so the keeper skips its own read (keeperReadScheduler.ts). */
+  keeperSkipRead?: (market: string) => boolean;
   /** True for a loop keeper (tour plan mode 3): it reads a market and moves straight on, with no dock and no wait. */
   keeperLooping?: () => boolean;
   /**
@@ -319,6 +321,7 @@ export class ShipAgent {
   private readonly keeperPollMs?: (market: string) => number;
   private readonly keeperReadWaitMs?: (market: string) => number | undefined;
   private readonly onKeeperRead?: (market: string) => void;
+  private readonly keeperSkipRead?: (market: string) => boolean;
   private readonly keeperLooping?: () => boolean;
   private readonly intentFor?: AgentOptions["intentFor"];
   private readonly done?: () => void;
@@ -439,6 +442,7 @@ export class ShipAgent {
     this.keeperPollMs = opts.keeperPollMs;
     this.keeperReadWaitMs = opts.keeperReadWaitMs;
     this.onKeeperRead = opts.onKeeperRead;
+    this.keeperSkipRead = opts.keeperSkipRead;
     this.keeperLooping = opts.keeperLooping;
     this.intentFor = opts.intentFor;
     this.done = opts.done;
@@ -2190,7 +2194,7 @@ export class ShipAgent {
     // A loop keeper only reads the market (a ship in orbit at the waypoint sees it) and leaves: docking would cost two calls a stop.
     const looping = this.keeperLooping?.() ?? false;
     if (!looping) await this.ensureDocked();
-    if (this.recordMarket) { await this.recordMarket(market); this.onKeeperRead?.(market); }
+    if (this.recordMarket && !this.keeperSkipRead?.(market)) { await this.recordMarket(market); this.onKeeperRead?.(market); }
     // Shipyard-markets (A2/C43/H56) also need their ship stock kept fresh —
     // shipyard inventory is only visible when a ship is docked there.
     if (this.recordShipyard) await this.recordShipyard(market);

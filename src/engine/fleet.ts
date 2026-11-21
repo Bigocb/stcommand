@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import type { StepTimer } from "../core/stepTiming.js";
 import { TaskTimingWindow, describeTiming, taskKind, type TaskTimingSummary } from "./taskTiming.js";
 import { packFleetMemory, unpackFleetMemory } from "./fleetMemory.js";
-import { API_PRIORITY, runWithApiPriority, type SpaceTradersAPI } from "../core/client.js";
+import { API_PRIORITY, runWithApiPriority, runWithApiRole, type SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
 import { ShipAgent, REFINE_RECIPES } from "./agent.js";
 import { isOverdueTransit } from "./overdueTransit.js";
@@ -46,6 +46,7 @@ import { BootWatch, assignmentKey } from "./bootWatch.js";
 import { tradeBudget } from "./tradeBudget.js";
 import { bidKey, sellPriceVerdict, type BidStat } from "./priceSanity.js";
 import { ReadRate, rotationMin } from "./keeperThroughput.js";
+import { planKeeperReads, keeperShipSkipsRead, type KeeperReadMarket, type KeeperReadPlan, type KeeperReadPolicy } from "./keeperReadScheduler.js";
 import { hourOf, hourlySnapshotEvent } from "./hourlySnapshot.js";
 import { gateSnapshotEvent, slotOf } from "./gateSnapshot.js";
 import { countWaypoints, judgeSystem, type WorthPolicy } from "./systemWorth.js";
@@ -368,6 +369,8 @@ export interface FleetOptions {
    * want, since they drive agents directly.
    */
   scheduler?: Scheduler;
+  /** Reads a minute the active proxy lanes can carry in all (sum of their rates); for the keeper read scheduler. Omitted = no lane. */
+  laneCapacityPerMin?: () => number;
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -765,6 +768,7 @@ export class FleetManager {
     this.approvals = new ApprovalGate(this.store, this.tenantId, this.log);
     this.discord = opts.discord;
     this.scheduler = opts.scheduler;
+    this.laneCapacityPerMin = opts.laneCapacityPerMin;
     // Halt state used to be restored synchronously right here
     // (better-sqlite3 is synchronous, in-process), specifically so a halted
     // fleet stayed halted for the whole window before init()'s awaited API
@@ -3511,7 +3515,7 @@ export class FleetManager {
           hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             keeperMarket: () => this.keeperMarkets.get(ship.symbol), keeperLooping: () => this.isLoopKeeper(ship.symbol),
             keeperPollMs: (wp) => this.keeperPollMs(wp), keeperReadWaitMs: (wp) => this.readTiers.waitMs(wp, Date.now()),
-            onKeeperRead: (m) => this.onKeeperRead(ship.symbol, m),
+            onKeeperRead: (m) => this.onKeeperRead(ship.symbol, m), keeperSkipRead: (wp) => this.keeperShipSkipsRead(wp),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -3863,7 +3867,7 @@ export class FleetManager {
           hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             keeperMarket: () => this.keeperMarkets.get(shipSymbol), keeperLooping: () => this.isLoopKeeper(shipSymbol),
             keeperPollMs: (wp) => this.keeperPollMs(wp), keeperReadWaitMs: (wp) => this.readTiers.waitMs(wp, Date.now()),
-            onKeeperRead: (m) => this.onKeeperRead(shipSymbol, m),
+            onKeeperRead: (m) => this.onKeeperRead(shipSymbol, m), keeperSkipRead: (wp) => this.keeperShipSkipsRead(wp),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -6605,6 +6609,113 @@ export class FleetManager {
     return this.loopKeeperShips.has(ship) && this.doctrine.isEnabledOr("keeperTourPlan", false) && this.doctrine.value("keeperTourPlan", 1) >= 3;
   }
 
+  // ---- Keeper read scheduler (keeperReadScheduler.ts, issue #67) ----
+  // Runtime only, on purpose: the reads in flight, the tick's fractional carry, the last plan and the measured rate are
+  // rebuilt within a tick of a restart. The one input a decision reads across ticks, each market's last read time, is the
+  // market snapshot's own fetchedAt (restored with the snapshots), so nothing a decision depends on lives only here.
+  private readonly laneCapacityPerMin?: () => number;
+  private readonly keeperReadSched = { inFlight: new Set<string>(), carry: 0, lastTickAt: 0, last: undefined as KeeperReadPlan | undefined, reads: new ReadRate() };
+  /** Per-market read interval for the scheduler: the market's read tier (keeperReadTiers.ts) while the keeperReadTiers clause is on, else undefined (the target pass time). */
+  private keeperReadInterval(waypoint: string, now: number): number | undefined {
+    return this.readTiers.intervalMs(waypoint, now);
+  }
+  /** Share of the proxy lanes' rate the scheduler may use; the rest is left for surveys, fleet refreshes and the keepers' own calls. */
+  private static readonly KEEPER_READ_LANE_SHARE = 0.6;
+  private static readonly KEEPER_READ_TICK_MS = 2_000;
+
+  private keeperReadPolicy(): KeeperReadPolicy {
+    const d = this.doctrine;
+    const ceiling = d.isEnabledOr("keeperReadCeilingPerMin", true) ? d.value("keeperReadCeilingPerMin", 300) : Number.POSITIVE_INFINITY;
+    return {
+      enabled: d.isEnabledOr("keeperReadScheduler", false),
+      targetPassMin: d.isEnabledOr("keeperTargetPassMin", true) ? d.value("keeperTargetPassMin", 30) : 30,
+      ceilingPerMin: ceiling,
+      maxInFlight: Math.max(8, Math.ceil(Math.min(ceiling, 1_500) / 4)),
+    };
+  }
+
+  /** Reads a minute the scheduler may send: 0 unless the proxy lane is on for deferrable reads and proxies are configured. */
+  private keeperReadLaneCapacity(): number {
+    const d = this.doctrine;
+    if (!d.isEnabledOr("apiLaneProxy", false) || d.value("apiLaneProxy", 3) > API_PRIORITY.DEFERRABLE) return 0;
+    return Math.max(0, this.laneCapacityPerMin?.() ?? 0) * FleetManager.KEEPER_READ_LANE_SHARE;
+  }
+
+  /** Keeper markets with their keeper in place (at the waypoint, not in transit; loop and stopped keepers left out), one row per market. */
+  private keeperReadMarkets(): KeeperReadMarket[] {
+    const out: KeeperReadMarket[] = [];
+    const seen = new Set<string>();
+    for (const [sym, agent] of this.keepers) {
+      const market = this.keeperMarkets.get(sym);
+      if (!market || seen.has(market) || !agent.running || this.isLoopKeeper(sym)) continue;
+      const nav = agent.getShip()?.nav;
+      if (!nav || nav.status === "IN_TRANSIT" || nav.waypointSymbol !== market) continue;
+      seen.add(market);
+      const at = Date.parse(this.registry.market(market)?.fetchedAt ?? "");
+      out.push({ waypoint: market, lastReadMs: Number.isFinite(at) ? at : undefined });
+    }
+    return out;
+  }
+
+  /** One scheduler tick: pick the most overdue keeper markets for this tick's share of the rate and read them through the proxy lanes. */
+  private async tickKeeperReads(now = Date.now()): Promise<void> {
+    const s = this.keeperReadSched;
+    const policy = this.keeperReadPolicy();
+    if (!policy.enabled || this.paused || this.haltedByDeadToken()) { s.lastTickAt = 0; s.carry = 0; s.last = undefined; return; }
+    const elapsedMs = s.lastTickAt ? now - s.lastTickAt : 0;
+    s.lastTickAt = now;
+    const plan = planKeeperReads({ markets: this.keeperReadMarkets(), nowMs: now, laneCapacityPerMin: this.keeperReadLaneCapacity(), inFlight: s.inFlight, elapsedMs, carry: s.carry, intervals: (wp) => this.keeperReadInterval(wp, now) }, policy);
+    s.carry = plan.carry;
+    s.last = plan;
+    for (const wp of plan.read) {
+      s.inFlight.add(wp);
+      const before = this.registry.market(wp)?.fetchedAt;
+      void runWithApiRole("keeper", () => runWithApiPriority(API_PRIORITY.DEFERRABLE, () => this.recordMarketSnapshot(wp, { maxAgeMs: 0 })))
+        .then(() => {
+          if (this.registry.market(wp)?.fetchedAt === before) return;
+          const at = Date.now();
+          s.reads.note(at);
+          this.keeperReads.note(at);
+        })
+        .catch(() => { /* recordMarketSnapshot swallows its own errors */ })
+        .finally(() => s.inFlight.delete(wp));
+    }
+  }
+
+  /** Whether a keeper ship skips its own read of `market` because the scheduler read it within its interval (with slack). */
+  private keeperShipSkipsRead(market: string): boolean {
+    const policy = this.keeperReadPolicy();
+    if (!policy.enabled) return false;
+    const at = Date.parse(this.registry.market(market)?.fetchedAt ?? "");
+    const override = this.keeperReadInterval(market, Date.now());
+    return keeperShipSkipsRead({
+      schedulerActive: this.keeperReadLaneCapacity() > 0,
+      lastReadMs: Number.isFinite(at) ? at : undefined,
+      nowMs: Date.now(),
+      intervalMs: override !== undefined && override > 0 ? override : policy.targetPassMin * 60_000,
+    });
+  }
+
+  /** The scheduler's figures for ops keeper_coverage. */
+  private keeperReadSchedulerStatus(now: number): Record<string, unknown> {
+    const p = this.keeperReadPolicy();
+    const last = this.keeperReadSched.last;
+    return {
+      enabled: p.enabled,
+      targetPassMin: p.targetPassMin,
+      ceilingPerMin: Number.isFinite(p.ceilingPerMin) ? p.ceilingPerMin : null,
+      laneCapacityPerMin: Math.round(this.keeperReadLaneCapacity() * 10) / 10,
+      demandPerMin: last?.demandPerMin ?? null,
+      plannedPerMin: last?.plannedPerMin ?? null,
+      achievedPerMin: Math.round(this.keeperReadSched.reads.perMin(now) * 10) / 10,
+      projectedPassMin: last?.projectedPassMin ?? null,
+      limitedBy: last?.limitedBy ?? (p.enabled ? null : "off"),
+      due: last?.due ?? null,
+      inFlight: this.keeperReadSched.inFlight.size,
+      lastReason: last?.reason ?? null,
+    };
+  }
+
   /** After every keeper read: the read rate, and a loop keeper steps to its next market (saved at once). */
   private onKeeperRead(ship: string, market: string): void {
     const now = Date.now();
@@ -6702,6 +6813,8 @@ export class FleetManager {
         waitingForKeepersIncludingQueuedSystems: f.listedPending,
         lastAddedAt: lastAdd ? new Date(lastAdd).toISOString() : null,
         lastCheck: this.topUpLast ? { at: new Date(this.topUpLast.at).toISOString(), reason: this.topUpLast.reason, market: this.topUpLast.market ?? null } : null,
+        /** The rate-based keeper read scheduler (clause keeperReadScheduler): target pass time, planned and achieved reads a minute. */
+        readScheduler: this.keeperReadSchedulerStatus(now),
       },
       readTiers: this.readTiers.report(this.keeperMarkets.values(), now, this.keeperReads.perMin(now)),
       taskTiming: this.taskTimingSummary(),
@@ -12157,7 +12270,7 @@ export class FleetManager {
         hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
         keeperMarket: () => this.keeperMarkets.get(sym), keeperLooping: () => this.isLoopKeeper(sym),
         keeperPollMs: (wp) => this.keeperPollMs(wp), keeperReadWaitMs: (wp) => this.readTiers.waitMs(wp, Date.now()),
-        onKeeperRead: (m) => this.onKeeperRead(sym, m),
+        onKeeperRead: (m) => this.onKeeperRead(sym, m), keeperSkipRead: (wp) => this.keeperShipSkipsRead(wp),
         getCredits: () => this.spendableCredits(),
         scrapHere: async (sym: string) => { await this.scrapShip(sym); },
         galaxy: this.galaxy,
@@ -13349,6 +13462,7 @@ export class FleetManager {
     const rest = [
       this.runLoop("feeds", FleetManager.FEEDS_INTERVAL_MS, () => this.tickFeeds()),
       this.runLoop("maintenance", FleetManager.MAINTENANCE_INTERVAL_MS, () => this.tickMaintenance()),
+      this.runLoop("keeperReads", FleetManager.KEEPER_READ_TICK_MS, () => this.tickKeeperReads()),
       ...(FleetManager.TRANSIT_RECONCILE_MS > 0
         ? [this.runLoop("transits", Math.max(10_000, FleetManager.TRANSIT_RECONCILE_MS), () => this.reconcileOverdueTransits())]
         : []),
