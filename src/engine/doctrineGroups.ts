@@ -175,6 +175,7 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   keeperReadTopRoutes: ["api", "Keeper read tiers"],
   keeperReadWarmMinProfit: ["api", "Keeper read tiers"],
   keeperReadRecentTradeHours: ["api", "Keeper read tiers"],
+  keeperBatchedSnapshotWrites: ["api", "Keeper polling"],
   routeReuseMaxSec: ["api", "Dispatcher cost"],
   openingAutomation: ["auto", "Opening"],
   jevAttention: ["auto", "Advisory"],

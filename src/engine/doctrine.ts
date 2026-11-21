@@ -766,6 +766,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperBatchedSnapshotWrites",
+    name: "Keepers: save a market read in one database trip",
+    description: "On = a market read (a keeper's poll, and every other ship's market snapshot through the same path) saves its prices in one database connection with two multi-row writes, instead of one connection and two writes per good (about 20 round trips for a 10-good market, each waiting its turn for the pool). The rows saved are exactly the same. Why: on 2026-11-21 12 keeper lane workers managed only about 40 market reads a minute, so a keeper task held its worker 15-18 s while the API wait was 0.1-0.4 s (issue #66); ops keeper_coverage's taskTiming shows where a keeper task's time goes (db.wait, db.query, api.wait, ...) so the effect can be checked before and after. Off (the default) = one write per good, as before. Takes effect on the next read.",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "apiLaneProxy",
     name: "API: send the calls nothing waits on through a second IP",
     description: "On = read-only GETs at this priority or lower urgency leave through the proxy lane (API_LANE_PROXY_URL in the box's environment) instead of the box's IP, each lane with its own token bucket: 3 = keeper market and shipyard reads, remote surveys and fleet-state refreshes (about 28% of calls on 2026-11-06), 4 = telemetry only. Trades, jumps, docks and every write stay on the box, and boot never moves. If the proxy fails, a read goes out on the box's IP instead, and a breaker stops trying it for two minutes after three failures in a row. The box's IP is full (104 of 105 calls a minute, keeper market waits of 3-4 s, 2-6 429s a minute), so this is the way to give the keepers more calls without taking any from the traders. Raise keeperTopUpMaxCalls once it is on, so the keeper top-up counts the new capacity. No effect unless API_LANE_PROXY_URL is set. Off (the default) = every call leaves from the box, as before. Takes effect on the next request.",

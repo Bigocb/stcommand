@@ -2576,6 +2576,58 @@ export class Store {
   }
 
   /**
+   * One market's snapshot in one pool checkout (issue #66, clause keeperBatchedSnapshotWrites): exactly the rows that
+   * calling recordMarket() once per good writes — every row appended to market_snapshots, and market_latest left holding
+   * the last row per good — but as two multi-row INSERTs instead of one checkout and two INSERTs per good. Unlike
+   * recordMarkets(), a good listed twice cannot fail the upsert ("ON CONFLICT DO UPDATE command cannot affect row a
+   * second time"): market_latest gets only its last row, as the per-good path would have left it.
+   */
+  async recordMarketSnapshotBatch(rows: Omit<MarketRow, "timestamp">[]): Promise<void> {
+    this.dropLatestMemo();
+    if (rows.length === 0) return;
+    const lastByGood = new Map<string, Omit<MarketRow, "timestamp">>();
+    for (const r of rows) lastByGood.set(`${r.waypointSymbol}\u0000${r.goodSymbol}`, r);
+    const latest = [...lastByGood.values()];
+    const valuesFor = (list: Omit<MarketRow, "timestamp">[]): { sql: string; params: unknown[] } => {
+      const params: unknown[] = [];
+      const tuples = list.map((m, idx) => {
+        params.push(m.systemSymbol, m.waypointSymbol, m.goodSymbol, m.type, m.supply, m.purchasePrice, m.sellPrice, m.tradeVolume, m.activity ?? null);
+        const b = idx * 9;
+        return `(${Array.from({ length: 9 }, (_, k) => `$${b + k + 1}`).join(", ")}, now())`;
+      });
+      return { sql: tuples.join(", "), params };
+    };
+    const CHUNK = 200;
+    await withPool(this.pool, async (c) => {
+      for (let i = 0; i < rows.length; i += CHUNK) {
+        const h = valuesFor(rows.slice(i, i + CHUNK));
+        await c.query(
+          `INSERT INTO market_snapshots (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, activity, timestamp)
+           VALUES ${h.sql}`,
+          h.params,
+        );
+      }
+      for (let i = 0; i < latest.length; i += CHUNK) {
+        const l = valuesFor(latest.slice(i, i + CHUNK));
+        await c.query(
+          `INSERT INTO market_latest (system_symbol, waypoint_symbol, good_symbol, type, supply, purchase_price, sell_price, trade_volume, activity, timestamp)
+           VALUES ${l.sql}
+           ON CONFLICT (waypoint_symbol, good_symbol) DO UPDATE SET
+             activity = excluded.activity,
+             system_symbol = excluded.system_symbol,
+             type = excluded.type,
+             supply = excluded.supply,
+             purchase_price = excluded.purchase_price,
+             sell_price = excluded.sell_price,
+             trade_volume = excluded.trade_volume,
+             timestamp = excluded.timestamp`,
+          l.params,
+        );
+      }
+    });
+  }
+
+  /**
    * The full recorded price history for one good at one waypoint, newest
    * first — a plain read of the append-only `market_snapshots` table
    * (never overwritten, unlike `market_latest`), for watching whether a

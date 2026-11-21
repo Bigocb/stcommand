@@ -33,6 +33,26 @@ Off (the default) = today's behaviour exactly, with a test. The logic is the pur
 `keeperReadIntervals` gives the `Map<waypoint, intervalMs>` the rate-based keeper read scheduler takes); `keeperReadTiersLive.ts`
 reads doctrine and the fleet's sources. Tests: `tests/keeperReadTiers.test.ts`. The brief doctrine catalog limit in
 `tests/doctrineGroups.test.ts` goes from 64k to 66k for the seven new clauses.
+## 2026-11-21 — Keeper tasks: per-task timing, and one database trip per market read (clause `keeperBatchedSnapshotWrites`, off)
+
+Issue #66 (parent #65). On 2026-11-21 the 12 keeper lane workers (`keeperLaneWorkers`) managed only about 40 market reads a minute,
+so each keeper task held its worker 15-18 s, while the proxy lanes answered in 0.1-0.4 s and the box's IP was at 44-67% of its budget.
+The API was not the limit, and nothing showed where the rest of the time went.
+
+- **Timing.** Every scheduler task now runs with a small timer carried on the async context (`src/core/stepTiming.ts`). The API client
+  adds the time a request waited in the rate limiter (`api.wait`), spent on the wire (`api.request`, `api.read`) and slept before a
+  retry (`api.backoff`); the database pool adds the time spent waiting for a free connection (`db.wait`) and holding one (`db.query`).
+  The rest is `other`. `src/engine/taskTiming.ts` (pure) keeps 10 minutes of these per task kind. The keeper split is logged every
+  5 minutes (`task timing: keeper tasks N in 10m: held avg ... · db.wait ... · api.wait ...`), and ops `keeper_coverage` returns it
+  for every task kind as `taskTiming`. Telemetry only: nothing decides from it, and it restarts empty after a deploy.
+- **Batched snapshot writes.** A market read saved its prices one good at a time: one pool checkout and two INSERTs per good, so a
+  20-good market was 20 sequential checkouts and 40 round trips, each queuing for the 20-connection pool that the other workers,
+  the trader loop and the dashboard also use. With the new clause `keeperBatchedSnapshotWrites` on, the same rows go in one checkout
+  as two multi-row INSERTs (`Store.recordMarketSnapshotBatch`; a good listed twice keeps its last row in `market_latest`, as before).
+  It applies to every market read through `recordMarketSnapshot`, keepers and other ships alike. Off (the default) = one write per
+  good, as before. The snapshot is still written before the task ends; nothing is held only in memory.
+- To judge it: read `keeper_coverage`'s `taskTiming` for the keeper kind (`db.wait` + `db.query` against the held average and their
+  counts per task), switch the clause on, and compare after 10 minutes, together with `measuredKeeperReadsPerMin`.
 
 ## 2026-11-20 — Fresh systems: stage up to 12 ahead (clause `freshStagedAhead` range 1-12, was 1-5)
 

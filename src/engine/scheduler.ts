@@ -18,6 +18,8 @@
  * docs/control-plane-data-plane.md §5.
  */
 
+import { StepTimer, runWithStepTimer } from "../core/stepTiming.js";
+
 export type Priority = 0 | 1 | 2 | 3 | 4; // 0 rescue · 1 mission · 2 trade · 3 survey/keeper · 4 telemetry
 
 export interface TaskResult {
@@ -118,8 +120,10 @@ export class Scheduler {
   /** How many priority-3-and-lower-urgency tasks (keepers, survey) may run side by side with the main loop; 0 or unset keeps them in the main loop. */
   private readonly lowPriorityWorkers: () => number;
   private lowInFlight = 0;
+  /** Told how long each task held its worker and where the time went (issue #66, taskTiming.ts). Telemetry only. */
+  private readonly onTaskTimed?: (task: Task, totalMs: number, timer: StepTimer) => void;
 
-  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void; runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>, shipSymbol?: string) => Promise<T>; lowPriorityWorkers?: () => number } = {}) {
+  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void; runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>, shipSymbol?: string) => Promise<T>; lowPriorityWorkers?: () => number; onTaskTimed?: (task: Task, totalMs: number, timer: StepTimer) => void } = {}) {
     // Matches Client's own RateLimiter (see client.ts's comment) — admitting
     // tasks faster than the transport layer can actually sustain just means
     // more of them arrive at the real 429 ceiling instead of waiting here.
@@ -139,6 +143,7 @@ export class Scheduler {
     this.setClientPriority = opts.setClientPriority;
     this.runWithPriority = opts.runWithPriority;
     this.lowPriorityWorkers = opts.lowPriorityWorkers ?? (() => 0);
+    this.onTaskTimed = opts.onTaskTimed;
   }
 
   enqueue(task: Task): void {
@@ -204,8 +209,11 @@ export class Scheduler {
     // can never leave the Client parked at a boosted priority for whatever
     // runs after it.
     if (!this.runWithPriority) this.setClientPriority?.(task.priority);
+    const timer = this.onTaskTimed ? new StepTimer() : undefined;
+    const startedAt = Date.now();
     try {
-      const result = this.runWithPriority ? await this.runWithPriority(task.priority, () => task.run(), task.shipSymbol) : await task.run();
+      const work = () => (this.runWithPriority ? this.runWithPriority(task.priority, () => task.run(), task.shipSymbol) : task.run());
+      const result = timer ? await runWithStepTimer(timer, work) : await work();
       this.budget.consumeTokens(result.actualCalls);
       this.stats.ran += 1;
       this.lastRanAt = Date.now();
@@ -225,6 +233,9 @@ export class Scheduler {
       return false;
     } finally {
       if (!this.runWithPriority) this.setClientPriority?.(1);
+      if (timer) {
+        try { this.onTaskTimed!(task, Date.now() - startedAt, timer); } catch { /* telemetry must never fail a task */ }
+      }
     }
   }
 

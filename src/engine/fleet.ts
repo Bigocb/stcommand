@@ -1,4 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import type { StepTimer } from "../core/stepTiming.js";
+import { TaskTimingWindow, describeTiming, taskKind, type TaskTimingSummary } from "./taskTiming.js";
 import { packFleetMemory, unpackFleetMemory } from "./fleetMemory.js";
 import { API_PRIORITY, runWithApiPriority, type SpaceTradersAPI } from "../core/client.js";
 import type { components } from "../core/client.js";
@@ -3256,18 +3258,22 @@ export class FleetManager {
       if (!goods.length) return;
       const moduleGoods: { symbol: string; name: string; category: string; purchasePrice: number }[] = [];
       const mountGoods: { symbol: string; name: string; category: string; purchasePrice: number }[] = [];
+      const rows = goods.map((g) => ({
+        systemSymbol,
+        waypointSymbol,
+        goodSymbol: g.symbol,
+        type: g.type,
+        supply: g.supply,
+        purchasePrice: g.purchasePrice,
+        sellPrice: g.sellPrice,
+        tradeVolume: g.tradeVolume,
+        activity: g.activity,
+      }));
+      // Clause keeperBatchedSnapshotWrites (issue #66): the same rows in one pool checkout (two multi-row INSERTs) instead of
+      // one checkout and two INSERTs per good, which held a keeper lane worker for ~20 sequential round trips. Off = per good.
+      if (this.doctrine.isEnabledOr("keeperBatchedSnapshotWrites", false)) await this.store?.recordMarketSnapshotBatch(rows);
+      else for (const row of rows) await this.store?.recordMarket(row);
       for (const g of goods) {
-        await this.store?.recordMarket({
-          systemSymbol,
-          waypointSymbol,
-          goodSymbol: g.symbol,
-          type: g.type,
-          supply: g.supply,
-          purchasePrice: g.purchasePrice,
-          sellPrice: g.sellPrice,
-          tradeVolume: g.tradeVolume,
-          activity: g.activity,
-        });
         if (g.symbol.startsWith("MODULE_")) {
           moduleGoods.push({ symbol: g.symbol, name: g.symbol, category: g.type, purchasePrice: g.purchasePrice });
         } else if (g.symbol.startsWith("MOUNT_")) {
@@ -3306,6 +3312,25 @@ export class FleetManager {
     } catch (err) {
       // ignore: market may not be scannable
     }
+  }
+
+  /** Where scheduler tasks spend the time they hold a worker (issue #66). A diagnostic cache: nothing decides from it, a restart starts it empty. */
+  private readonly taskTiming = new TaskTimingWindow();
+  private taskTimingLoggedAt = Date.now();
+
+  /** Called by the scheduler after every task (tenantRegistry wires it). Logs the keeper split every 5 minutes. */
+  noteTaskTiming(taskId: string, totalMs: number, timer: StepTimer): void {
+    const now = Date.now();
+    this.taskTiming.note({ at: now, kind: taskKind(taskId), totalMs, steps: { ...timer.ms }, counts: { ...timer.counts } });
+    if (now - this.taskTimingLoggedAt < 5 * 60_000) return;
+    this.taskTimingLoggedAt = now;
+    const keeper = this.taskTiming.summary(now, "keeper")[0];
+    if (keeper) this.log(`task timing: ${describeTiming(keeper)}`);
+  }
+
+  /** Task timing summaries over the last 10 minutes, per kind (ops keeper_coverage shows them as taskTiming). */
+  taskTimingSummary(): TaskTimingSummary[] {
+    return this.taskTiming.summary(Date.now());
   }
 
   /** Decide a ship's role: miner (has mining mount + cargo) vs trader (cargo) vs scout vs idle. */
@@ -6653,7 +6678,7 @@ export class FleetManager {
   }
 
   /** For the ops tool keeper_coverage: per live system, its viable markets, how many have a keeper and how many top-up still has to add, and why top-up is or is not adding. */
-  async keeperCoverageData(): Promise<{ rows: CoverageRow[]; topUp: Record<string, unknown>; readTiers: Record<string, unknown> }> {
+  async keeperCoverageData(): Promise<{ rows: CoverageRow[]; topUp: Record<string, unknown>; readTiers: Record<string, unknown>; taskTiming: TaskTimingSummary[] }> {
     const now = Date.now();
     const f = await this.topUpFacts(now);
     const timers = this.timers();
@@ -6679,6 +6704,7 @@ export class FleetManager {
         lastCheck: this.topUpLast ? { at: new Date(this.topUpLast.at).toISOString(), reason: this.topUpLast.reason, market: this.topUpLast.market ?? null } : null,
       },
       readTiers: this.readTiers.report(this.keeperMarkets.values(), now, this.keeperReads.perMin(now)),
+      taskTiming: this.taskTimingSummary(),
     };
   }
 

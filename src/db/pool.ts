@@ -1,5 +1,6 @@
 import pg from "pg";
 import { isUniverseKey } from "../engine/universe.js";
+import { noteStep } from "../core/stepTiming.js";
 
 const { Pool } = pg;
 
@@ -131,7 +132,10 @@ async function runAsTenant<T>(pool: pg.Pool, tenantId: string, scope: UniverseSc
   if (!UUID_RE.test(tenantId)) throw new Error(`withTenant: not a uuid: ${JSON.stringify(tenantId)}`);
   const universe = scope === undefined ? tenantUniverses.get(tenantId) : scope;
   if (universe !== null && universe !== undefined && !isUniverseKey(universe)) throw new Error(`withTenant: not a universe key: ${JSON.stringify(universe)}`);
+  const waitAt = Date.now();
   const client = await pool.connect();
+  const heldAt = Date.now();
+  noteStep("db.wait", heldAt - waitAt);
   try {
     await client.query("BEGIN");
     // One round trip for both settings. The universe key is always set, so a pooled connection that last ran under
@@ -145,6 +149,7 @@ async function runAsTenant<T>(pool: pg.Pool, tenantId: string, scope: UniverseSc
     throw err;
   } finally {
     client.release();
+    noteStep("db.query", Date.now() - heldAt);
   }
 }
 
@@ -196,10 +201,15 @@ export function withTenantAllUniverses<T>(pool: pg.Pool, tenantId: string, fn: (
  * shipyard_inventory, module_catalog) — no tenant context needed or set.
  */
 export async function withPool<T>(pool: pg.Pool, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  // Per-task timing (src/core/stepTiming.ts): time waiting for a free connection, then time holding it. No-op outside a timed task.
+  const waitAt = Date.now();
   const client = await pool.connect();
+  const heldAt = Date.now();
+  noteStep("db.wait", heldAt - waitAt);
   try {
     return await fn(client);
   } finally {
     client.release();
+    noteStep("db.query", Date.now() - heldAt);
   }
 }

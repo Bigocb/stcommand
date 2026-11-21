@@ -1,4 +1,5 @@
 import { apiCallLog } from "./apiCallLog.js";
+import { noteStep } from "./stepTiming.js";
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { ShipObserver } from "../engine/shipSnapshots.js";
 import { shipsTouched } from "../engine/shipBook.js";
@@ -688,6 +689,8 @@ export class Client {
       const waitStart = Date.now();
       await limiter.acquire(priority, this.label, kind, caller);
       const sentAt = Date.now();
+      // Per-task timing (stepTiming.ts): a no-op unless the running task carries a timer.
+      noteStep("api.wait", sentAt - waitStart);
       // One row per request actually sent (a retry after a 429 is its own request): who asked, how long it waited, what the game said.
       const note = (status: number): void => {
         try { apiCallLog.record({ at: sentAt, role: roleContext.getStore() ?? "?", kind, priority, waitMs: sentAt - waitStart, durationMs: status === 0 ? 0 : Date.now() - sentAt, status, lane }); } catch { /* telemetry must never fail the request */ }
@@ -723,6 +726,7 @@ export class Client {
           : await fetch(url, { ...init, signal: controller.signal });
       } catch (err) {
         note(0);
+        noteStep("api.request", Date.now() - sentAt);
         // The proxy failed (refused, timed out, plan limit): count it against the breaker and send the retry on the normal path.
         if (slot) { slot.breaker.failure(Date.now()); forceBox = true; }
         // A stalled connection (or any other fetch-level rejection) must not
@@ -733,6 +737,7 @@ export class Client {
         if (attempt < this.maxRetries) {
           const delayMs = this.retryBackoffMs * 2 ** attempt;
           attempt += 1;
+          noteStep("api.backoff", delayMs);
           await sleep(delayMs);
           continue;
         }
@@ -747,6 +752,7 @@ export class Client {
       }
 
       note(res.status);
+      noteStep("api.request", Date.now() - sentAt);
       // A proxy that answers 401, 403 or 407 is refusing us, not the game answering: count it, and send the retry on the normal path
       // instead of showing the caller an auth error the box would not have produced.
       if (slot && (res.status === 401 || res.status === 403 || res.status === 407) && attempt < this.maxRetries) {
@@ -767,17 +773,21 @@ export class Client {
         this.onRateLimited?.(delayMs / 1000, attempt, limitHeaders);
         if (attempt < this.maxRetries) {
           attempt += 1;
+          noteStep("api.backoff", delayMs);
           await sleep(delayMs);
           continue;
         }
       } else if (res.status >= 500 && attempt < this.maxRetries) {
         const delayMs = this.retryBackoffMs * 2 ** attempt;
+        noteStep("api.backoff", delayMs);
         await sleep(delayMs);
         attempt += 1;
         continue;
       }
 
+      const readAt = Date.now();
       const text = await res.text();
+      noteStep("api.read", Date.now() - readAt);
       // Bytes the game sent back, by lane and call kind: the proxy plan is billed in bytes (docs/api-lanes-pool-plan.md, step 0).
       try {
         const bytes = Buffer.byteLength(text);

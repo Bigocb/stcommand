@@ -522,7 +522,7 @@ export class TenantRegistry {
     // point it's long since been assigned. Same forward-reference pattern
     // MissionManager's own callbacks into FleetManager already use.
     let fleet!: FleetManager;
-    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused(), log, setClientPriority: (p) => api.setPriority(p), runWithPriority: (p, fn, sym) => runWithApiRole(sym ? fleet.apiRoleOf(sym) : "fleet", () => runWithApiPriority(taskToApiPriority(p), fn)), lowPriorityWorkers: () => (fleet?.doctrine ? fleet.doctrine.value("keeperLaneWorkers", 0) : 0) });
+    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused(), log, setClientPriority: (p) => api.setPriority(p), runWithPriority: (p, fn, sym) => runWithApiRole(sym ? fleet.apiRoleOf(sym) : "fleet", () => runWithApiPriority(taskToApiPriority(p), fn)), lowPriorityWorkers: () => (fleet?.doctrine ? fleet.doctrine.value("keeperLaneWorkers", 0) : 0), onTaskTimed: (task, ms, timer) => fleet?.noteTaskTiming(task.id, ms, timer) });
     fleet = new FleetManager({
       api,
       contracts,
