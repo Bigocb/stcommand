@@ -1,0 +1,906 @@
+<title>stcommand Schema</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+/* Layout: a reference sheet. Short intro, legend, a sticky section index, then one band per area: diagram first, table cards below. */
+:root {
+  --bg:#f6f7f9; --panel:#ffffff; --fg:#17202b; --muted:#5b6675; --line:#d9dee6;
+  --accent:#2b6cb0; --shared:#7a5af8; --rls:#1f8a5b; --code:#eef1f5;
+  --display:"Space Grotesk",system-ui,sans-serif; --body:"IBM Plex Sans",system-ui,sans-serif; --mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg:#0f141b; --panel:#161d27; --fg:#e4e9f0; --muted:#9aa6b5; --line:#2a3442; --accent:#6aa7ef; --shared:#a891ff; --rls:#4cc38a; --code:#1d2632; color-scheme:dark } }
+:root[data-theme="dark"] { --bg:#0f141b; --panel:#161d27; --fg:#e4e9f0; --muted:#9aa6b5; --line:#2a3442; --accent:#6aa7ef; --shared:#a891ff; --rls:#4cc38a; --code:#1d2632; color-scheme:dark }
+body { background:var(--bg); color:var(--fg); font-family:var(--body); font-size:15px; line-height:1.55; }
+.wrap { max-width:1180px; margin:0 auto; padding-left:max(16px, env(safe-area-inset-left,0px)); padding-right:max(16px, env(safe-area-inset-right,0px)); padding-block:32px 64px; }
+h1,h2 { font-family:var(--display); text-wrap:balance; letter-spacing:-0.01em }
+h1 { font-size:2rem; margin:0 0 6px }
+h2 { font-size:1.35rem; margin:0 0 4px }
+p { max-width:68ch }
+.sub { color:var(--muted); margin:0 0 20px }
+code { font-family:var(--mono); font-size:.86em; background:var(--code); padding:1px 5px; border-radius:4px }
+.facts { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:12px; margin:20px 0 }
+.fact { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px 14px; min-width:0 }
+.fact b { display:block; font-family:var(--display); font-size:.95rem; margin-bottom:2px }
+.fact span { color:var(--muted); font-size:.9rem }
+.legend { display:flex; flex-wrap:wrap; gap:14px 22px; color:var(--muted); font-size:.88rem; margin:8px 0 4px }
+.legend i { display:inline-block; width:28px; vertical-align:middle; margin-right:6px; border-top:2px solid var(--fg) }
+.legend i.dot { border-top-style:dashed }
+nav.toc { position:sticky; top:env(safe-area-inset-top,0px); z-index:5; background:var(--bg); border-bottom:1px solid var(--line); padding:10px 0; display:flex; flex-wrap:wrap; gap:6px 8px; align-items:center }
+body::before { content:""; position:fixed; inset:0 0 auto; height:env(safe-area-inset-top,0px); z-index:10; background:var(--bg) }
+nav.toc a { color:var(--fg); text-decoration:none; font-size:.85rem; padding:4px 9px; border:1px solid var(--line); border-radius:999px; background:var(--panel) }
+nav.toc a span { color:var(--muted); font-variant-numeric:tabular-nums }
+nav.toc a:hover, nav.toc a:focus-visible { border-color:var(--accent); outline:none }
+nav.toc input { margin-left:auto; min-width:0; flex:1 1 180px; max-width:260px; font:inherit; font-size:.88rem; padding:5px 10px; border:1px solid var(--line); border-radius:6px; background:var(--panel); color:var(--fg) }
+section { padding-top:34px; scroll-margin-top:70px }
+.lede { color:var(--muted); margin:0 0 14px }
+.diagram { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; overflow-x:auto }
+.diagram pre { margin:0; min-width:600px }
+.list { display:grid; grid-template-columns:repeat(auto-fill,minmax(320px,1fr)); gap:8px; margin-top:12px }
+details.tbl { background:var(--panel); border:1px solid var(--line); border-radius:8px; min-width:0 }
+details.tbl summary { cursor:pointer; padding:10px 12px; display:flex; flex-wrap:wrap; gap:4px 8px; align-items:baseline; list-style:none }
+details.tbl summary::-webkit-details-marker { display:none }
+details.tbl summary:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; border-radius:8px }
+details.tbl .d { flex-basis:100%; color:var(--muted); font-size:.86rem }
+details.tbl .n { margin-left:auto; color:var(--muted); font-size:.78rem; font-variant-numeric:tabular-nums }
+.tag { font-size:.7rem; text-transform:uppercase; letter-spacing:.06em; padding:1px 6px; border-radius:4px; border:1px solid currentColor }
+.tag.rls { color:var(--rls) } .tag.shared { color:var(--shared) }
+ul.cols { list-style:none; margin:0; padding:4px 12px 12px; border-top:1px solid var(--line); columns:2 200px; column-gap:16px }
+ul.cols li { font-size:.84rem; padding:2px 0; break-inside:avoid; overflow-wrap:anywhere }
+ul.cols code { background:none; padding:0 }
+ul.cols .ty { color:var(--muted); font-family:var(--mono); font-size:.78rem }
+ul.cols .k { font-size:.66rem; color:var(--accent); margin-left:3px }
+footer { color:var(--muted); font-size:.85rem; margin-top:40px; border-top:1px solid var(--line); padding-top:14px }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior:auto !important } }
+</style>
+<div class="wrap">
+<h1>stcommand database schema</h1>
+<p class="sub">PostgreSQL, 66 tables, built by 68 migration files. One server runs many SpaceTraders agents ("tenants"); this is everything it stores. Structure only: no data, tokens or keys.</p>
+<div class="facts">
+ <div class="fact"><b>Per-player tables</b><span>Carry <code>tenant_id</code> → <code>tenants.id</code>. Row-level security limits every query to the signed-in player, so code never filters by hand.</span></div>
+ <div class="fact"><b>Shared galaxy tables</b><span>Markets, systems, gates and yards are facts about the galaxy, read by every player and wiped at each weekly reset.</span></div>
+ <div class="fact"><b>Ships by symbol</b><span>Ship tables key on <code>(tenant_id, ship_symbol)</code> with no ships table: the game API is the source of truth for ships.</span></div>
+ <div class="fact"><b>Weeks kept apart</b><span><code>universe_key</code> = <code>agent@reset date</code> on the ledger and event tables, so last week's rows never mix with this week's.</span></div>
+</div>
+<div class="legend"><span><i></i>foreign key (enforced)</span><span><i class="dot"></i>joined by value (not enforced)</span><span><span class="tag rls">per player</span> row-level security</span><span><span class="tag shared">shared</span> one copy for all players</span></div>
+<nav class="toc" aria-label="Sections"><a href="#accounts">Accounts and access <span>4</span></a><a href="#fleet">Fleet and ships <span>12</span></a><a href="#money">Money and trading <span>8</span></a><a href="#markets">Galaxy and markets (shared) <span>15</span></a><a href="#control">Plans, rules and approvals <span>11</span></a><a href="#analysis">Analysis and seasons <span>7</span></a><a href="#ops">Server health <span>5</span></a><a href="#rivals">Other players (public data) <span>4</span></a><input id="q" type="search" placeholder="Find a table or column" aria-label="Find a table or column"></nav>
+<section id="accounts"><h2>Accounts and access</h2><p class="lede">Who is playing and how they sign in. Every per-player table points at tenants.</p>
+<div class="diagram"><pre class="mermaid">erDiagram
+  tenants {
+    uuid id PK
+    text agent_symbol
+    bytea token_enc
+    bytea token_iv
+    timestamptz created_at
+    timestamptz last_seen_at
+    bytea discord_webhook_enc
+    bytea discord_webhook_iv
+    text llm_provider
+    text llm_base_url
+    text llm_model
+    bytea llm_key_enc
+    bytea llm_key_iv
+    boolean discord_enabled
+    boolean onboarding_pending
+    text play_profile
+  }
+  sessions {
+    uuid id PK
+    uuid tenant_id FK
+    timestamptz created_at
+    timestamptz expires_at
+  }
+  tenant_mcp_keys {
+    uuid id PK
+    uuid tenant_id FK
+    text key_hash
+    text label
+    timestamptz created_at
+    timestamptz last_used_at
+    timestamptz revoked_at
+  }
+  push_subscriptions {
+    uuid id PK
+    uuid tenant_id FK
+    text endpoint
+    text p256dh
+    text auth
+    text user_agent
+    jsonb prefs
+    jsonb delivery
+    timestamptz created_at
+    timestamptz updated_at
+    timestamptz last_sent_at
+    integer failures
+    text last_error
+  }
+  tenants ||--o{ sessions : &quot;tenant_id&quot;
+  tenants ||--o{ tenant_mcp_keys : &quot;tenant_id&quot;
+  tenants ||--o{ push_subscriptions : &quot;tenant_id&quot;</pre></div>
+<div class="list"><details class="tbl" id="t-tenants" data-name="tenants"><summary><code>tenants</code> <span class="tag shared">shared</span><span class="d">One row per player agent; game token and optional integrations stored encrypted.</span><span class="n">16 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">uuid</span> <b class=k>PK</b></li><li><code>agent_symbol</code> <span class="ty">text</span></li><li><code>token_enc</code> <span class="ty">bytea</span></li><li><code>token_iv</code> <span class="ty">bytea</span></li><li><code>created_at</code> <span class="ty">timestamptz</span></li><li><code>last_seen_at</code> <span class="ty">timestamptz</span></li><li><code>discord_webhook_enc</code> <span class="ty">bytea</span></li><li><code>discord_webhook_iv</code> <span class="ty">bytea</span></li><li><code>llm_provider</code> <span class="ty">text</span></li><li><code>llm_base_url</code> <span class="ty">text</span></li><li><code>llm_model</code> <span class="ty">text</span></li><li><code>llm_key_enc</code> <span class="ty">bytea</span></li><li><code>llm_key_iv</code> <span class="ty">bytea</span></li><li><code>discord_enabled</code> <span class="ty">boolean</span></li><li><code>onboarding_pending</code> <span class="ty">boolean</span></li><li><code>play_profile</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-sessions" data-name="sessions"><summary><code>sessions</code> <span class="tag shared">shared</span><span class="d">Dashboard sign-in sessions.</span><span class="n">4 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">uuid</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>created_at</code> <span class="ty">timestamptz</span></li><li><code>expires_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-tenant_mcp_keys" data-name="tenant_mcp_keys"><summary><code>tenant_mcp_keys</code> <span class="tag shared">shared</span><span class="d">Hashed API keys for the MCP server.</span><span class="n">7 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">uuid</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>key_hash</code> <span class="ty">text</span></li><li><code>label</code> <span class="ty">text</span></li><li><code>created_at</code> <span class="ty">timestamptz</span></li><li><code>last_used_at</code> <span class="ty">timestamptz</span></li><li><code>revoked_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-push_subscriptions" data-name="push_subscriptions"><summary><code>push_subscriptions</code> <span class="tag rls">per player</span><span class="d">Web-push endpoints for alerts.</span><span class="n">13 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">uuid</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>endpoint</code> <span class="ty">text</span></li><li><code>p256dh</code> <span class="ty">text</span></li><li><code>auth</code> <span class="ty">text</span></li><li><code>user_agent</code> <span class="ty">text</span></li><li><code>prefs</code> <span class="ty">jsonb</span></li><li><code>delivery</code> <span class="ty">jsonb</span></li><li><code>created_at</code> <span class="ty">timestamptz</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li><li><code>last_sent_at</code> <span class="ty">timestamptz</span></li><li><code>failures</code> <span class="ty">integer</span></li><li><code>last_error</code> <span class="ty">text</span></li></ul></details></div></section>
+<section id="fleet"><h2>Fleet and ships</h2><p class="lede">Per-player ship state: role, task, claims, what each hold carries, movement history. Keyed by (tenant_id, ship_symbol). The <code>tenants</code> box is drawn in brief so the per-player links show.</p>
+<div class="diagram"><pre class="mermaid">erDiagram
+  fleet_state {
+    uuid tenant_id PK,FK
+    text ship_symbol PK
+    text role
+    text keeper_market
+    timestamptz updated_at
+    text parked_from
+  }
+  ship_state {
+    uuid tenant_id PK,FK
+    text ship_symbol PK
+    text state
+    text target
+    jsonb step
+    timestamptz updated_at
+  }
+  ship_claims {
+    uuid tenant_id PK,FK
+    text ship_symbol PK
+    text owner
+    text role
+    jsonb intent
+    timestamptz since
+  }
+  ship_manifest {
+    uuid tenant_id PK,FK
+    text ship_symbol PK
+    text good_symbol PK
+    integer units
+    float8 cost_basis
+    text basis_kind
+    text intent
+    timestamptz acquired_at
+  }
+  held_route {
+    uuid tenant_id PK,FK
+    text ship_symbol PK
+    text good_symbol PK
+    text buy_at
+    text sell_at
+    numeric buy_price
+    numeric sell_price
+    integer lot_size
+    numeric cost_basis
+    timestamptz updated_at
+    integer max_loss_per_unit
+  }
+  tour_queue {
+    uuid tenant_id PK,FK
+    text ship_symbol PK
+    text system_symbol
+    jsonb stops
+    timestamptz updated_at
+  }
+  ship_movements {
+    bigint id PK
+    uuid tenant_id FK
+    text universe_key
+    timestamptz at
+    text ship_symbol
+    text kind
+    text from_waypoint
+    text to_waypoint
+    real distance
+    integer fuel_before
+    integer fuel_after
+    integer cost
+    text source
+  }
+  ship_position_history {
+    uuid tenant_id FK
+    text ship_symbol
+    timestamptz timestamp
+    text waypoint_symbol
+    integer x
+    integer y
+    text status
+  }
+  ship_log {
+    bigint id PK
+    uuid tenant_id FK
+    text ship_symbol
+    timestamptz ts
+    text persona_key
+    text trigger_kind
+    integer notability
+    text detail
+    text entry
+  }
+  ship_persona {
+    uuid tenant_id PK,FK
+    text ship_symbol PK
+    text persona_key
+    timestamptz assigned_at
+  }
+  fleet_flags {
+    uuid tenant_id PK,FK
+    text key PK
+    text value
+    timestamptz updated_at
+  }
+  state_snapshot {
+    uuid tenant_id PK,FK
+    jsonb snapshot
+    timestamptz updated_at
+  }
+  tenants {
+    uuid id PK
+    text agent_symbol
+  }
+  tenants ||--o{ fleet_state : &quot;tenant_id&quot;
+  tenants ||--o{ ship_state : &quot;tenant_id&quot;
+  fleet_state ||..o{ ship_state : &quot;ship_symbol&quot;
+  tenants ||--o{ ship_claims : &quot;tenant_id&quot;
+  fleet_state ||..o{ ship_claims : &quot;ship_symbol&quot;
+  tenants ||--o{ ship_manifest : &quot;tenant_id&quot;
+  fleet_state ||..o{ ship_manifest : &quot;ship_symbol&quot;
+  tenants ||--o{ held_route : &quot;tenant_id&quot;
+  fleet_state ||..o{ held_route : &quot;ship_symbol&quot;
+  tenants ||--o{ tour_queue : &quot;tenant_id&quot;
+  fleet_state ||..o{ tour_queue : &quot;ship_symbol&quot;
+  tenants ||--o{ ship_movements : &quot;tenant_id&quot;
+  fleet_state ||..o{ ship_movements : &quot;ship_symbol&quot;
+  tenants ||--o{ ship_position_history : &quot;tenant_id&quot;
+  fleet_state ||..o{ ship_position_history : &quot;ship_symbol&quot;
+  tenants ||--o{ ship_log : &quot;tenant_id&quot;
+  fleet_state ||..o{ ship_log : &quot;ship_symbol&quot;
+  tenants ||--o{ ship_persona : &quot;tenant_id&quot;
+  fleet_state ||..o{ ship_persona : &quot;ship_symbol&quot;
+  tenants ||--o{ fleet_flags : &quot;tenant_id&quot;
+  tenants ||--o{ state_snapshot : &quot;tenant_id&quot;</pre></div>
+<div class="list"><details class="tbl" id="t-fleet_state" data-name="fleet_state"><summary><code>fleet_state</code> <span class="tag rls">per player</span><span class="d">Each ship&#x27;s role (trader, keeper, tour...) and, for keepers, the market it camps.</span><span class="n">6 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>ship_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>role</code> <span class="ty">text</span></li><li><code>keeper_market</code> <span class="ty">text</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li><li><code>parked_from</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-ship_state" data-name="ship_state"><summary><code>ship_state</code> <span class="tag rls">per player</span><span class="d">Each ship&#x27;s current task state machine step.</span><span class="n">6 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>ship_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>state</code> <span class="ty">text</span></li><li><code>target</code> <span class="ty">text</span></li><li><code>step</code> <span class="ty">jsonb</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-ship_claims" data-name="ship_claims"><summary><code>ship_claims</code> <span class="tag rls">per player</span><span class="d">Which subsystem owns a ship right now (mission, feed, operator).</span><span class="n">6 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>ship_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>owner</code> <span class="ty">text</span></li><li><code>role</code> <span class="ty">text</span></li><li><code>intent</code> <span class="ty">jsonb</span></li><li><code>since</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-ship_manifest" data-name="ship_manifest"><summary><code>ship_manifest</code> <span class="tag rls">per player</span><span class="d">What each hold carries and its cost basis.</span><span class="n">8 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>ship_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>good_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>units</code> <span class="ty">integer</span></li><li><code>cost_basis</code> <span class="ty">float8</span></li><li><code>basis_kind</code> <span class="ty">text</span></li><li><code>intent</code> <span class="ty">text</span></li><li><code>acquired_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-held_route" data-name="held_route"><summary><code>held_route</code> <span class="tag rls">per player</span><span class="d">A route pinned to a ship by the operator.</span><span class="n">11 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>ship_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>good_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>buy_at</code> <span class="ty">text</span></li><li><code>sell_at</code> <span class="ty">text</span></li><li><code>buy_price</code> <span class="ty">numeric</span></li><li><code>sell_price</code> <span class="ty">numeric</span></li><li><code>lot_size</code> <span class="ty">integer</span></li><li><code>cost_basis</code> <span class="ty">numeric</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li><li><code>max_loss_per_unit</code> <span class="ty">integer</span></li></ul></details><details class="tbl" id="t-tour_queue" data-name="tour_queue"><summary><code>tour_queue</code> <span class="tag rls">per player</span><span class="d">Stops left on a tour ship&#x27;s market tour.</span><span class="n">5 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>ship_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>system_symbol</code> <span class="ty">text</span></li><li><code>stops</code> <span class="ty">jsonb</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-ship_movements" data-name="ship_movements"><summary><code>ship_movements</code> <span class="tag rls">per player</span><span class="d">Every navigate / jump / warp with distance and cost.</span><span class="n">13 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>universe_key</code> <span class="ty">text</span></li><li><code>at</code> <span class="ty">timestamptz</span></li><li><code>ship_symbol</code> <span class="ty">text</span></li><li><code>kind</code> <span class="ty">text</span></li><li><code>from_waypoint</code> <span class="ty">text</span></li><li><code>to_waypoint</code> <span class="ty">text</span></li><li><code>distance</code> <span class="ty">real</span></li><li><code>fuel_before</code> <span class="ty">integer</span></li><li><code>fuel_after</code> <span class="ty">integer</span></li><li><code>cost</code> <span class="ty">integer</span></li><li><code>source</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-ship_position_history" data-name="ship_position_history"><summary><code>ship_position_history</code> <span class="tag rls">per player</span><span class="d">Position samples for the map trail.</span><span class="n">7 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>ship_symbol</code> <span class="ty">text</span></li><li><code>timestamp</code> <span class="ty">timestamptz</span></li><li><code>waypoint_symbol</code> <span class="ty">text</span></li><li><code>x</code> <span class="ty">integer</span></li><li><code>y</code> <span class="ty">integer</span></li><li><code>status</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-ship_log" data-name="ship_log"><summary><code>ship_log</code> <span class="tag rls">per player</span><span class="d">Narrative log lines per ship.</span><span class="n">9 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>ship_symbol</code> <span class="ty">text</span></li><li><code>ts</code> <span class="ty">timestamptz</span></li><li><code>persona_key</code> <span class="ty">text</span></li><li><code>trigger_kind</code> <span class="ty">text</span></li><li><code>notability</code> <span class="ty">integer</span></li><li><code>detail</code> <span class="ty">text</span></li><li><code>entry</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-ship_persona" data-name="ship_persona"><summary><code>ship_persona</code> <span class="tag rls">per player</span><span class="d">Personality assigned to a ship for its log.</span><span class="n">4 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>ship_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>persona_key</code> <span class="ty">text</span></li><li><code>assigned_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-fleet_flags" data-name="fleet_flags"><summary><code>fleet_flags</code> <span class="tag rls">per player</span><span class="d">Small durable key/value state the engine restores at boot.</span><span class="n">4 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>key</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>value</code> <span class="ty">text</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-state_snapshot" data-name="state_snapshot"><summary><code>state_snapshot</code> <span class="tag rls">per player</span><span class="d">Last full fleet state, for a fast dashboard load.</span><span class="n">3 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>snapshot</code> <span class="ty">jsonb</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details></div></section>
+<section id="money"><h2>Money and trading</h2><p class="lede">The ledger is every credit in or out (buys, sells, jumps, ships, contracts), kept across weekly resets by universe_key. The <code>tenants</code> box is drawn in brief so the per-player links show.</p>
+<div class="diagram"><pre class="mermaid">erDiagram
+  ledger {
+    bigint id PK
+    uuid tenant_id FK
+    timestamptz timestamp
+    text ship_symbol
+    text waypoint_symbol
+    text type
+    text trade_symbol
+    integer units
+    float8 price_per_unit
+    float8 total
+    float8 realized_pnl
+    bigint wallet_after
+    text universe_key
+    text contract_id
+    text route
+  }
+  activity {
+    bigint id PK
+    uuid tenant_id FK
+    timestamptz timestamp
+    text ship_symbol
+    text kind
+    text detail
+    integer credits
+  }
+  wealth_samples {
+    uuid tenant_id PK,FK
+    timestamptz sampled_at PK
+    bigint credits
+    bigint holds
+  }
+  buckets {
+    uuid tenant_id PK,FK
+    text key PK
+    text name
+    text description
+    float8 target
+    float8 pct
+    boolean enabled
+    float8 balance
+    timestamptz updated_at
+  }
+  bucket_ledger {
+    bigint id PK
+    uuid tenant_id FK
+    timestamptz timestamp
+    text bucket
+    float8 delta
+    text reason
+  }
+  warehouse {
+    uuid tenant_id PK,FK
+    text good_symbol PK
+    integer units
+    float8 avg_cost
+    timestamptz updated_at
+  }
+  warehouse_ledger {
+    bigint id PK
+    uuid tenant_id FK
+    timestamptz timestamp
+    text good_symbol
+    integer delta
+    float8 price
+    text ship_symbol
+    text reason
+  }
+  warehouse_targets {
+    uuid tenant_id PK,FK
+    text good_symbol PK
+    integer target
+    boolean for_mission
+  }
+  tenants {
+    uuid id PK
+    text agent_symbol
+  }
+  tenants ||--o{ ledger : &quot;tenant_id&quot;
+  tenants ||--o{ activity : &quot;tenant_id&quot;
+  tenants ||--o{ wealth_samples : &quot;tenant_id&quot;
+  tenants ||--o{ buckets : &quot;tenant_id&quot;
+  tenants ||--o{ bucket_ledger : &quot;tenant_id&quot;
+  buckets ||..o{ bucket_ledger : &quot;bucket&quot;
+  tenants ||--o{ warehouse : &quot;tenant_id&quot;
+  tenants ||--o{ warehouse_ledger : &quot;tenant_id&quot;
+  warehouse ||..o{ warehouse_ledger : &quot;good_symbol&quot;
+  tenants ||--o{ warehouse_targets : &quot;tenant_id&quot;
+  warehouse ||..o{ warehouse_targets : &quot;good_symbol&quot;</pre></div>
+<div class="list"><details class="tbl" id="t-ledger" data-name="ledger"><summary><code>ledger</code> <span class="tag rls">per player</span><span class="d">Every credit movement; realized_pnl on sells; universe_key = agent@reset date.</span><span class="n">15 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>timestamp</code> <span class="ty">timestamptz</span></li><li><code>ship_symbol</code> <span class="ty">text</span></li><li><code>waypoint_symbol</code> <span class="ty">text</span></li><li><code>type</code> <span class="ty">text</span></li><li><code>trade_symbol</code> <span class="ty">text</span></li><li><code>units</code> <span class="ty">integer</span></li><li><code>price_per_unit</code> <span class="ty">float8</span></li><li><code>total</code> <span class="ty">float8</span></li><li><code>realized_pnl</code> <span class="ty">float8</span></li><li><code>wallet_after</code> <span class="ty">bigint</span></li><li><code>universe_key</code> <span class="ty">text</span></li><li><code>contract_id</code> <span class="ty">text</span></li><li><code>route</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-activity" data-name="activity"><summary><code>activity</code> <span class="tag rls">per player</span><span class="d">Human-readable activity feed.</span><span class="n">7 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>timestamp</code> <span class="ty">timestamptz</span></li><li><code>ship_symbol</code> <span class="ty">text</span></li><li><code>kind</code> <span class="ty">text</span></li><li><code>detail</code> <span class="ty">text</span></li><li><code>credits</code> <span class="ty">integer</span></li></ul></details><details class="tbl" id="t-wealth_samples" data-name="wealth_samples"><summary><code>wealth_samples</code> <span class="tag rls">per player</span><span class="d">Wallet and cargo value over time.</span><span class="n">4 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>sampled_at</code> <span class="ty">timestamptz</span> <b class=k>PK</b></li><li><code>credits</code> <span class="ty">bigint</span></li><li><code>holds</code> <span class="ty">bigint</span></li></ul></details><details class="tbl" id="t-buckets" data-name="buckets"><summary><code>buckets</code> <span class="tag rls">per player</span><span class="d">Budget buckets (share of income set aside).</span><span class="n">9 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>key</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>name</code> <span class="ty">text</span></li><li><code>description</code> <span class="ty">text</span></li><li><code>target</code> <span class="ty">float8</span></li><li><code>pct</code> <span class="ty">float8</span></li><li><code>enabled</code> <span class="ty">boolean</span></li><li><code>balance</code> <span class="ty">float8</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-bucket_ledger" data-name="bucket_ledger"><summary><code>bucket_ledger</code> <span class="tag rls">per player</span><span class="d">Changes to bucket balances.</span><span class="n">6 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>timestamp</code> <span class="ty">timestamptz</span></li><li><code>bucket</code> <span class="ty">text</span></li><li><code>delta</code> <span class="ty">float8</span></li><li><code>reason</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-warehouse" data-name="warehouse"><summary><code>warehouse</code> <span class="tag rls">per player</span><span class="d">Goods stockpiled for missions.</span><span class="n">5 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>good_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>units</code> <span class="ty">integer</span></li><li><code>avg_cost</code> <span class="ty">float8</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-warehouse_ledger" data-name="warehouse_ledger"><summary><code>warehouse_ledger</code> <span class="tag rls">per player</span><span class="d">Changes to the warehouse.</span><span class="n">8 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>timestamp</code> <span class="ty">timestamptz</span></li><li><code>good_symbol</code> <span class="ty">text</span></li><li><code>delta</code> <span class="ty">integer</span></li><li><code>price</code> <span class="ty">float8</span></li><li><code>ship_symbol</code> <span class="ty">text</span></li><li><code>reason</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-warehouse_targets" data-name="warehouse_targets"><summary><code>warehouse_targets</code> <span class="tag rls">per player</span><span class="d">How much of a good to stockpile.</span><span class="n">4 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>good_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>target</code> <span class="ty">integer</span></li><li><code>for_mission</code> <span class="ty">boolean</span></li></ul></details></div></section>
+<section id="markets"><h2>Galaxy and markets (shared)</h2><p class="lede">Facts about the galaxy itself, shared by every player and wiped at each server reset: systems, gates, markets, prices, shipyards. The <code>tenants</code> box is drawn in brief so the per-player links show.</p>
+<div class="diagram"><pre class="mermaid">erDiagram
+  galaxy_systems {
+    text system_symbol PK
+    jsonb waypoints
+    jsonb jump_gates
+    timestamptz scanned_at
+    text sector_symbol
+    text system_type
+    integer x
+    integer y
+    jsonb crawled_waypoints
+  }
+  galaxy_factions {
+    text symbol PK
+    text name
+    text headquarters
+    boolean is_recruiting
+    timestamptz updated_at
+  }
+  galaxy_jump_costs {
+    text from_gate PK
+    text to_system PK
+    bigint total_price
+    integer jump_count
+    timestamptz updated_at
+  }
+  galaxy_gate_construction {
+    text gate_symbol PK
+    boolean is_complete
+    timestamptz updated_at
+  }
+  galaxy_crawl_state {
+    text key PK
+    jsonb value
+    timestamptz updated_at
+  }
+  waypoint_charts {
+    text waypoint_symbol PK
+    text system_symbol
+    text waypoint_type
+    boolean uncharted
+    timestamptz checked_at
+  }
+  market_directory {
+    text waypoint_symbol PK
+    text system_symbol
+    text_arr imports
+    text_arr exports
+    text_arr exchange
+    timestamptz updated_at
+  }
+  market_latest {
+    text system_symbol
+    text waypoint_symbol PK
+    text good_symbol PK
+    text type
+    text supply
+    float8 purchase_price
+    float8 sell_price
+    integer trade_volume
+    timestamptz timestamp
+    text activity
+  }
+  market_snapshots {
+    bigint id PK
+    text system_symbol
+    text waypoint_symbol
+    text good_symbol
+    text type
+    text supply
+    float8 purchase_price
+    float8 sell_price
+    integer trade_volume
+    timestamptz timestamp
+    text activity
+  }
+  market_transactions {
+    bigint id PK
+    text system_symbol
+    text waypoint_symbol
+    text ship_symbol
+    text trade_symbol
+    text type
+    integer units
+    integer price_per_unit
+    integer total_price
+    timestamptz timestamp
+  }
+  shipyard_directory {
+    text waypoint_symbol PK
+    text system_symbol
+    text_arr ship_types
+    timestamptz updated_at
+  }
+  shipyard_inventory {
+    bigint id PK
+    timestamptz timestamp
+    text system_symbol
+    text waypoint_symbol
+    text ship_type
+    text ship_type_name
+    integer purchase_price
+    integer fuel_capacity
+    integer cargo_capacity
+    integer module_slots
+    integer mounting_points
+    text frame_symbol
+    text unique_key
+    integer engine_speed
+    integer reactor_power
+    integer crew_required
+    integer crew_capacity
+    jsonb modules
+    jsonb mounts
+  }
+  module_catalog {
+    bigint id PK
+    timestamptz timestamp
+    text system_symbol
+    text waypoint_symbol
+    text module_symbol
+    text mount_symbol
+    text name
+    text category
+    integer purchase_price
+    text unique_key
+  }
+  field_surveys {
+    text signature PK
+    text system_symbol
+    text waypoint_symbol
+    text size
+    jsonb deposits
+    timestamptz created_at
+  }
+  system_surveys {
+    uuid tenant_id PK,FK
+    text system_symbol PK
+    timestamptz surveyed_at
+    integer markets_found
+    integer shipyards_found
+    text source
+  }
+  tenants {
+    uuid id PK
+    text agent_symbol
+  }
+  galaxy_systems ||..o{ galaxy_jump_costs : &quot;to_system&quot;
+  market_directory ||..o{ waypoint_charts : &quot;waypoint_symbol&quot;
+  galaxy_systems ||..o{ waypoint_charts : &quot;system_symbol&quot;
+  galaxy_systems ||..o{ market_directory : &quot;system_symbol&quot;
+  market_directory ||..o{ market_latest : &quot;waypoint_symbol&quot;
+  galaxy_systems ||..o{ market_latest : &quot;system_symbol&quot;
+  market_directory ||..o{ market_snapshots : &quot;waypoint_symbol&quot;
+  galaxy_systems ||..o{ market_snapshots : &quot;system_symbol&quot;
+  market_directory ||..o{ market_transactions : &quot;waypoint_symbol&quot;
+  galaxy_systems ||..o{ market_transactions : &quot;system_symbol&quot;
+  market_directory ||..o{ shipyard_directory : &quot;waypoint_symbol&quot;
+  galaxy_systems ||..o{ shipyard_directory : &quot;system_symbol&quot;
+  market_directory ||..o{ shipyard_inventory : &quot;waypoint_symbol&quot;
+  galaxy_systems ||..o{ shipyard_inventory : &quot;system_symbol&quot;
+  shipyard_directory ||..o{ shipyard_inventory : &quot;waypoint_symbol&quot;
+  market_directory ||..o{ module_catalog : &quot;waypoint_symbol&quot;
+  galaxy_systems ||..o{ module_catalog : &quot;system_symbol&quot;
+  shipyard_directory ||..o{ module_catalog : &quot;waypoint_symbol&quot;
+  market_directory ||..o{ field_surveys : &quot;waypoint_symbol&quot;
+  galaxy_systems ||..o{ field_surveys : &quot;system_symbol&quot;
+  tenants ||--o{ system_surveys : &quot;tenant_id&quot;
+  galaxy_systems ||..o{ system_surveys : &quot;system_symbol&quot;</pre></div>
+<div class="list"><details class="tbl" id="t-galaxy_systems" data-name="galaxy_systems"><summary><code>galaxy_systems</code> <span class="tag shared">shared</span><span class="d">Every system: position, waypoints and gates (JSON).</span><span class="n">9 cols</span></summary><ul class="cols"><li><code>system_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>waypoints</code> <span class="ty">jsonb</span></li><li><code>jump_gates</code> <span class="ty">jsonb</span></li><li><code>scanned_at</code> <span class="ty">timestamptz</span></li><li><code>sector_symbol</code> <span class="ty">text</span></li><li><code>system_type</code> <span class="ty">text</span></li><li><code>x</code> <span class="ty">integer</span></li><li><code>y</code> <span class="ty">integer</span></li><li><code>crawled_waypoints</code> <span class="ty">jsonb</span></li></ul></details><details class="tbl" id="t-galaxy_factions" data-name="galaxy_factions"><summary><code>galaxy_factions</code> <span class="tag shared">shared</span><span class="d">Factions.</span><span class="n">5 cols</span></summary><ul class="cols"><li><code>symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>name</code> <span class="ty">text</span></li><li><code>headquarters</code> <span class="ty">text</span></li><li><code>is_recruiting</code> <span class="ty">boolean</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-galaxy_jump_costs" data-name="galaxy_jump_costs"><summary><code>galaxy_jump_costs</code> <span class="tag shared">shared</span><span class="d">Cheapest gate path cost from a gate to a system.</span><span class="n">5 cols</span></summary><ul class="cols"><li><code>from_gate</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>to_system</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>total_price</code> <span class="ty">bigint</span></li><li><code>jump_count</code> <span class="ty">integer</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-galaxy_gate_construction" data-name="galaxy_gate_construction"><summary><code>galaxy_gate_construction</code> <span class="tag shared">shared</span><span class="d">Whether each jump gate is finished.</span><span class="n">3 cols</span></summary><ul class="cols"><li><code>gate_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>is_complete</code> <span class="ty">boolean</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-galaxy_crawl_state" data-name="galaxy_crawl_state"><summary><code>galaxy_crawl_state</code> <span class="tag shared">shared</span><span class="d">Resume cursor for the background galaxy crawl.</span><span class="n">3 cols</span></summary><ul class="cols"><li><code>key</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>value</code> <span class="ty">jsonb</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-waypoint_charts" data-name="waypoint_charts"><summary><code>waypoint_charts</code> <span class="tag shared">shared</span><span class="d">Charted / uncharted waypoints.</span><span class="n">5 cols</span></summary><ul class="cols"><li><code>waypoint_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>system_symbol</code> <span class="ty">text</span></li><li><code>waypoint_type</code> <span class="ty">text</span></li><li><code>uncharted</code> <span class="ty">boolean</span></li><li><code>checked_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-market_directory" data-name="market_directory"><summary><code>market_directory</code> <span class="tag shared">shared</span><span class="d">What each market imports, exports and exchanges.</span><span class="n">6 cols</span></summary><ul class="cols"><li><code>waypoint_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>system_symbol</code> <span class="ty">text</span></li><li><code>imports</code> <span class="ty">text_arr</span></li><li><code>exports</code> <span class="ty">text_arr</span></li><li><code>exchange</code> <span class="ty">text_arr</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-market_latest" data-name="market_latest"><summary><code>market_latest</code> <span class="tag shared">shared</span><span class="d">Newest price per market and good (the hot table routes read).</span><span class="n">10 cols</span></summary><ul class="cols"><li><code>system_symbol</code> <span class="ty">text</span></li><li><code>waypoint_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>good_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>type</code> <span class="ty">text</span></li><li><code>supply</code> <span class="ty">text</span></li><li><code>purchase_price</code> <span class="ty">float8</span></li><li><code>sell_price</code> <span class="ty">float8</span></li><li><code>trade_volume</code> <span class="ty">integer</span></li><li><code>timestamp</code> <span class="ty">timestamptz</span></li><li><code>activity</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-market_snapshots" data-name="market_snapshots"><summary><code>market_snapshots</code> <span class="tag shared">shared</span><span class="d">Every price read, for history and trends.</span><span class="n">11 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>system_symbol</code> <span class="ty">text</span></li><li><code>waypoint_symbol</code> <span class="ty">text</span></li><li><code>good_symbol</code> <span class="ty">text</span></li><li><code>type</code> <span class="ty">text</span></li><li><code>supply</code> <span class="ty">text</span></li><li><code>purchase_price</code> <span class="ty">float8</span></li><li><code>sell_price</code> <span class="ty">float8</span></li><li><code>trade_volume</code> <span class="ty">integer</span></li><li><code>timestamp</code> <span class="ty">timestamptz</span></li><li><code>activity</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-market_transactions" data-name="market_transactions"><summary><code>market_transactions</code> <span class="tag shared">shared</span><span class="d">Trades seen in market transaction logs.</span><span class="n">10 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>system_symbol</code> <span class="ty">text</span></li><li><code>waypoint_symbol</code> <span class="ty">text</span></li><li><code>ship_symbol</code> <span class="ty">text</span></li><li><code>trade_symbol</code> <span class="ty">text</span></li><li><code>type</code> <span class="ty">text</span></li><li><code>units</code> <span class="ty">integer</span></li><li><code>price_per_unit</code> <span class="ty">integer</span></li><li><code>total_price</code> <span class="ty">integer</span></li><li><code>timestamp</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-shipyard_directory" data-name="shipyard_directory"><summary><code>shipyard_directory</code> <span class="tag shared">shared</span><span class="d">Which ship types each yard sells.</span><span class="n">4 cols</span></summary><ul class="cols"><li><code>waypoint_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>system_symbol</code> <span class="ty">text</span></li><li><code>ship_types</code> <span class="ty">text_arr</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-shipyard_inventory" data-name="shipyard_inventory"><summary><code>shipyard_inventory</code> <span class="tag shared">shared</span><span class="d">Yard listings with price and specs.</span><span class="n">19 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>timestamp</code> <span class="ty">timestamptz</span></li><li><code>system_symbol</code> <span class="ty">text</span></li><li><code>waypoint_symbol</code> <span class="ty">text</span></li><li><code>ship_type</code> <span class="ty">text</span></li><li><code>ship_type_name</code> <span class="ty">text</span></li><li><code>purchase_price</code> <span class="ty">integer</span></li><li><code>fuel_capacity</code> <span class="ty">integer</span></li><li><code>cargo_capacity</code> <span class="ty">integer</span></li><li><code>module_slots</code> <span class="ty">integer</span></li><li><code>mounting_points</code> <span class="ty">integer</span></li><li><code>frame_symbol</code> <span class="ty">text</span></li><li><code>unique_key</code> <span class="ty">text</span></li><li><code>engine_speed</code> <span class="ty">integer</span></li><li><code>reactor_power</code> <span class="ty">integer</span></li><li><code>crew_required</code> <span class="ty">integer</span></li><li><code>crew_capacity</code> <span class="ty">integer</span></li><li><code>modules</code> <span class="ty">jsonb</span></li><li><code>mounts</code> <span class="ty">jsonb</span></li></ul></details><details class="tbl" id="t-module_catalog" data-name="module_catalog"><summary><code>module_catalog</code> <span class="tag shared">shared</span><span class="d">Ship modules and mounts for sale.</span><span class="n">10 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>timestamp</code> <span class="ty">timestamptz</span></li><li><code>system_symbol</code> <span class="ty">text</span></li><li><code>waypoint_symbol</code> <span class="ty">text</span></li><li><code>module_symbol</code> <span class="ty">text</span></li><li><code>mount_symbol</code> <span class="ty">text</span></li><li><code>name</code> <span class="ty">text</span></li><li><code>category</code> <span class="ty">text</span></li><li><code>purchase_price</code> <span class="ty">integer</span></li><li><code>unique_key</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-field_surveys" data-name="field_surveys"><summary><code>field_surveys</code> <span class="tag shared">shared</span><span class="d">Asteroid surveys (deposits).</span><span class="n">6 cols</span></summary><ul class="cols"><li><code>signature</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>system_symbol</code> <span class="ty">text</span></li><li><code>waypoint_symbol</code> <span class="ty">text</span></li><li><code>size</code> <span class="ty">text</span></li><li><code>deposits</code> <span class="ty">jsonb</span></li><li><code>created_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-system_surveys" data-name="system_surveys"><summary><code>system_surveys</code> <span class="tag rls">per player</span><span class="d">When a player last surveyed a system and what it found.</span><span class="n">6 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>system_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>surveyed_at</code> <span class="ty">timestamptz</span></li><li><code>markets_found</code> <span class="ty">integer</span></li><li><code>shipyards_found</code> <span class="ty">integer</span></li><li><code>source</code> <span class="ty">text</span></li></ul></details></div></section>
+<section id="control"><h2>Plans, rules and approvals</h2><p class="lede">Standing orders (doctrine), missions and feeds, the opening playbook, and what waits for the operator. The <code>tenants</code> box is drawn in brief so the per-player links show.</p>
+<div class="diagram"><pre class="mermaid">erDiagram
+  doctrine {
+    uuid tenant_id PK,FK
+    text key PK
+    float8 value
+    boolean enabled
+    timestamptz updated_at
+    boolean adopted
+  }
+  doctrine_fires {
+    uuid tenant_id PK,FK
+    text rule_key PK
+    integer fire_count
+    timestamptz last_fired
+  }
+  doctrine_fire_log {
+    uuid tenant_id FK
+    text rule_key
+    text ship_symbol
+    timestamptz fired_at
+  }
+  missions {
+    bigint id PK
+    uuid tenant_id FK
+    text kind
+    text target_system
+    text target_waypoint
+    text status
+    jsonb materials
+    boolean paused
+    timestamptz created_at
+    timestamptz updated_at
+    jsonb assigned_ships
+    integer carrier_target
+    jsonb pacing
+  }
+  feed_missions {
+    bigint id PK
+    uuid tenant_id FK
+    text target_system
+    text target_waypoint
+    text good
+    jsonb assigned_ships
+    integer carrier_target
+    boolean paused
+    timestamptz created_at
+    timestamptz updated_at
+    boolean mine
+    text buy_at
+    text chain_id
+    text chain_name
+    integer chain_order
+    boolean force
+    integer sell_gap_ms
+    integer max_loss_per_unit
+    text stop_at_supply
+    text field
+    text collector
+    integer handoff_units
+  }
+  opening_templates {
+    bigint id PK
+    uuid tenant_id FK
+    text name
+    jsonb tasks
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  opening_tasks {
+    bigint id PK
+    uuid tenant_id FK
+    text task_key
+    text name
+    jsonb trigger_spec
+    jsonb steps
+    text status
+    integer step_index
+    text step_phase
+    jsonb refs
+    text queued_under_key
+    text universe_key
+    text created_by
+    text note
+    timestamptz created_at
+    timestamptz updated_at
+  }
+  pending_approvals {
+    uuid id PK
+    uuid tenant_id PK,FK
+    text kind
+    text ship_symbol
+    text detail
+    numeric cost
+    text status
+    boolean consumed
+    timestamptz created_at
+    timestamptz expires_at
+    timestamptz decided_at
+  }
+  operator_actions {
+    uuid id PK
+    uuid tenant_id PK,FK
+    text kind
+    text ship_symbol
+    text detail
+    jsonb meta
+    timestamptz created_at
+  }
+  operator_notes {
+    uuid id PK
+    uuid tenant_id PK,FK
+    text body
+    timestamptz created_at
+  }
+  chat_messages {
+    bigint id PK
+    uuid tenant_id FK
+    text role
+    text content
+    text tool_call_id
+    timestamptz timestamp
+  }
+  tenants {
+    uuid id PK
+    text agent_symbol
+  }
+  tenants ||--o{ doctrine : &quot;tenant_id&quot;
+  tenants ||--o{ doctrine_fires : &quot;tenant_id&quot;
+  doctrine ||..o{ doctrine_fires : &quot;rule_key&quot;
+  tenants ||--o{ doctrine_fire_log : &quot;tenant_id&quot;
+  doctrine ||..o{ doctrine_fire_log : &quot;rule_key&quot;
+  tenants ||--o{ missions : &quot;tenant_id&quot;
+  tenants ||--o{ feed_missions : &quot;tenant_id&quot;
+  tenants ||--o{ opening_templates : &quot;tenant_id&quot;
+  tenants ||--o{ opening_tasks : &quot;tenant_id&quot;
+  opening_templates ||..o{ opening_tasks : &quot;tasks&quot;
+  tenants ||--o{ pending_approvals : &quot;tenant_id&quot;
+  tenants ||--o{ operator_actions : &quot;tenant_id&quot;
+  tenants ||--o{ operator_notes : &quot;tenant_id&quot;
+  tenants ||--o{ chat_messages : &quot;tenant_id&quot;</pre></div>
+<div class="list"><details class="tbl" id="t-doctrine" data-name="doctrine"><summary><code>doctrine</code> <span class="tag rls">per player</span><span class="d">Standing-order settings (value + on/off) per player.</span><span class="n">6 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>key</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>value</code> <span class="ty">float8</span></li><li><code>enabled</code> <span class="ty">boolean</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li><li><code>adopted</code> <span class="ty">boolean</span></li></ul></details><details class="tbl" id="t-doctrine_fires" data-name="doctrine_fires"><summary><code>doctrine_fires</code> <span class="tag rls">per player</span><span class="d">How often each rule fired.</span><span class="n">4 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>rule_key</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>fire_count</code> <span class="ty">integer</span></li><li><code>last_fired</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-doctrine_fire_log" data-name="doctrine_fire_log"><summary><code>doctrine_fire_log</code> <span class="tag rls">per player</span><span class="d">Each rule firing.</span><span class="n">4 cols</span></summary><ul class="cols"><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>rule_key</code> <span class="ty">text</span></li><li><code>ship_symbol</code> <span class="ty">text</span></li><li><code>fired_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-missions" data-name="missions"><summary><code>missions</code> <span class="tag rls">per player</span><span class="d">Multi-ship jobs, e.g. gate construction supply.</span><span class="n">13 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>kind</code> <span class="ty">text</span></li><li><code>target_system</code> <span class="ty">text</span></li><li><code>target_waypoint</code> <span class="ty">text</span></li><li><code>status</code> <span class="ty">text</span></li><li><code>materials</code> <span class="ty">jsonb</span></li><li><code>paused</code> <span class="ty">boolean</span></li><li><code>created_at</code> <span class="ty">timestamptz</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li><li><code>assigned_ships</code> <span class="ty">jsonb</span></li><li><code>carrier_target</code> <span class="ty">integer</span></li><li><code>pacing</code> <span class="ty">jsonb</span></li></ul></details><details class="tbl" id="t-feed_missions" data-name="feed_missions"><summary><code>feed_missions</code> <span class="tag rls">per player</span><span class="d">Feeder crews that source a good into a market.</span><span class="n">22 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>target_system</code> <span class="ty">text</span></li><li><code>target_waypoint</code> <span class="ty">text</span></li><li><code>good</code> <span class="ty">text</span></li><li><code>assigned_ships</code> <span class="ty">jsonb</span></li><li><code>carrier_target</code> <span class="ty">integer</span></li><li><code>paused</code> <span class="ty">boolean</span></li><li><code>created_at</code> <span class="ty">timestamptz</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li><li><code>mine</code> <span class="ty">boolean</span></li><li><code>buy_at</code> <span class="ty">text</span></li><li><code>chain_id</code> <span class="ty">text</span></li><li><code>chain_name</code> <span class="ty">text</span></li><li><code>chain_order</code> <span class="ty">integer</span></li><li><code>force</code> <span class="ty">boolean</span></li><li><code>sell_gap_ms</code> <span class="ty">integer</span></li><li><code>max_loss_per_unit</code> <span class="ty">integer</span></li><li><code>stop_at_supply</code> <span class="ty">text</span></li><li><code>field</code> <span class="ty">text</span></li><li><code>collector</code> <span class="ty">text</span></li><li><code>handoff_units</code> <span class="ty">integer</span></li></ul></details><details class="tbl" id="t-opening_templates" data-name="opening_templates"><summary><code>opening_templates</code> <span class="tag rls">per player</span><span class="d">Saved opening plans.</span><span class="n">6 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>name</code> <span class="ty">text</span></li><li><code>tasks</code> <span class="ty">jsonb</span></li><li><code>created_at</code> <span class="ty">timestamptz</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-opening_tasks" data-name="opening_tasks"><summary><code>opening_tasks</code> <span class="tag rls">per player</span><span class="d">Steps of the opening plan being run.</span><span class="n">16 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>task_key</code> <span class="ty">text</span></li><li><code>name</code> <span class="ty">text</span></li><li><code>trigger_spec</code> <span class="ty">jsonb</span></li><li><code>steps</code> <span class="ty">jsonb</span></li><li><code>status</code> <span class="ty">text</span></li><li><code>step_index</code> <span class="ty">integer</span></li><li><code>step_phase</code> <span class="ty">text</span></li><li><code>refs</code> <span class="ty">jsonb</span></li><li><code>queued_under_key</code> <span class="ty">text</span></li><li><code>universe_key</code> <span class="ty">text</span></li><li><code>created_by</code> <span class="ty">text</span></li><li><code>note</code> <span class="ty">text</span></li><li><code>created_at</code> <span class="ty">timestamptz</span></li><li><code>updated_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-pending_approvals" data-name="pending_approvals"><summary><code>pending_approvals</code> <span class="tag rls">per player</span><span class="d">Purchases and actions waiting for the operator.</span><span class="n">11 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">uuid</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>kind</code> <span class="ty">text</span></li><li><code>ship_symbol</code> <span class="ty">text</span></li><li><code>detail</code> <span class="ty">text</span></li><li><code>cost</code> <span class="ty">numeric</span></li><li><code>status</code> <span class="ty">text</span></li><li><code>consumed</code> <span class="ty">boolean</span></li><li><code>created_at</code> <span class="ty">timestamptz</span></li><li><code>expires_at</code> <span class="ty">timestamptz</span></li><li><code>decided_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-operator_actions" data-name="operator_actions"><summary><code>operator_actions</code> <span class="tag rls">per player</span><span class="d">What the operator did (for play-style comparison).</span><span class="n">7 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">uuid</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>kind</code> <span class="ty">text</span></li><li><code>ship_symbol</code> <span class="ty">text</span></li><li><code>detail</code> <span class="ty">text</span></li><li><code>meta</code> <span class="ty">jsonb</span></li><li><code>created_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-operator_notes" data-name="operator_notes"><summary><code>operator_notes</code> <span class="tag rls">per player</span><span class="d">Free-text notes.</span><span class="n">4 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">uuid</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>PK</b> <b class=k>FK</b></li><li><code>body</code> <span class="ty">text</span></li><li><code>created_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-chat_messages" data-name="chat_messages"><summary><code>chat_messages</code> <span class="tag rls">per player</span><span class="d">Co-pilot chat history.</span><span class="n">6 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>role</code> <span class="ty">text</span></li><li><code>content</code> <span class="ty">text</span></li><li><code>tool_call_id</code> <span class="ty">text</span></li><li><code>timestamp</code> <span class="ty">timestamptz</span></li></ul></details></div></section>
+<section id="analysis"><h2>Analysis and seasons</h2><p class="lede">What the engine planned versus what happened, saved findings, and week-over-week results. The <code>tenants</code> box is drawn in brief so the per-player links show.</p>
+<div class="diagram"><pre class="mermaid">erDiagram
+  action_events {
+    bigint id PK
+    uuid tenant_id FK
+    text universe_key
+    timestamptz at
+    text kind
+    text actor
+    text ship_symbol
+    text good
+    text waypoint
+    text correlation_id
+    text subject
+    jsonb expected
+    jsonb observed
+    jsonb context
+    text reason
+  }
+  analysis_findings {
+    bigint id PK
+    uuid tenant_id FK
+    text universe_key
+    timestamptz captured_at
+    timestamptz window_start
+    timestamptz window_end
+    text label
+    jsonb report
+  }
+  judge_decisions {
+    bigint id PK
+    uuid tenant_id FK
+    timestamptz at
+    text feature
+    text subject
+    text question
+    jsonb answer
+    real confidence
+    jsonb state
+    text model
+    integer input_tokens
+    integer latency_ms
+    boolean acted
+    text note
+    text outcome
+  }
+  seasons {
+    bigint id PK
+    uuid tenant_id FK
+    text name
+    timestamptz started_at
+    timestamptz ended_at
+    text notes
+  }
+  season_weeks {
+    bigint id PK
+    uuid tenant_id FK
+    bigint season_id FK
+    integer week_no
+    text universe_key
+    text phase
+    jsonb goals
+    text notes
+    timestamptz opened_at
+    timestamptz closed_at
+    jsonb record
+    bigint findings_id
+  }
+  run_results {
+    bigint id PK
+    text agent_symbol
+    uuid tenant_id
+    text reset_date
+    text ended_by_reset
+    timestamptz captured_at
+    text capture_kind
+    timestamptz started_at
+    timestamptz ended_at
+    text home_system
+    text headquarters
+    text play_profile
+    bigint starting_credits
+    bigint final_credits
+    bigint peak_credits
+    bigint wallet_delta
+    integer ship_count
+    jsonb ships_by_role
+    jsonb ships_by_class
+    bigint trading_net
+    integer trades
+    bigint sell_revenue
+    bigint purchase_cost
+    bigint fuel_cost
+    bigint jump_cost
+    integer jumps
+    bigint ship_spend
+    jsonb ledger_by_type
+    jsonb top_ships
+    jsonb top_goods
+    jsonb contracts
+    jsonb doctrine
+    integer operator_actions
+    text notes
+  }
+  run_timeline {
+    bigint id PK
+    text agent_symbol
+    uuid tenant_id
+    text reset_date
+    timestamptz ts
+    bigint credits
+    integer ship_count
+    jsonb roles
+    bigint buys
+    bigint sells
+  }
+  tenants {
+    uuid id PK
+    text agent_symbol
+  }
+  tenants ||--o{ action_events : &quot;tenant_id&quot;
+  tenants ||--o{ analysis_findings : &quot;tenant_id&quot;
+  tenants ||--o{ judge_decisions : &quot;tenant_id&quot;
+  tenants ||--o{ seasons : &quot;tenant_id&quot;
+  tenants ||--o{ season_weeks : &quot;tenant_id&quot;
+  seasons ||--o{ season_weeks : &quot;season_id&quot;
+  analysis_findings ||..o{ season_weeks : &quot;findings_id&quot;
+  run_results ||..o{ run_timeline : &quot;agent_symbol, reset_date&quot;</pre></div>
+<div class="list"><details class="tbl" id="t-action_events" data-name="action_events"><summary><code>action_events</code> <span class="tag rls">per player</span><span class="d">Planned vs observed for trips, and every settings change with before/after.</span><span class="n">15 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>universe_key</code> <span class="ty">text</span></li><li><code>at</code> <span class="ty">timestamptz</span></li><li><code>kind</code> <span class="ty">text</span></li><li><code>actor</code> <span class="ty">text</span></li><li><code>ship_symbol</code> <span class="ty">text</span></li><li><code>good</code> <span class="ty">text</span></li><li><code>waypoint</code> <span class="ty">text</span></li><li><code>correlation_id</code> <span class="ty">text</span></li><li><code>subject</code> <span class="ty">text</span></li><li><code>expected</code> <span class="ty">jsonb</span></li><li><code>observed</code> <span class="ty">jsonb</span></li><li><code>context</code> <span class="ty">jsonb</span></li><li><code>reason</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-analysis_findings" data-name="analysis_findings"><summary><code>analysis_findings</code> <span class="tag rls">per player</span><span class="d">Saved weekly analysis reports.</span><span class="n">8 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>universe_key</code> <span class="ty">text</span></li><li><code>captured_at</code> <span class="ty">timestamptz</span></li><li><code>window_start</code> <span class="ty">timestamptz</span></li><li><code>window_end</code> <span class="ty">timestamptz</span></li><li><code>label</code> <span class="ty">text</span></li><li><code>report</code> <span class="ty">jsonb</span></li></ul></details><details class="tbl" id="t-judge_decisions" data-name="judge_decisions"><summary><code>judge_decisions</code> <span class="tag rls">per player</span><span class="d">Advisory model answers, logged for calibration.</span><span class="n">15 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>at</code> <span class="ty">timestamptz</span></li><li><code>feature</code> <span class="ty">text</span></li><li><code>subject</code> <span class="ty">text</span></li><li><code>question</code> <span class="ty">text</span></li><li><code>answer</code> <span class="ty">jsonb</span></li><li><code>confidence</code> <span class="ty">real</span></li><li><code>state</code> <span class="ty">jsonb</span></li><li><code>model</code> <span class="ty">text</span></li><li><code>input_tokens</code> <span class="ty">integer</span></li><li><code>latency_ms</code> <span class="ty">integer</span></li><li><code>acted</code> <span class="ty">boolean</span></li><li><code>note</code> <span class="ty">text</span></li><li><code>outcome</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-seasons" data-name="seasons"><summary><code>seasons</code> <span class="tag rls">per player</span><span class="d">A run of weeks.</span><span class="n">6 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>name</code> <span class="ty">text</span></li><li><code>started_at</code> <span class="ty">timestamptz</span></li><li><code>ended_at</code> <span class="ty">timestamptz</span></li><li><code>notes</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-season_weeks" data-name="season_weeks"><summary><code>season_weeks</code> <span class="tag rls">per player</span><span class="d">One week of a season with goals and record.</span><span class="n">12 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>season_id</code> <span class="ty">bigint</span> <b class=k>FK</b></li><li><code>week_no</code> <span class="ty">integer</span></li><li><code>universe_key</code> <span class="ty">text</span></li><li><code>phase</code> <span class="ty">text</span></li><li><code>goals</code> <span class="ty">jsonb</span></li><li><code>notes</code> <span class="ty">text</span></li><li><code>opened_at</code> <span class="ty">timestamptz</span></li><li><code>closed_at</code> <span class="ty">timestamptz</span></li><li><code>record</code> <span class="ty">jsonb</span></li><li><code>findings_id</code> <span class="ty">bigint</span></li></ul></details><details class="tbl" id="t-run_results" data-name="run_results"><summary><code>run_results</code> <span class="tag shared">shared</span><span class="d">End-of-week summary per agent.</span><span class="n">34 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>agent_symbol</code> <span class="ty">text</span></li><li><code>tenant_id</code> <span class="ty">uuid</span></li><li><code>reset_date</code> <span class="ty">text</span></li><li><code>ended_by_reset</code> <span class="ty">text</span></li><li><code>captured_at</code> <span class="ty">timestamptz</span></li><li><code>capture_kind</code> <span class="ty">text</span></li><li><code>started_at</code> <span class="ty">timestamptz</span></li><li><code>ended_at</code> <span class="ty">timestamptz</span></li><li><code>home_system</code> <span class="ty">text</span></li><li><code>headquarters</code> <span class="ty">text</span></li><li><code>play_profile</code> <span class="ty">text</span></li><li><code>starting_credits</code> <span class="ty">bigint</span></li><li><code>final_credits</code> <span class="ty">bigint</span></li><li><code>peak_credits</code> <span class="ty">bigint</span></li><li><code>wallet_delta</code> <span class="ty">bigint</span></li><li><code>ship_count</code> <span class="ty">integer</span></li><li><code>ships_by_role</code> <span class="ty">jsonb</span></li><li><code>ships_by_class</code> <span class="ty">jsonb</span></li><li><code>trading_net</code> <span class="ty">bigint</span></li><li><code>trades</code> <span class="ty">integer</span></li><li><code>sell_revenue</code> <span class="ty">bigint</span></li><li><code>purchase_cost</code> <span class="ty">bigint</span></li><li><code>fuel_cost</code> <span class="ty">bigint</span></li><li><code>jump_cost</code> <span class="ty">bigint</span></li><li><code>jumps</code> <span class="ty">integer</span></li><li><code>ship_spend</code> <span class="ty">bigint</span></li><li><code>ledger_by_type</code> <span class="ty">jsonb</span></li><li><code>top_ships</code> <span class="ty">jsonb</span></li><li><code>top_goods</code> <span class="ty">jsonb</span></li><li><code>contracts</code> <span class="ty">jsonb</span></li><li><code>doctrine</code> <span class="ty">jsonb</span></li><li><code>operator_actions</code> <span class="ty">integer</span></li><li><code>notes</code> <span class="ty">text</span></li></ul></details><details class="tbl" id="t-run_timeline" data-name="run_timeline"><summary><code>run_timeline</code> <span class="tag shared">shared</span><span class="d">Credits and ships over a week.</span><span class="n">10 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>agent_symbol</code> <span class="ty">text</span></li><li><code>tenant_id</code> <span class="ty">uuid</span></li><li><code>reset_date</code> <span class="ty">text</span></li><li><code>ts</code> <span class="ty">timestamptz</span></li><li><code>credits</code> <span class="ty">bigint</span></li><li><code>ship_count</code> <span class="ty">integer</span></li><li><code>roles</code> <span class="ty">jsonb</span></li><li><code>buys</code> <span class="ty">bigint</span></li><li><code>sells</code> <span class="ty">bigint</span></li></ul></details></div></section>
+<section id="ops"><h2>Server health</h2><p class="lede">How the server itself is doing: tick timings, heartbeats, API budget and proxy bytes. The <code>tenants</code> box is drawn in brief so the per-player links show.</p>
+<div class="diagram"><pre class="mermaid">erDiagram
+  health_samples {
+    timestamptz sampled_at PK
+    text scope PK
+    text instance_id PK
+    text word
+    text level
+    bigint gap_ms
+    bigint normal_gap_ms
+    bigint stall_line_ms
+    integer idle_traders
+    integer traders
+    bigint longest_pass_ms
+    bigint profit_last_hour
+    bigint wallet
+    bigint uptime_ms
+    real calls_per_min
+    integer cap
+    integer hits_429
+    bigint oldest_wait_ms
+  }
+  instance_heartbeats {
+    text instance_id PK
+    timestamptz started_at
+    timestamptz last_seen
+  }
+  tick_step_timings {
+    bigint id PK
+    uuid tenant_id FK
+    timestamptz started_at
+    integer total_ms
+    jsonb steps
+    timestamptz created_at
+  }
+  lane_bytes {
+    date day PK
+    text label PK
+    text kind PK
+    bigint calls
+    bigint bytes
+  }
+  fleet_events {
+    bigint id PK
+    text agent_symbol
+    uuid tenant_id
+    text reset_date
+    timestamptz ts
+    text kind
+    text ship_symbol
+    text detail
+    jsonb meta
+  }
+  tenants {
+    uuid id PK
+    text agent_symbol
+  }
+  tenants ||--o{ tick_step_timings : &quot;tenant_id&quot;</pre></div>
+<div class="list"><details class="tbl" id="t-health_samples" data-name="health_samples"><summary><code>health_samples</code> <span class="tag shared">shared</span><span class="d">Server health every minute.</span><span class="n">18 cols</span></summary><ul class="cols"><li><code>sampled_at</code> <span class="ty">timestamptz</span> <b class=k>PK</b></li><li><code>scope</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>instance_id</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>word</code> <span class="ty">text</span></li><li><code>level</code> <span class="ty">text</span></li><li><code>gap_ms</code> <span class="ty">bigint</span></li><li><code>normal_gap_ms</code> <span class="ty">bigint</span></li><li><code>stall_line_ms</code> <span class="ty">bigint</span></li><li><code>idle_traders</code> <span class="ty">integer</span></li><li><code>traders</code> <span class="ty">integer</span></li><li><code>longest_pass_ms</code> <span class="ty">bigint</span></li><li><code>profit_last_hour</code> <span class="ty">bigint</span></li><li><code>wallet</code> <span class="ty">bigint</span></li><li><code>uptime_ms</code> <span class="ty">bigint</span></li><li><code>calls_per_min</code> <span class="ty">real</span></li><li><code>cap</code> <span class="ty">integer</span></li><li><code>hits_429</code> <span class="ty">integer</span></li><li><code>oldest_wait_ms</code> <span class="ty">bigint</span></li></ul></details><details class="tbl" id="t-instance_heartbeats" data-name="instance_heartbeats"><summary><code>instance_heartbeats</code> <span class="tag shared">shared</span><span class="d">Which server instances are alive.</span><span class="n">3 cols</span></summary><ul class="cols"><li><code>instance_id</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>started_at</code> <span class="ty">timestamptz</span></li><li><code>last_seen</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-tick_step_timings" data-name="tick_step_timings"><summary><code>tick_step_timings</code> <span class="tag rls">per player</span><span class="d">How long each engine tick step took.</span><span class="n">6 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>tenant_id</code> <span class="ty">uuid</span> <b class=k>FK</b></li><li><code>started_at</code> <span class="ty">timestamptz</span></li><li><code>total_ms</code> <span class="ty">integer</span></li><li><code>steps</code> <span class="ty">jsonb</span></li><li><code>created_at</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-lane_bytes" data-name="lane_bytes"><summary><code>lane_bytes</code> <span class="tag shared">shared</span><span class="d">Bytes sent through each API proxy lane per day.</span><span class="n">5 cols</span></summary><ul class="cols"><li><code>day</code> <span class="ty">date</span> <b class=k>PK</b></li><li><code>label</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>kind</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>calls</code> <span class="ty">bigint</span></li><li><code>bytes</code> <span class="ty">bigint</span></li></ul></details><details class="tbl" id="t-fleet_events" data-name="fleet_events"><summary><code>fleet_events</code> <span class="tag shared">shared</span><span class="d">Notable engine events.</span><span class="n">9 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>agent_symbol</code> <span class="ty">text</span></li><li><code>tenant_id</code> <span class="ty">uuid</span></li><li><code>reset_date</code> <span class="ty">text</span></li><li><code>ts</code> <span class="ty">timestamptz</span></li><li><code>kind</code> <span class="ty">text</span></li><li><code>ship_symbol</code> <span class="ty">text</span></li><li><code>detail</code> <span class="ty">text</span></li><li><code>meta</code> <span class="ty">jsonb</span></li></ul></details></div></section>
+<section id="rivals"><h2>Other players (public data)</h2><p class="lede">Read from the public agent list and start-system gates; no token needed.</p>
+<div class="diagram"><pre class="mermaid">erDiagram
+  agent_sightings {
+    text reset_date PK
+    text agent_symbol PK
+    text system_symbol
+    text hq_waypoint
+    text faction
+    timestamptz first_seen_at
+    text source
+    timestamptz prior_scan_at
+    bigint first_credits
+    integer first_ships
+    integer agents_in_system
+    timestamptz last_seen_at
+    bigint last_credits
+    integer last_ships
+  }
+  agent_samples {
+    text reset_date PK
+    text agent_symbol PK
+    timestamptz sampled_at PK
+    bigint credits
+    integer ships
+  }
+  agent_credit_snapshots {
+    bigint id PK
+    text system_symbol
+    text agent_symbol
+    bigint credits
+    integer ship_count
+    timestamptz timestamp
+  }
+  gate_progress_samples {
+    text reset_date PK
+    text gate_symbol PK
+    text system_symbol
+    timestamptz sampled_at PK
+    integer fulfilled
+    integer required
+    boolean complete
+  }
+  agent_sightings ||..o{ agent_samples : &quot;agent_symbol&quot;
+  agent_sightings ||..o{ agent_credit_snapshots : &quot;agent_symbol&quot;</pre></div>
+<div class="list"><details class="tbl" id="t-agent_sightings" data-name="agent_sightings"><summary><code>agent_sightings</code> <span class="tag shared">shared</span><span class="d">Every public agent: first seen, start system, credits.</span><span class="n">14 cols</span></summary><ul class="cols"><li><code>reset_date</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>agent_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>system_symbol</code> <span class="ty">text</span></li><li><code>hq_waypoint</code> <span class="ty">text</span></li><li><code>faction</code> <span class="ty">text</span></li><li><code>first_seen_at</code> <span class="ty">timestamptz</span></li><li><code>source</code> <span class="ty">text</span></li><li><code>prior_scan_at</code> <span class="ty">timestamptz</span></li><li><code>first_credits</code> <span class="ty">bigint</span></li><li><code>first_ships</code> <span class="ty">integer</span></li><li><code>agents_in_system</code> <span class="ty">integer</span></li><li><code>last_seen_at</code> <span class="ty">timestamptz</span></li><li><code>last_credits</code> <span class="ty">bigint</span></li><li><code>last_ships</code> <span class="ty">integer</span></li></ul></details><details class="tbl" id="t-agent_samples" data-name="agent_samples"><summary><code>agent_samples</code> <span class="tag shared">shared</span><span class="d">Agent credits and ships every 30 min.</span><span class="n">5 cols</span></summary><ul class="cols"><li><code>reset_date</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>agent_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>sampled_at</code> <span class="ty">timestamptz</span> <b class=k>PK</b></li><li><code>credits</code> <span class="ty">bigint</span></li><li><code>ships</code> <span class="ty">integer</span></li></ul></details><details class="tbl" id="t-agent_credit_snapshots" data-name="agent_credit_snapshots"><summary><code>agent_credit_snapshots</code> <span class="tag shared">shared</span><span class="d">Hourly agent credit snapshots.</span><span class="n">6 cols</span></summary><ul class="cols"><li><code>id</code> <span class="ty">bigint</span> <b class=k>PK</b></li><li><code>system_symbol</code> <span class="ty">text</span></li><li><code>agent_symbol</code> <span class="ty">text</span></li><li><code>credits</code> <span class="ty">bigint</span></li><li><code>ship_count</code> <span class="ty">integer</span></li><li><code>timestamp</code> <span class="ty">timestamptz</span></li></ul></details><details class="tbl" id="t-gate_progress_samples" data-name="gate_progress_samples"><summary><code>gate_progress_samples</code> <span class="tag shared">shared</span><span class="d">Progress of other players&#x27; start-system gates.</span><span class="n">7 cols</span></summary><ul class="cols"><li><code>reset_date</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>gate_symbol</code> <span class="ty">text</span> <b class=k>PK</b></li><li><code>system_symbol</code> <span class="ty">text</span></li><li><code>sampled_at</code> <span class="ty">timestamptz</span> <b class=k>PK</b></li><li><code>fulfilled</code> <span class="ty">integer</span></li><li><code>required</code> <span class="ty">integer</span></li><li><code>complete</code> <span class="ty">boolean</span></li></ul></details></div></section>
+<footer>Generated from the live migrations on 2026-11-21. Most prices and positions join by symbol (<code>waypoint_symbol</code>, <code>system_symbol</code>, <code>good_symbol</code>) rather than by enforced keys, because the galaxy tables are refilled from the game API and rows arrive in any order.</footer>
+</div>
+<script>
+(function(){
+ var q=document.getElementById('q');
+ q.addEventListener('input',function(){
+  var s=q.value.trim().toLowerCase();
+  document.querySelectorAll('details.tbl').forEach(function(d){
+   var hit=!s||d.textContent.toLowerCase().indexOf(s)>=0;
+   d.hidden=!hit; if(s&&hit&&d.dataset.name.indexOf(s)<0) d.open=true;
+  });
+ });
+})();
+</script>
