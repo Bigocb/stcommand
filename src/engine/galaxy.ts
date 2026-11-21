@@ -112,7 +112,7 @@ export class GalaxyAtlas {
         markets: [],
         shipyards: [],
       };
-      this.systems.set(systemSymbol, known); this.pathCache.clear();
+      this.putSystem(systemSymbol, known);
       for (const w of known.waypoints) {
         if (w.type === "JUMP_GATE") this.jumps.set(w.symbol, systemSymbol);
       }
@@ -120,7 +120,7 @@ export class GalaxyAtlas {
     }
     const waypoints = await this.api.getAllSystemWaypoints(systemSymbol);
     const known: KnownSystem = { symbol: systemSymbol, waypoints, jumpGates: [], markets: [], shipyards: [] };
-    this.systems.set(systemSymbol, known); this.pathCache.clear();
+    this.putSystem(systemSymbol, known);
     for (const w of waypoints) {
       if (w.type === "JUMP_GATE") this.jumps.set(w.symbol, systemSymbol);
     }
@@ -168,7 +168,7 @@ export class GalaxyAtlas {
       markets: existing?.markets ?? [],
       shipyards: existing?.shipyards ?? [],
     };
-    this.systems.set(systemSymbol, known); this.pathCache.clear();
+    this.putSystem(systemSymbol, known);
     for (const w of waypoints) {
       if (w.type === "JUMP_GATE") this.jumps.set(w.symbol, systemSymbol);
     }
@@ -215,7 +215,7 @@ export class GalaxyAtlas {
         }
       }),
     );
-    known.jumpGates = results; this.pathCache.clear();
+    known.jumpGates = results; this.invalidateRoutes();
     await this.store?.setSystemTopology(systemSymbol, known.waypoints, results);
     return results;
   }
@@ -306,7 +306,7 @@ export class GalaxyAtlas {
   noteGateComplete(gateSymbol: string): void {
     if (this.gateConstruction.get(gateSymbol) === true) return;
     this.gateConstruction.set(gateSymbol, true);
-    this.pathCache.clear();
+    this.invalidateRoutes();
     this.store?.recordGalaxyGateConstruction?.(gateSymbol, true)?.catch(() => { /* best-effort */ });
   }
 
@@ -387,6 +387,13 @@ export class GalaxyAtlas {
   }
 
   usableNeighbors(system: string): string[] {
+    const cached = this.neighborCache.get(system);
+    if (cached) return cached.slice();
+    const out = this.usableNeighborsUncached(system);
+    this.neighborCache.set(system, out);
+    return out.slice();
+  }
+  private usableNeighborsUncached(system: string): string[] {
     const out = this.connectedSystems(system).filter((n) => this.edgeUsable(system, n));
     // Neighbours the in-memory atlas has not loaded: the hydrated graph names them, and a proven edge counts even when
     // the graph does not list it.
@@ -469,7 +476,7 @@ export class GalaxyAtlas {
     this.gateLinks = links;
     this.graph = graph;
     this.waypointSystems = withWaypoints;
-    this.pathCache.clear();
+    this.invalidateRoutes();
   }
 
   /**
@@ -497,6 +504,32 @@ export class GalaxyAtlas {
     return path?.slice();
   }
   private readonly pathCache = new Map<string, string[] | undefined>();
+  /** usableNeighbors() per system, dropped with the path cache. A path search asks for the same system's neighbours at
+   *  every step of every search, and working them out (gate connections, proven jumps, both gates' construction) was most
+   *  of the process's CPU on 2026-11-21 once the dispatcher's own loop was fixed. */
+  private readonly neighborCache = new Map<string, string[]>();
+  /** Something a jump path depends on changed: forget every cached path and neighbour list. */
+  private invalidateRoutes(): void {
+    this.pathCache.clear();
+    this.neighborCache.clear();
+  }
+  /** Set a system's record, dropping the route caches only when what paths depend on (its gates) changed. */
+  private putSystem(systemSymbol: string, known: KnownSystem): void {
+    const prev = this.systems.get(systemSymbol);
+    this.systems.set(systemSymbol, known);
+    if (!prev || GalaxyAtlas.gateShape(prev) !== GalaxyAtlas.gateShape(known)) this.invalidateRoutes();
+  }
+  private static gateShape(k: KnownSystem): string {
+    const gates = k.waypoints.filter((w) => w.type === "JUMP_GATE").map((w) => w.symbol).sort();
+    const links = k.jumpGates.map((g) => `${g.symbol}:${[...g.connections].sort().join(",")}`).sort();
+    return `${gates.join(",")}|${links.join(";")}`;
+  }
+  /** Set a gate's construction status, dropping the route caches only when it changed. */
+  private putGateConstruction(gateSymbol: string, complete: boolean): void {
+    const prev = this.gateConstruction.get(gateSymbol);
+    this.gateConstruction.set(gateSymbol, complete);
+    if (prev !== complete) this.invalidateRoutes();
+  }
 
   /** Systems our ships can reach over finished gates from any of `starts`, however many jumps (jumpGraph.reachableSystems). */
   gateNetwork(starts: readonly string[]): Set<string> {
@@ -522,7 +555,7 @@ export class GalaxyAtlas {
     const next = Math.min(MAX_POSITIONING_HOPS_CEILING, Math.max(1, Math.floor(hops)));
     if (next === this.positioningHops) return;
     this.positioningHops = next;
-    this.pathCache.clear();
+    this.invalidateRoutes();
   }
 
   /**
@@ -698,7 +731,7 @@ export class GalaxyAtlas {
     try {
       const complete = (await this.api.getConstruction(systemSymbol, gateSymbol)).isComplete;
       this.gateCheckedAt.set(gateSymbol, Date.now());
-      this.gateConstruction.set(gateSymbol, complete); this.pathCache.clear();
+      this.putGateConstruction(gateSymbol, complete);
       this.store?.recordGalaxyGateConstruction?.(gateSymbol, complete)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
       return complete;
     } catch (err) {
@@ -735,7 +768,7 @@ export class GalaxyAtlas {
     // while the game said they were finished, and a real jump had gone through); say when it happens so the cause can be found.
     if (this.gateConstruction.get(gateSymbol) !== false) this.onGateEvent?.(`gate ${gateSymbol} marked NOT complete (a live rejection); proven edges of ${GalaxyAtlas.systemOfWaypoint(gateSymbol)} withdrawn`);
     this.withdrawProvenEdges(GalaxyAtlas.systemOfWaypoint(gateSymbol));
-    this.gateConstruction.set(gateSymbol, false); this.pathCache.clear();
+    this.putGateConstruction(gateSymbol, false);
     this.store?.recordGalaxyGateConstruction?.(gateSymbol, false)?.catch(() => { /* best-effort — the in-memory value above is already updated */ });
   }
 
@@ -743,7 +776,7 @@ export class GalaxyAtlas {
   private withdrawProvenEdges(system: string): void {
     for (const other of this.provenJumps.get(system) ?? []) this.provenJumps.get(other)?.delete(system);
     this.provenJumps.delete(system);
-    this.pathCache.clear();
+    this.invalidateRoutes();
   }
 
   /** Seed the in-memory gate-construction cache from every check any tenant
@@ -761,7 +794,7 @@ export class GalaxyAtlas {
       // stale "incomplete" loaded from the store downgrade a "complete"
       // this process already confirmed live since starting up.
       if (this.gateConstruction.get(r.gateSymbol) === true) continue;
-      this.gateConstruction.set(r.gateSymbol, r.isComplete); this.pathCache.clear();
+      this.putGateConstruction(r.gateSymbol, r.isComplete);
       // When the store last saw it, so an unfinished gate is not re-read the moment the process starts: every restart used to send
       // one call per unfinished gate in a burst (measured 2026-10-22: 18 calls, waits up to 21 s, at the limiter's ceiling).
       if (!r.isComplete && r.checkedAtMs !== undefined && !this.gateCheckedAt.has(r.gateSymbol)) this.gateCheckedAt.set(r.gateSymbol, r.checkedAtMs);
@@ -812,7 +845,7 @@ export class GalaxyAtlas {
     const key = this.jumpCostKey(fromGate, toSystem);
     const existing = this.jumpCosts.get(key) ?? { total: 0, count: 0 };
     this.jumpCosts.set(key, { total: existing.total + totalPrice, count: existing.count + 1 });
-    if (this.addProvenEdge(GalaxyAtlas.systemOfWaypoint(fromGate), toSystem)) this.pathCache.clear();
+    if (this.addProvenEdge(GalaxyAtlas.systemOfWaypoint(fromGate), toSystem)) this.invalidateRoutes();
     // A jump that went through proves the gate it left is finished, whatever the cache said (a rejection earlier, or a read that
     // lagged the game): correct the cache now rather than wait for the 45-minute re-read of an unfinished gate.
     if (this.gateConstruction.get(fromGate) === false) this.onGateEvent?.(`gate ${fromGate} was cached incomplete but a jump to ${toSystem} went through: marked complete`);
@@ -832,7 +865,7 @@ export class GalaxyAtlas {
       this.jumpCosts.set(this.jumpCostKey(r.fromGate, r.toSystem), { total: r.totalPrice, count: r.jumpCount });
       if (r.jumpCount > 0) this.addProvenEdge(GalaxyAtlas.systemOfWaypoint(r.fromGate), r.toSystem);
     }
-    this.pathCache.clear();
+    this.invalidateRoutes();
   }
 
   /** Average of every real jump paid over this gate/destination-system
@@ -939,7 +972,7 @@ export class GalaxyAtlas {
     let added = 0;
     for (const s of systems) {
       if (this.systems.has(s.symbol)) continue;
-      this.systems.set(s.symbol, { symbol: s.symbol, waypoints: [], jumpGates: [], markets: [], shipyards: [] }); this.pathCache.clear();
+      this.systems.set(s.symbol, { symbol: s.symbol, waypoints: [], jumpGates: [], markets: [], shipyards: [] }); this.invalidateRoutes();
       added += 1;
     }
     return added;
@@ -952,7 +985,7 @@ export class GalaxyAtlas {
       let sys = this.systems.get(w.systemSymbol);
       if (!sys) {
         sys = { symbol: w.systemSymbol, waypoints: [], jumpGates: [], markets: [], shipyards: [] };
-        this.systems.set(w.systemSymbol, sys); this.pathCache.clear();
+        this.systems.set(w.systemSymbol, sys); this.invalidateRoutes();
       }
       const existing = sys.waypoints.find((ew) => ew.symbol === w.symbol);
       if (existing) {
@@ -970,6 +1003,8 @@ export class GalaxyAtlas {
         isUnderConstruction: false,
       });
       added += 1;
+      // A gate changes what a jump into this system can do (canJumpInto, edgeUsable read its gates).
+      if (w.type === "JUMP_GATE") this.invalidateRoutes();
     }
     return added;
   }

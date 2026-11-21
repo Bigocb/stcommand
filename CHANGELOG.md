@@ -11,6 +11,16 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-21 — Galaxy: cache each system's usable gates (SEV0, part 2)
+
+After the recompute fix the process was still 99% busy, a quarter of it in the galaxy's path search: `usableNeighbors()`
+(which gates out of a system are usable now) was worked out again at every step of every path search, and the path cache
+was dropped on every system reload and every gate read even when nothing had changed. Now each system's usable neighbours
+are cached with the paths, and both are dropped only when something a path depends on really changes: a gate's
+construction status, a system's gate layout, a proven jump, the jump limit, or the graph reload. A jump-gate waypoint found
+by a sensor scan now drops them too (it did not before). Callers get a copy, so the cache cannot be changed from outside.
+Test: `tests/galaxyNeighborCache.test.ts`; the full suite fails the same tests before and after.
+
 ## 2026-11-21 — Dispatcher recompute on a worker thread (clause `dispatcherWorker`, off; issue #70)
 
 Everything in the engine shares one Node thread, so a long computation stalls API calls, keeper reads, trades and the
