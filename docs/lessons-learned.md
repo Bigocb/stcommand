@@ -75,6 +75,34 @@ in Tower when jump fees exceed matched profit, when no system has opened for N h
 plus holds falls two hours running; and a warning on the buy-ship button when the wallet after the buy would fall under the
 working-capital floor, or margins are falling.
 
+## 2026-11-22: traders were the constraint for the last day, and hulls were bought late and by hand
+
+**What happened.** The 2026-11-15 week made 90% of its profit in its last 2.5 days, and the hourly rate followed the trading fleet
+(traders selling at once 14 on 11-19, 29 on 11-20, 36 on 11-21; 0.8, 5.8 and 11.1M/h). From 22:12 on 11-21 every hourly showed 0
+free traders while the route board listed 450-600k routes nobody flew, and 29 of the 35 systems released in the last 12 hours had
+no sales. Fourteen big hulls were then bought in three operator-approved waves between 20:38 on 11-21 and 02:14 on 11-22.
+
+**Why.** Every hull buy waits on the operator, and the engine's own auto-buyer (`maybeBuyShip`, off) cannot buy big hulls or read
+routes. Releases kept going (`freshTarget` 12) whether or not a trader could reach the new systems.
+
+**Cost.** Not measured exactly: a heavy makes about 300-470k an hour, so each hour a needed hull was not bought cost that much.
+
+**Rule.** Release pace tracks big-hull count (`freshTarget` 5 at the opening, 10 at 20 big hulls, 12 at 30). When free traders
+are 0 for two hourlies and the wallet clears the working-capital floor plus a hull, the hourly proposes a hull. Engine hull buying
+(clause `hullAutoBuy`, shadow -> cards -> auto) is next week's project: `docs/plan-week-2026-11-22.md` §4.
+
+## 2026-11-21: deploy churn and an unbounded working set
+
+**What happened.** SEV0 at 05:30 (route build 28 s, process 95% busy), then between 21:40 and 22:05 three deploys and a heap OOM
+(3,959 of 4,144 MB). The 21:13-22:12 hour made 7.66M against 10-17M in the hours either side.
+
+**Why.** The route build joined every price to every price (1.38M rows a pass, 17.7 s) and `/api/state` serialised 2,470 full ship
+objects per poll (752 MB of allocations); both grew with the galaxy. Each fix was deployed as it was ready.
+
+**Rule.** Batch code into one deploy, new behaviour behind a clause that ships off (operator, 11-21). Anything that scales with live
+systems or ships gets a cap (top-N, cache, count-change) before it ships; `ops container` shows heap, resident memory and why each
+process ended. `docs/memory-analysis-2026-11-21.md`.
+
 ## 2026-11-21: keeper reads fall behind as the keeper fleet grows (third time)
 
 **What happened.** Measured keeper reads fell from 41 a minute (19:13) to 9.8 (00:13) while keepers grew from about 1,120 to 1,435
