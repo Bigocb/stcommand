@@ -11,6 +11,14 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-22 — Opening templates: the MCP save now validates, and the command ship waits for priced markets
+
+`stcommand_add_opening_template` saved whatever it was given, unlike the HTTP route, so a template with a trigger the engine refuses
+(for example an `all` nested inside an `any`) saved fine and failed only when a reset applied it. It now runs `validateTemplateTasks`
+first and returns the error. Template 6 ("Opening: auto at reset"), changed with the operator's yes: `o4-trader` now waits for the
+home markets to be priced as well as a 15k route (either one gives way after 90 minutes). On 2026-11-22 THEO-1 started trading with
+10 of 30 markets priced, ran out of routes 20 minutes later and had to be sent back to tour.
+
 ## 2026-11-22 — Compare charts: a "Forecast" line (issue #76)
 
 The operator asked for a third line on the compare charts showing where the week should be if the goals hold. `src/engine/forecast.ts`

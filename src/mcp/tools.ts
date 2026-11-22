@@ -12,6 +12,7 @@ import { buyPreflight } from "../ops/economy.js";
 import { approvalsView } from "../engine/approvalsView.js";
 import { closeSeasonWeekNow, seasonSummary } from "../http/season.js";
 import { API_BASE } from "../core/client.js";
+import { validateTemplateTasks } from "../engine/openingTasks.js";
 
 /**
  * Every tool registered here for a given request's `worker` (the caller's
@@ -91,7 +92,10 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
     },
     async ({ name, tasks }) => {
       try {
-        await w.store.saveOpeningTemplate(w.tenantId, name, tasks);
+        // Validate as the HTTP route does: a template that saves but fails validation is only caught when the reset applies it.
+        const v = validateTemplateTasks(tasks);
+        if (!v.ok) return errorResult(new Error("invalid template: " + v.error));
+        await w.store.saveOpeningTemplate(w.tenantId, name, v.value);
         await recordMcpAction(w, "save_opening_template", undefined, `saved template ${name}`, { name });
         return textResult({ ok: true, name });
       } catch (err) {
