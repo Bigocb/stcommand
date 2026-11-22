@@ -67,25 +67,79 @@ footer{font-size:.8rem;color:var(--dim)}
 <div class="wrap">
 <header>
   <h1>THEO <span>Fleet Snapshots</span></h1>
-  <div class="meta">Week of 2026-11-15 · reset 2026-11-22 13:00 UTC · newest first</div>
+  <div class="meta">Week of 2026-11-22 · reset 13:00 UTC · agent THEO · home X1-AR36 · newest first</div>
   <!-- Every snapshot: set "Last snapshot" to the time the page is written and "Next snapshot" to the next scheduled report (list_triggers, earliest next_run_at among the fleet reports) with its name. -->
-  <div class="stamp"><span>Last snapshot <time>2026-11-22 12:17 UTC</time></span><span>Next snapshot <time>13:10 UTC</time> · reset check (new week)</span></div>
+  <div class="stamp"><span>Last snapshot <time>2026-11-22 13:16 UTC</time></span><span>Next snapshot <time>13:20 UTC</time> · forecast deploy, then 14:00 opening T+1</span></div>
 </header>
 
-<section class="strip" aria-label="Tonight at a glance">
-  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">345.5M</div><div class="s"><span class="up">+143.1M</span> since 22:12</div>
-    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Wallet plus cargo from 202.4M at 22:12 to 345.5M at 12:12">
-      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,34 11,31 20,31 29,26 38,25 47,25 56,24 64,22 73,21 82,17 91,14 100,11 109,7 118,4"/>
-      <circle cx="118" cy="4" r="2.5" fill="var(--amber)"/></svg></div>
-  <div class="tile"><div class="k">Matched profit / h</div><div class="v">18.9M</div><div class="s">12:12 hour · week 636.0M matched</div>
-    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Hourly matched profit 7.66, 13.91, 13.27, 12.45, 12.70, 11.74, 11.91, 12.25, 19.01, 17.35, 17.42, 16.55, 18.80, 18.94 million">
-      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34 11,17 20,19 29,21 38,21 47,23 56,23 64,22 73,4 82,8 91,8 100,11 109,5 118,4"/>
-      <circle cx="118" cy="4" r="2.5" fill="var(--ice)"/></svg></div>
-  <div class="tile"><div class="k">Traders</div><div class="v">51</div><div class="s">all big hulls · 0 free</div></div>
-  <div class="tile"><div class="k">Box API</div><div class="v">42/min</div><div class="s">of 105 · 0 rate-limit errors</div></div>
+<section class="strip" aria-label="This week at a glance">
+  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">177k</div><div class="s">hour 0 · start 175k</div>
+    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Wallet plus cargo 177k at hour 0">
+      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,34"/>
+      <circle cx="2" cy="34" r="2.5" fill="var(--amber)"/></svg></div>
+  <div class="tile"><div class="k">Matched profit / h</div><div class="v">—</div><div class="s">no sales yet</div>
+    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="No hourly profit yet">
+      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34"/>
+      <circle cx="2" cy="34" r="2.5" fill="var(--ice)"/></svg></div>
+  <div class="tile"><div class="k">Traders</div><div class="v">0</div><div class="s">THEO-1 touring, THEO-2 keeper</div></div>
+  <div class="tile"><div class="k">Box API</div><div class="v">—</div><div class="s">read from T+1</div></div>
+</section>
+
+<section aria-label="Week goals" style="display:flex;flex-direction:column;gap:8px">
+  <h2>Week goals</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Goal</th><th>Target (stretch)</th><th>Now (hour 0)</th><th>Status</th><th>2026-11-15 week</th></tr></thead>
+    <tbody>
+      <tr><td>G1 Gate open</td><td class="n">hour 40 (33)</td><td>mission to be created paused</td><td><span class="pill">On pace</span></td><td class="n">hour 34.2</td></tr>
+      <tr><td>G2 2M/h for a full hour</td><td class="n">hour 48 (41)</td><td>-</td><td><span class="pill">On pace</span></td><td class="n">hour 103 (about 62 without the crash)</td></tr>
+      <tr><td>G3 1M/h for a full hour</td><td class="n">hour 40 (36)</td><td>-</td><td><span class="pill">On pace</span></td><td class="n">hour 44</td></tr>
+      <tr><td>G4a Heavy yard seen</td><td class="n">-</td><td>not yet</td><td><span class="pill">On pace</span></td><td class="n">hour 38.8</td></tr>
+      <tr><td>G4b Heavy affordable (price + floor + 500k)</td><td class="n">-</td><td>wallet 177k</td><td><span class="pill">On pace</span></td><td class="n">about hour 43</td></tr>
+      <tr><td>G4c First heavy trading (standing yes)</td><td class="n">hour 40 (36)</td><td>-</td><td><span class="pill">On pace</span></td><td class="n">about hour 55</td></tr>
+      <tr><td>G5 No zero-sale hour after T+1</td><td class="n">0</td><td>0</td><td><span class="pill ok">Met so far</span></td><td class="n">4 hours</td></tr>
+      <tr><td>G6 No 2-hour net-negative run</td><td class="n">0</td><td>0</td><td><span class="pill ok">Met so far</span></td><td class="n">the 41-hour crash</td></tr>
+      <tr><td>G7 Week matched profit</td><td class="n">650M (750M)</td><td>0</td><td><span class="pill">On pace</span></td><td class="n">643.9M</td></tr>
+    </tbody></table></div>
 </section>
 
 <article class="latest">
+  <div class="when"><span>2026-11-22 13:16 UTC</span><span class="pill">Reset check</span><span class="pill warn">Template applied by hand</span></div>
+  <h2>New week: the recovery did not queue the opening template again; applied it by hand at 13:12</h2>
+  <p>The reset recovered at 13:11 (agent THEO booted, home X1-AR36, wallet 177,432, ships THEO-1 and THEO-2). No o4 tasks were queued, as last week, and the settings still held last week's values (positioning 10, keeper cash line 15M, keeper earning gate on). All 11 tasks from template 6 were added with -1122 keys.</p>
+  <h3>Opening tasks</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Task</th><th>Expected at T+0:15</th><th>Actual</th></tr></thead>
+    <tbody>
+      <tr><td>o4-tour</td><td>done: THEO-1 tours</td><td>done (THEO-1 tour)</td></tr>
+      <tr><td>o4-start</td><td>done</td><td>running, step 8 of 13 (one setting a tick)</td></tr>
+      <tr><td>o4-gatemission</td><td>done: mission created, paused</td><td>done</td></tr>
+      <tr><td>o4-trader</td><td>queued: 15k route or 90 min</td><td>queued</td></tr>
+      <tr><td>o4-yardkeep, contract, tourshuttle, keeperline, gatehaul</td><td>queued on cash</td><td>queued</td></tr>
+      <tr><td>o4-finalpush, gateopen</td><td>queued on gate progress</td><td>queued</td></tr>
+    </tbody></table></div>
+  <h3>Start settings</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Setting</th><th>Expected</th><th>Actual (13:15)</th></tr></thead>
+    <tbody>
+      <tr><td>cashFloor</td><td class="n">20,000</td><td class="n">20,000</td></tr>
+      <tr><td>keeperAutoApproveMinCash</td><td class="n">100,000</td><td class="n">100,000</td></tr>
+      <tr><td>autoApproveKeeperProbes</td><td class="n">on, 60,000</td><td class="n">on, 60,000</td></tr>
+      <tr><td>keeperAutoApproveMinRate</td><td>off</td><td>off</td></tr>
+      <tr><td>keeperTopUpPerHour / idle parking</td><td>off / off</td><td>off / off</td></tr>
+      <tr><td>positioningHops</td><td class="n">3</td><td class="n">3</td></tr>
+      <tr><td>freshStagedAhead</td><td class="n">3</td><td class="n">3</td></tr>
+      <tr><td>freshTarget</td><td class="n">5</td><td class="n">12 (next step)</td></tr>
+      <tr><td>freshTours</td><td class="n">2</td><td class="n">8 (pending)</td></tr>
+      <tr><td>tradeLaneShips / tradeLegsPrefilter</td><td class="n">50 / 30</td><td class="n">50 / 30</td></tr>
+      <tr><td>keeperMaxTotal</td><td class="n">4,000</td><td class="n">3,000 (pending)</td></tr>
+    </tbody></table></div>
+  <div class="ask"><strong>Needs your yes:</strong> one keeper card is open, a probe at X1-AR36-A2 for 26,283 (raised 13:06, before auto-approve came back on). Approve it so the yard keeper is not stuck behind it, as happened last week.</div>
+</article>
+
+<details>
+  <summary><span class="t">11-15</span><span class="h">Week of 2026-11-15: final 340.4M credits, 643.9M matched profit on 17,913 trades (last week 609.2M)</span></summary>
+  <div class="body">
+<article>
   <div class="when"><span>2026-11-22 12:12 UTC</span><span class="pill">Hourly</span><span class="pill ok">Week beats last week</span></div>
   <h2>18.94M matched on 391 sales; the week is at 636.0M matched, past last week's 609.2M</h2>
   <h3>Money</h3>
@@ -241,6 +295,8 @@ footer{font-size:.8rem;color:var(--dim)}
   <summary><span class="t">22:12</span><span class="h">Hourly: 7.66M matched after deploys and a memory crash; memory fixes on</span></summary>
   <div class="body"><p>Heap 3.6 GB (out of memory at 22:04) to 0.5-1.1 GB after the cached state response and the route-list filter. Fleet list now only re-read when the ship count changes (37 to 2 calls a minute).</p></div>
 </details>
+  </div>
+</details>
 
-<footer>Figures from the Tailwinds ops tools (ops_pnl, get_cargo_value, ops_api_budget, ops_profit_curve) at each snapshot's time. Detail: docs/journal/2026-11-08.md. Each scheduled report adds a snapshot here.</footer>
+<footer>Figures from the Tailwinds ops tools (ops_pnl, get_cargo_value, ops_api_budget, ops_profit_curve) at each snapshot's time. Detail: docs/journal/2026-11-22.md (this week), docs/journal/2026-11-08.md (earlier). Each scheduled report adds a snapshot here.</footer>
 </div>
