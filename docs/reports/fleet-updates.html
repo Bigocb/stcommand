@@ -60,12 +60,16 @@ summary:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
 details .body{margin-top:10px;display:flex;flex-direction:column;gap:8px}
 ul{margin:0;padding-left:1.2rem;display:flex;flex-direction:column;gap:4px}
 footer{font-size:.8rem;color:var(--dim)}
+.stamp{flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px 18px;font-family:var(--mono);font-size:.8rem;color:var(--dim)}
+.stamp time{color:var(--bone)}
 </style>
 
 <div class="wrap">
 <header>
   <h1>THEO <span>Fleet Updates</span></h1>
   <div class="meta">Week of 2026-11-15 · reset 2026-11-22 13:00 UTC · newest first</div>
+  <!-- Every update: set "Last updated" to the time the page is written and "Next update" to the next scheduled report (list_triggers, earliest next_run_at among the fleet reports) with its name. -->
+  <div class="stamp"><span>Last updated <time>2026-11-22 06:05 UTC</time></span><span>Next update <time>06:12 UTC</time> · hourly report</span></div>
 </header>
 
 <section class="strip" aria-label="Tonight at a glance">
