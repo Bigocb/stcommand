@@ -1,4 +1,4 @@
-<title>THEO Fleet Updates</title>
+<title>THEO Fleet Snapshots</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
@@ -66,10 +66,10 @@ footer{font-size:.8rem;color:var(--dim)}
 
 <div class="wrap">
 <header>
-  <h1>THEO <span>Fleet Updates</span></h1>
+  <h1>THEO <span>Fleet Snapshots</span></h1>
   <div class="meta">Week of 2026-11-15 · reset 2026-11-22 13:00 UTC · newest first</div>
-  <!-- Every update: set "Last updated" to the time the page is written and "Next update" to the next scheduled report (list_triggers, earliest next_run_at among the fleet reports) with its name. -->
-  <div class="stamp"><span>Last updated <time>2026-11-22 06:18 UTC</time></span><span>Next update <time>06:30 UTC</time> · route-list test result</span></div>
+  <!-- Every snapshot: set "Last snapshot" to the time the page is written and "Next snapshot" to the next scheduled report (list_triggers, earliest next_run_at among the fleet reports) with its name. -->
+  <div class="stamp"><span>Last snapshot <time>2026-11-22 06:18 UTC</time></span><span>Next snapshot <time>06:30 UTC</time> · route-list test result</span></div>
 </header>
 
 <section class="strip" aria-label="Tonight at a glance">
@@ -189,5 +189,5 @@ footer{font-size:.8rem;color:var(--dim)}
   <div class="body"><p>Heap 3.6 GB (out of memory at 22:04) to 0.5-1.1 GB after the cached state response and the route-list filter. Fleet list now only re-read when the ship count changes (37 to 2 calls a minute).</p></div>
 </details>
 
-<footer>Figures from the Tailwinds ops tools (ops_pnl, get_cargo_value, ops_api_budget, ops_profit_curve) at each update's time. Detail: docs/journal/2026-11-08.md.</footer>
+<footer>Figures from the Tailwinds ops tools (ops_pnl, get_cargo_value, ops_api_budget, ops_profit_curve) at each snapshot's time. Detail: docs/journal/2026-11-08.md. Each scheduled report adds a snapshot here.</footer>
 </div>

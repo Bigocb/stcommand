@@ -64,6 +64,12 @@ worth spending on rather than hoarding.
 Count cargo in transit: "3M with no cargo in transit is a lot different than 3M with 1.5M in cargo". The buy warning checks both
 (`buyAdviceBigHullLine` 3.5M, `buyAdviceBigHullHolds` 1M).
 
+**First heavy of the week: standing yes (operator, 2026-11-22).** From the 2026-11-22 reset on, buy the week's FIRST heavy freighter (225) without asking,
+as soon as a yard selling one is known and the wallet holds its price + the cash floor + about 500k working cash. This overrides the 3M hull line for
+that one hull only. Choose the yard by the nearest-yard procedure above (where it will trade), run the route check for its first route, set it to
+trader, and report the buy in the next report. One hull only: the second heavy waits until the first has traded and the wallet is back over the
+line (the 11-17 second heavy on a 625k wallet helped cause that week's crash). Evidence: `docs/plan-week-2026-11-22.md` §0 (find, afford, decide).
+
 **Which big hull (operator, 2026-11-19):** prefer heavy freighters (225 cargo). Buy a refining freighter (150) only when its yard is where the ship will trade; never just because it is the cheapest big hull. Once the wallet is above about **15,000,000c**, buy bulk freighters (490 cargo, about 5.6M). Operator (2026-11-20): when the wallet reaches **15M**, buy one bulk freighter; this is pre-approved and the hourly update buys it (one only). A yard sells only to a ship docked there: bulk yards seen are X1-YQ84-XX9F and X1-JD68-A32F, and none of our ships was docked at either on 2026-11-20.
 
 **Swapping small hulls for heavies (operator, 2026-11-20):** as money grows, replace the 40-unit hulls first, then the 80s, with heavy
