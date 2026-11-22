@@ -69,7 +69,7 @@ footer{font-size:.8rem;color:var(--dim)}
   <h1>THEO <span>Fleet Snapshots</span></h1>
   <div class="meta">Week of 2026-11-22 · reset 13:00 UTC · agent THEO · home X1-AR36 · newest first</div>
   <!-- Every snapshot: set "Last snapshot" to the time the page is written and "Next snapshot" to the next scheduled report (list_triggers, earliest next_run_at among the fleet reports) with its name. -->
-  <div class="stamp"><span>Last snapshot <time>2026-11-22 13:16 UTC</time></span><span>Next snapshot <time>13:20 UTC</time> · forecast deploy, then 14:00 opening T+1</span></div>
+  <div class="stamp"><span>Last snapshot <time>2026-11-22 13:32 UTC</time></span><span>Next snapshot <time>14:00 UTC</time> · opening T+1</span></div>
 </header>
 
 <section class="strip" aria-label="This week at a glance">
@@ -103,38 +103,29 @@ footer{font-size:.8rem;color:var(--dim)}
 </section>
 
 <article class="latest">
-  <div class="when"><span>2026-11-22 13:16 UTC</span><span class="pill">Reset check</span><span class="pill warn">Template applied by hand</span></div>
-  <h2>New week: the recovery did not queue the opening template again; applied it by hand at 13:12</h2>
-  <p>The reset recovered at 13:11 (agent THEO booted, home X1-AR36, wallet 177,432, ships THEO-1 and THEO-2). No o4 tasks were queued, as last week, and the settings still held last week's values (positioning 10, keeper cash line 15M, keeper earning gate on). All 11 tasks from template 6 were added with -1122 keys.</p>
-  <h3>Opening tasks</h3>
+  <div class="when"><span>2026-11-22 13:32 UTC</span><span class="pill">Deploy</span><span class="pill ok">Forecast line live</span></div>
+  <h2>The compare charts now draw a Forecast line (gate hour 40, first heavy hour 40)</h2>
+  <p>Deployed at 13:25 (main 36d18e2, issue #76). See it on Deck under Insights &gt; Compare and on Tower's compare card: a dotted green line for where the week should be if the goals hold.</p>
   <div class="tbl"><table>
-    <thead><tr><th>Task</th><th>Expected at T+0:15</th><th>Actual</th></tr></thead>
+    <thead><tr><th>Forecast milestone</th><th>Hour</th><th>Goal</th></tr></thead>
     <tbody>
-      <tr><td>o4-tour</td><td>done: THEO-1 tours</td><td>done (THEO-1 tour)</td></tr>
-      <tr><td>o4-start</td><td>done</td><td>done (all 13 settings by 13:15)</td></tr>
-      <tr><td>o4-gatemission</td><td>done: mission created, paused</td><td>done</td></tr>
-      <tr><td>o4-trader</td><td>queued: 15k route or 90 min</td><td>queued</td></tr>
-      <tr><td>o4-yardkeep, contract, tourshuttle, keeperline, gatehaul</td><td>queued on cash</td><td>queued</td></tr>
-      <tr><td>o4-finalpush, gateopen</td><td>queued on gate progress</td><td>queued</td></tr>
+      <tr><td>Gate opens (materials about 5.5M paid)</td><td class="n">40</td><td>G1 hour 40 (33)</td></tr>
+      <tr><td>First heavy bought / trading</td><td class="n">44 / 45</td><td>G4 hour 40 (36): the cash at gate open is short</td></tr>
+      <tr><td>1M/h for an hour</td><td class="n">45</td><td>G3 hour 40 (36)</td></tr>
+      <tr><td>2M/h for an hour</td><td class="n">53</td><td>G2 hour 48 (41)</td></tr>
+      <tr><td>10M/h</td><td class="n">67</td><td>-</td></tr>
+      <tr><td>Week matched profit</td><td class="n">about 1.39B (48 big hulls)</td><td>G7 650M (750M)</td></tr>
     </tbody></table></div>
-  <h3>Start settings</h3>
-  <div class="tbl"><table>
-    <thead><tr><th>Setting</th><th>Expected</th><th>Actual (13:16)</th></tr></thead>
-    <tbody>
-      <tr><td>cashFloor</td><td class="n">20,000</td><td class="n">20,000</td></tr>
-      <tr><td>keeperAutoApproveMinCash</td><td class="n">100,000</td><td class="n">100,000</td></tr>
-      <tr><td>autoApproveKeeperProbes</td><td class="n">on, 60,000</td><td class="n">on, 60,000</td></tr>
-      <tr><td>keeperAutoApproveMinRate</td><td>off</td><td>off</td></tr>
-      <tr><td>keeperTopUpPerHour / idle parking</td><td>off / off</td><td>off / off</td></tr>
-      <tr><td>positioningHops</td><td class="n">3</td><td class="n">3</td></tr>
-      <tr><td>freshStagedAhead</td><td class="n">3</td><td class="n">3</td></tr>
-      <tr><td>freshTarget</td><td class="n">5</td><td class="n">5</td></tr>
-      <tr><td>freshTours</td><td class="n">2</td><td class="n">2</td></tr>
-      <tr><td>tradeLaneShips / tradeLegsPrefilter</td><td class="n">50 / 30</td><td class="n">50 / 30</td></tr>
-      <tr><td>keeperMaxTotal</td><td class="n">4,000</td><td class="n">4,000</td></tr>
-    </tbody></table></div>
-  <div class="ask"><strong>Needs your yes:</strong> one keeper card is open, a probe at X1-AR36-A2 for 26,283 (raised 13:06, before auto-approve came back on). Approve it so the yard keeper is not stuck behind it, as happened last week.</div>
+  <p>Read it as a pace to beat, not a promise: it is fitted to two weeks. What it says now: the gate's cost uses up the cash, so the first heavy waits about 4 hours after the gate. Earlier heavies need more profit before the gate or a cheaper gate run.</p>
 </article>
+
+<details>
+  <summary><span class="t">13:16</span><span class="h">Reset check: template not queued by the recovery; applied by hand, all start settings in by 13:16</span></summary>
+  <div class="body"><ul>
+    <li>11 tasks from template 6 added with -1122 keys; tour and gate mission done, the rest queued on cash or gate progress.</li>
+    <li>Open: keeper probe card at X1-AR36-A2 (26,283c), waiting on the operator.</li>
+  </ul></div>
+</details>
 
 <details>
   <summary><span class="t">11-15</span><span class="h">Week of 2026-11-15: final 340.4M credits, 643.9M matched profit on 17,913 trades (last week 609.2M)</span></summary>
