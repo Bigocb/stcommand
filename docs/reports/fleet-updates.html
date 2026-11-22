@@ -69,55 +69,78 @@ footer{font-size:.8rem;color:var(--dim)}
   <h1>THEO <span>Fleet Snapshots</span></h1>
   <div class="meta">Week of 2026-11-22 · reset 13:00 UTC · agent THEO · home X1-AR36 · newest first</div>
   <!-- Every snapshot: set "Last snapshot" to the time the page is written and "Next snapshot" to the next scheduled report (list_triggers, earliest next_run_at among the fleet reports) with its name. -->
-  <div class="stamp"><span>Last snapshot <time>2026-11-22 13:32 UTC</time></span><span>Next snapshot <time>14:00 UTC</time> · opening T+1</span></div>
+  <div class="stamp"><span>Last snapshot <time>2026-11-22 14:05 UTC</time></span><span>Next snapshot <time>15:00 UTC</time> · opening T+2</span></div>
 </header>
 
 <section class="strip" aria-label="This week at a glance">
-  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">177k</div><div class="s">hour 0 · start 175k</div>
-    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Wallet plus cargo 177k at hour 0">
-      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,34"/>
-      <circle cx="2" cy="34" r="2.5" fill="var(--amber)"/></svg></div>
-  <div class="tile"><div class="k">Matched profit / h</div><div class="v">—</div><div class="s">no sales yet</div>
-    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="No hourly profit yet">
-      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34"/>
-      <circle cx="2" cy="34" r="2.5" fill="var(--ice)"/></svg></div>
-  <div class="tile"><div class="k">Traders</div><div class="v">0</div><div class="s">THEO-1 touring, THEO-2 keeper</div></div>
-  <div class="tile"><div class="k">Box API</div><div class="v">—</div><div class="s">read from T+1</div></div>
+  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">129k</div><div class="s">hour 1 · 136k spent on 2 probes + a shuttle</div>
+    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Wallet plus cargo 177k at hour 0, 129k at hour 1">
+      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,4 118,34"/>
+      <circle cx="118" cy="34" r="2.5" fill="var(--amber)"/></svg></div>
+  <div class="tile"><div class="k">Matched profit / h</div><div class="v">82k</div><div class="s">hour 1 · 8 sales, all THEO-1</div>
+    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Matched profit 82k in hour 1">
+      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34 118,4"/>
+      <circle cx="118" cy="4" r="2.5" fill="var(--ice)"/></svg></div>
+  <div class="tile"><div class="k">Traders</div><div class="v">1</div><div class="s">THEO-5 (contracts); THEO-1 back on tour; 3 keepers</div></div>
+  <div class="tile"><div class="k">Box API</div><div class="v">4/min</div><div class="s">of 105 · no 429s</div></div>
 </section>
 
 <section aria-label="Week goals" style="display:flex;flex-direction:column;gap:8px">
   <h2>Week goals</h2>
   <div class="tbl"><table>
-    <thead><tr><th>Goal</th><th>Target (stretch)</th><th>Now (hour 0)</th><th>Status</th><th>2026-11-15 week</th></tr></thead>
+    <thead><tr><th>Goal</th><th>Target (stretch)</th><th>Now (hour 1)</th><th>Status</th><th>2026-11-15 week</th></tr></thead>
     <tbody>
-      <tr><td>G1 Gate open</td><td class="n">hour 40 (33)</td><td>mission to be created paused</td><td><span class="pill">On pace</span></td><td class="n">hour 34.2</td></tr>
-      <tr><td>G2 2M/h for a full hour</td><td class="n">hour 48 (41)</td><td>-</td><td><span class="pill">On pace</span></td><td class="n">hour 103 (about 62 without the crash)</td></tr>
-      <tr><td>G3 1M/h for a full hour</td><td class="n">hour 40 (36)</td><td>-</td><td><span class="pill">On pace</span></td><td class="n">hour 44</td></tr>
+      <tr><td>G1 Gate open</td><td class="n">hour 40 (33)</td><td>mission paused, 0 of 1,600 / 0 of 400</td><td><span class="pill">On pace</span></td><td class="n">hour 34.2</td></tr>
+      <tr><td>G2 2M/h for a full hour</td><td class="n">hour 48 (41)</td><td>82k/h</td><td><span class="pill">On pace</span></td><td class="n">hour 103 (about 62 without the crash)</td></tr>
+      <tr><td>G3 1M/h for a full hour</td><td class="n">hour 40 (36)</td><td>82k/h</td><td><span class="pill">On pace</span></td><td class="n">hour 44</td></tr>
       <tr><td>G4a Heavy yard seen</td><td class="n">-</td><td>not yet</td><td><span class="pill">On pace</span></td><td class="n">hour 38.8</td></tr>
-      <tr><td>G4b Heavy affordable (price + floor + 500k)</td><td class="n">-</td><td>wallet 177k</td><td><span class="pill">On pace</span></td><td class="n">about hour 43</td></tr>
+      <tr><td>G4b Heavy affordable (price + floor + 500k)</td><td class="n">-</td><td>wallet 129k</td><td><span class="pill">On pace</span></td><td class="n">about hour 43</td></tr>
       <tr><td>G4c First heavy trading (standing yes)</td><td class="n">hour 40 (36)</td><td>-</td><td><span class="pill">On pace</span></td><td class="n">about hour 55</td></tr>
-      <tr><td>G5 No zero-sale hour after T+1</td><td class="n">0</td><td>0</td><td><span class="pill ok">Met so far</span></td><td class="n">4 hours</td></tr>
+      <tr><td>G5 No zero-sale hour after T+1</td><td class="n">0</td><td>no sale since 13:50: no routes until the tour prices the rest</td><td><span class="pill warn">At risk</span></td><td class="n">4 hours</td></tr>
       <tr><td>G6 No 2-hour net-negative run</td><td class="n">0</td><td>0</td><td><span class="pill ok">Met so far</span></td><td class="n">the 41-hour crash</td></tr>
-      <tr><td>G7 Week matched profit</td><td class="n">650M (750M)</td><td>0</td><td><span class="pill">On pace</span></td><td class="n">643.9M</td></tr>
+      <tr><td>G7 Week matched profit</td><td class="n">650M (750M)</td><td>82k</td><td><span class="pill">On pace</span></td><td class="n">643.9M</td></tr>
     </tbody></table></div>
 </section>
 
 <article class="latest">
-  <div class="when"><span>2026-11-22 13:32 UTC</span><span class="pill">Deploy</span><span class="pill ok">Forecast line live</span></div>
-  <h2>The compare charts now draw a Forecast line (gate hour 40, first heavy hour 40)</h2>
-  <p>Deployed at 13:25 (main 36d18e2, issue #76). See it on Deck under Insights &gt; Compare and on Tower's compare card: a dotted green line for where the week should be if the goals hold.</p>
+  <div class="when"><span>2026-11-22 14:05 UTC</span><span class="pill">Opening T+1</span><span class="pill warn">Traders idle: home system not yet priced</span></div>
+  <h2>Hour 1: 82k matched from 8 sales, then no routes. THEO-1 is touring again to price the 20 markets nobody has read</h2>
+  <p>THEO-1 switched to trading at about 13:30 on the 15k-a-trip rule after pricing 10 of 30 home markets. It made 82k on JEWELRY H57→A1 and COPPER H54→A3, and both routes are now resting (2 trips an hour). Since about 13:50 the work list has been empty, with THEO-1 and THEO-5 both waiting. At 14:03 I queued task <code>o4-retour-1122</code>: THEO-1 tours, and when the markets are surveyed it goes back to trading on its own. It is flying to D39 first, which is also where the open contract delivers.</p>
   <div class="tbl"><table>
-    <thead><tr><th>Forecast milestone</th><th>Hour</th><th>Goal</th></tr></thead>
+    <thead><tr><th>Opening</th><th>State at 14:03</th></tr></thead>
     <tbody>
-      <tr><td>Gate opens (materials about 5.5M paid)</td><td class="n">40</td><td>G1 hour 40 (33)</td></tr>
-      <tr><td>First heavy bought / trading</td><td class="n">44 / 45</td><td>G4 hour 40 (36): the cash at gate open is short</td></tr>
-      <tr><td>1M/h for an hour</td><td class="n">45</td><td>G3 hour 40 (36)</td></tr>
-      <tr><td>2M/h for an hour</td><td class="n">53</td><td>G2 hour 48 (41)</td></tr>
-      <tr><td>10M/h</td><td class="n">67</td><td>-</td></tr>
-      <tr><td>Week matched profit</td><td class="n">about 1.39B (48 big hulls)</td><td>G7 650M (750M)</td></tr>
+      <tr><td>Tour, then trade (THEO-1)</td><td>done 13:30; back on tour 14:03 (o4-retour)</td></tr>
+      <tr><td>Start settings</td><td>all 13 in (read back)</td></tr>
+      <tr><td>Gate mission</td><td>created, paused</td></tr>
+      <tr><td>Shipyard keepers</td><td>done: THEO-3 at A2, THEO-4 at C37 (probes 26,283 and 27,283)</td></tr>
+      <tr><td>Contract shuttle</td><td>done: THEO-5 (light shuttle 82,021) at A2</td></tr>
+      <tr><td>Tour shuttle at 300k / auto keepers at 5M / gate hauler at 450k</td><td>queued on cash</td></tr>
+      <tr><td>Gate 85% / gate open</td><td>queued on gate progress</td></tr>
     </tbody></table></div>
-  <p>Read it as a pace to beat, not a promise: it is fitted to two weeks. What it says now: the gate's cost uses up the cash, so the first heavy waits about 4 hours after the gate. Earlier heavies need more profit before the gate or a cheaper gate run.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Money and pace</th><th>Value</th></tr></thead>
+    <tbody>
+      <tr><td>Wallet (no cargo held)</td><td class="n">128,957</td></tr>
+      <tr><td>Matched trading, hour 1</td><td class="n">82,320 (8 sales; best 15 min 79k)</td></tr>
+      <tr><td>Contracts</td><td class="n">17,070 in (1 done); open one: 22 POLYNUCLEOTIDES to D39, no market known yet, 7,388 owed</td></tr>
+      <tr><td>Cash flow</td><td class="n">-46,043 (ships 135,587)</td></tr>
+      <tr><td>Box API</td><td class="n">4 calls/min of 105, no 429s</td></tr>
+    </tbody></table></div>
+  <div class="tbl"><table>
+    <thead><tr><th>Health and risks</th><th></th></tr></thead>
+    <tbody>
+      <tr><td>Stuck ships</td><td>none</td></tr>
+      <tr><td>Errors</td><td>only the gate-construction crawl's 400s for gates we have not reached (normal)</td></tr>
+      <tr><td>Market data</td><td>10 of 30 home markets priced, 20 never read</td></tr>
+      <tr><td>Open card</td><td>keeper probe at X1-AR36-A2 (26,283c), raised 13:06. THEO-3 has kept A2 since 13:36, so this would buy a second probe there</td></tr>
+      <tr><td>First heavy (standing yes)</td><td>no heavy yard known; wallet 129k, so not affordable either</td></tr>
+    </tbody></table></div>
 </article>
+
+<details>
+  <summary><span class="t">13:32</span><span class="h">Forecast line live: gate 40, first heavy trading 45, 2M/h at 53, week about 1.39B</span></summary>
+  <div class="body"><p>Deployed 13:25 (main 36d18e2, issue #76). Dotted green line on Deck Insights &gt; Compare and Tower's compare card. The gate's cost uses up the cash, so the first heavy waits about 4 hours after the gate.</p></div>
+</details>
 
 <details>
   <summary><span class="t">13:16</span><span class="h">Reset check: template not queued by the recovery; applied by hand, all start settings in by 13:16</span></summary>
