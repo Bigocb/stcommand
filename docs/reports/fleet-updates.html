@@ -69,68 +69,83 @@ footer{font-size:.8rem;color:var(--dim)}
   <h1>THEO <span>Fleet Snapshots</span></h1>
   <div class="meta">Week of 2026-11-22 · reset 13:00 UTC · agent THEO · home X1-AR36 · newest first</div>
   <!-- Every snapshot: set "Last snapshot" to the time the page is written and "Next snapshot" to the next scheduled report (list_triggers, earliest next_run_at among the fleet reports) with its name. -->
-  <div class="stamp"><span>Last snapshot <time>2026-11-22 14:15 UTC</time></span><span>Next snapshot <time>15:00 UTC</time> · opening T+2</span></div>
+  <div class="stamp"><span>Last snapshot <time>2026-11-22 15:05 UTC</time></span><span>Next snapshot <time>15:12 UTC</time> · hourly</span></div>
 </header>
 
 <section class="strip" aria-label="This week at a glance">
-  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">129k</div><div class="s">hour 1 · wallet 124k + 5k in THEO-5's hold</div>
-    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Wallet plus cargo 177k at hour 0, 129k at hour 1">
-      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,4 60,34 118,34"/>
-      <circle cx="118" cy="34" r="2.5" fill="var(--amber)"/></svg></div>
-  <div class="tile"><div class="k">Matched profit / h</div><div class="v">82k</div><div class="s">hour 1 · 8 sales, all THEO-1</div>
-    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Matched profit 82k in hour 1">
-      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34 118,4"/>
+  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">625k</div><div class="s">hour 2 · wallet 426k + 199k in holds · +496k since T+1</div>
+    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Wallet plus cargo: 177k, 129k, 129k, 625k">
+      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,31.1 40.7,34 79.3,34 118,4"/>
+      <circle cx="118" cy="4" r="2.5" fill="var(--amber)"/></svg></div>
+  <div class="tile"><div class="k">Matched profit / h</div><div class="v">792k</div><div class="s">hour 2 · 38 sales (hour 1: 82k)</div>
+    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Matched profit per hour: 0, 82k, 792k">
+      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34 60,30.9 118,4"/>
       <circle cx="118" cy="4" r="2.5" fill="var(--ice)"/></svg></div>
-  <div class="tile"><div class="k">Traders</div><div class="v">1</div><div class="s">THEO-5 (contracts); THEO-1 touring, 25 of 30 priced</div></div>
-  <div class="tile"><div class="k">Box API</div><div class="v">4/min</div><div class="s">of 105 · no 429s</div></div>
+  <div class="tile"><div class="k">Traders</div><div class="v">3</div><div class="s">THEO-1, -5, -6 + THEO-7 on the gate (200 cargo)</div></div>
+  <div class="tile"><div class="k">Box API</div><div class="v">5/min</div><div class="s">of 105 · no 429s</div></div>
 </section>
 
 <section aria-label="Week goals" style="display:flex;flex-direction:column;gap:8px">
   <h2>Week goals</h2>
   <div class="tbl"><table>
-    <thead><tr><th>Goal</th><th>Target (stretch)</th><th>Now (hour 1)</th><th>Status</th><th>2026-11-15 week</th></tr></thead>
+    <thead><tr><th>Goal</th><th>Target (stretch)</th><th>Now (hour 2)</th><th>Status</th><th>2026-11-15 week</th></tr></thead>
     <tbody>
-      <tr><td>G1 Gate open</td><td class="n">hour 40 (33)</td><td>mission paused, 0 of 1,600 / 0 of 400</td><td><span class="pill">On pace</span></td><td class="n">hour 34.2</td></tr>
-      <tr><td>G2 2M/h for a full hour</td><td class="n">hour 48 (41)</td><td>82k/h</td><td><span class="pill">On pace</span></td><td class="n">hour 103 (about 62 without the crash)</td></tr>
-      <tr><td>G3 1M/h for a full hour</td><td class="n">hour 40 (36)</td><td>82k/h</td><td><span class="pill">On pace</span></td><td class="n">hour 44</td></tr>
+      <tr><td>G1 Gate open</td><td class="n">hour 40 (33)</td><td>buying since 14:46 (THEO-7): 0 of 1,600 / 0 of 400 delivered, 26 FAB_MATS aboard at 1,293</td><td><span class="pill">On pace</span></td><td class="n">hour 34.2</td></tr>
+      <tr><td>G2 2M/h for a full hour</td><td class="n">hour 48 (41)</td><td>792k/h</td><td><span class="pill">On pace</span></td><td class="n">hour 103 (about 62 without the crash)</td></tr>
+      <tr><td>G3 1M/h for a full hour</td><td class="n">hour 40 (36)</td><td>792k/h (forecast had 210k/h before the gate)</td><td><span class="pill">On pace</span></td><td class="n">hour 44</td></tr>
       <tr><td>G4a Heavy yard seen</td><td class="n">-</td><td>not yet</td><td><span class="pill">On pace</span></td><td class="n">hour 38.8</td></tr>
-      <tr><td>G4b Heavy affordable (price + floor + 500k)</td><td class="n">-</td><td>wallet 129k</td><td><span class="pill">On pace</span></td><td class="n">about hour 43</td></tr>
+      <tr><td>G4b Heavy affordable (price + floor + 500k)</td><td class="n">-</td><td>wallet 426k</td><td><span class="pill">On pace</span></td><td class="n">about hour 43</td></tr>
       <tr><td>G4c First heavy trading (standing yes)</td><td class="n">hour 40 (36)</td><td>-</td><td><span class="pill">On pace</span></td><td class="n">about hour 55</td></tr>
-      <tr><td>G5 No zero-sale hour after T+1</td><td class="n">0</td><td>no sale since 13:50; the tour has found 59 routes (best 105k a trip)</td><td><span class="pill warn">At risk</span></td><td class="n">4 hours</td></tr>
+      <tr><td>G5 No zero-sale hour after T+1</td><td class="n">0</td><td>hour 2 had 38 sales</td><td><span class="pill ok">Met so far</span></td><td class="n">4 hours</td></tr>
       <tr><td>G6 No 2-hour net-negative run</td><td class="n">0</td><td>0</td><td><span class="pill ok">Met so far</span></td><td class="n">the 41-hour crash</td></tr>
-      <tr><td>G7 Week matched profit</td><td class="n">650M (750M)</td><td>82k</td><td><span class="pill">On pace</span></td><td class="n">643.9M</td></tr>
+      <tr><td>G7 Week matched profit</td><td class="n">650M (750M)</td><td>874k</td><td><span class="pill">On pace</span></td><td class="n">643.9M</td></tr>
     </tbody></table></div>
 </section>
 
 <article class="latest">
-  <div class="when"><span>2026-11-22 14:15 UTC</span><span class="pill">Hourly</span><span class="pill ok">Routes back: 59</span></div>
-  <h2>The tour worked: 25 of 30 home markets now priced and 59 routes on the board, led by SHIP_PARTS D39→A2 at about 105k a trip</h2>
+  <div class="when"><span>2026-11-22 15:05 UTC</span><span class="pill">Opening T+2</span><span class="pill ok">792k matched this hour</span></div>
+  <h2>Hour 2: 792k matched from 38 sales, wallet + cargo 625k (+496k), every home market priced, gate buying under way</h2>
   <div class="tbl"><table>
-    <thead><tr><th>Money (last hour)</th><th>Value</th></tr></thead>
+    <thead><tr><th>Opening task</th><th>T+1 (14:05)</th><th>T+2 (15:05)</th></tr></thead>
     <tbody>
-      <tr><td>Matched profit / sales</td><td class="n">82,320 / 8 (3 h: the same; the week is 1 h old)</td></tr>
-      <tr><td>Jumps / net</td><td class="n">0 / 79,566</td></tr>
-      <tr><td>Wallet + holds</td><td class="n">123,919 + 5,415 = 129,334 (+380 since 14:05)</td></tr>
-      <tr><td>Wallet low / high</td><td class="n">66,441 (13:35) / 128,957 (13:45)</td></tr>
+      <tr><td>Re-tour, then trade (THEO-1)</td><td>queued 14:03</td><td>done: all 30 markets priced, THEO-1 trading</td></tr>
+      <tr><td>Tour shuttle at 300k</td><td>queued</td><td>done 14:40: THEO-6 (light shuttle 85,110) toured, now trading</td></tr>
+      <tr><td>Auto keepers only at 5M</td><td>queued</td><td>done (keeperAutoApproveMinCash 5M, read back)</td></tr>
+      <tr><td>Gate hauler at 450k, gate buying</td><td>queued</td><td>done 14:46: THEO-7 (light hauler 314,772); mission running, 26 FAB_MATS bought at 1,293 (F49)</td></tr>
+      <tr><td>Gate 85% / gate open</td><td>queued</td><td>queued</td></tr>
+      <tr><td>Start settings, gate mission, yard keepers, contract shuttle</td><td>done</td><td>done</td></tr>
     </tbody></table></div>
   <div class="tbl"><table>
-    <thead><tr><th>Constraint</th><th>Now</th><th>Target</th><th>Binding?</th><th>Lever</th></tr></thead>
+    <thead><tr><th>Money and pace</th><th>T+1</th><th>T+2</th></tr></thead>
     <tbody>
-      <tr><td>Ships</td><td>1 trader (40 cargo), busy on the contract; THEO-1 touring</td><td>59 routes waiting</td><td><b>Yes</b></td><td>THEO-1 trades again by itself once the tour ends; tour shuttle at 300k (task queued)</td></tr>
-      <tr><td>Cash</td><td class="n">124k</td><td class="n">floor 100k; 300k / 450k for the next tasks</td><td><b>Yes</b></td><td>trading only</td></tr>
-      <tr><td>Market data</td><td>5 home markets never priced</td><td>0</td><td>easing</td><td>tour running</td></tr>
-      <tr><td>API</td><td class="n">4/min of 105, no 429s</td><td>-</td><td>No</td><td>-</td></tr>
-      <tr><td>Fresh systems / jumps</td><td>gate shut, nothing staged, 0 jumps</td><td>-</td><td>No</td><td>-</td></tr>
+      <tr><td>Matched trading, last hour</td><td class="n">82,320 (8)</td><td class="n">791,570 (38): THEO-1 529k, THEO-6 262k</td></tr>
+      <tr><td>Contracts</td><td class="n">17,070 (1 done)</td><td class="n">137,157 in all (6 done, 77.8k net); open: 51 LIQUID_NITROGEN to F48, 40 aboard</td></tr>
+      <tr><td>Wallet / holds</td><td class="n">128,957 / 0</td><td class="n">426,266 / 199,204</td></tr>
+      <tr><td>Wallet + holds</td><td class="n">128,957</td><td class="n">625,470 (+496,513; +896k with the 400k of hulls added back)</td></tr>
+      <tr><td>Hulls bought this hour</td><td class="n">3 (135,587)</td><td class="n">2 (399,882): THEO-6 shuttle, THEO-7 light hauler (80 cargo)</td></tr>
+      <tr><td>Jumps</td><td class="n">0</td><td class="n">0</td></tr>
     </tbody></table></div>
   <div class="tbl"><table>
-    <thead><tr><th>Watch list</th><th></th></tr></thead>
+    <thead><tr><th>Health and risks</th><th></th></tr></thead>
     <tbody>
-      <tr><td>Keeper card X1-AR36-A2, 26,283c (69 min old, expires 15:06)</td><td>THEO-3 already keeps A2: approving would buy a second probe there</td></tr>
-      <tr><td>Contract card POLYNUCLEOTIDES over ceiling (7 min, expires 15:05)</td><td>stale: THEO-5 bought 20 at 179c at E47 at 14:11 and is delivering to D39; 2 of 22 left, so the card's "22 at 550c, about 4.7k loss" no longer holds</td></tr>
-      <tr><td>No sale since 13:50</td><td>G5 at risk this hour</td></tr>
+      <tr><td>Approval cards</td><td>none open: the A2 probe card and the stale contract card both closed without a buy (no probe in the ledger)</td></tr>
+      <tr><td>Stuck</td><td>none (THEO-7 shows "suspended": the gate mission drives it, which is normal)</td></tr>
+      <tr><td>Market data</td><td>30 of 30 home markets priced, oldest 84 min (ZZ5A, H56, H57)</td></tr>
+      <tr><td>Gate ceiling</td><td>the mission shows FAB_MATS 2,000 (template says 2,250); FAB_MATS is 1,288-1,355 now, so it does not bind</td></tr>
+      <tr><td>Routes</td><td>60 on the board, the best now about 56k a trip (EQUIPMENT K86→C37); the SHIP_PARTS/PLATING routes are spaced 30 min after our buys moved the ask 19-32%</td></tr>
+      <tr><td>First heavy (standing yes)</td><td>no heavy yard known (none in the home system); wallet 426k</td></tr>
     </tbody></table></div>
-  <p class="ask">Needs your yes or no: the two cards above. My suggestion is to deny both (the duplicate probe, and the stale contract buy).</p>
+  <div class="ask"><strong>Needs your yes:</strong> nothing new. Still open from T+1: change the template's "trade once a route pays 15k" step so it also waits for the home markets to be priced.</div>
 </article>
+
+<details>
+  <summary><span class="t">14:15</span><span class="h">Hourly: the re-tour found 59 routes; two cards to answer</span></summary>
+  <div class="body"><ul>
+    <li>25 of 30 home markets priced; best route SHIP_PARTS D39→A2 (about 105k a trip).</li>
+    <li>Wallet + holds 129,334; 1 trader on the contract, THEO-1 touring.</li>
+    <li>Cards: the duplicate A2 probe and a stale POLYNUCLEOTIDES over-ceiling buy. Both closed by 15:05 without a buy.</li>
+  </ul></div>
+</details>
 
 <details>
   <summary><span class="t">14:05</span><span class="h">Opening T+1: 82k matched, then no routes; THEO-1 sent back to tour the 20 unpriced home markets</span></summary>
