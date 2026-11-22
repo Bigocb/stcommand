@@ -69,18 +69,18 @@ footer{font-size:.8rem;color:var(--dim)}
   <h1>THEO <span>Fleet Snapshots</span></h1>
   <div class="meta">Week of 2026-11-22 · reset 13:00 UTC · agent THEO · home X1-AR36 · newest first</div>
   <!-- Every snapshot: set "Last snapshot" to the time the page is written and "Next snapshot" to the next scheduled report (list_triggers, earliest next_run_at among the fleet reports) with its name. -->
-  <div class="stamp"><span>Last snapshot <time>2026-11-22 16:05 UTC</time></span><span>Next snapshot <time>16:12 UTC</time> · hourly</span></div>
+  <div class="stamp"><span>Last snapshot <time>2026-11-22 16:15 UTC</time></span><span>Next snapshot <time>17:00 UTC</time> · opening T+4</span></div>
 </header>
 
 <section class="strip" aria-label="This week at a glance">
-  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">1.15M</div><div class="s">wallet 785k + 367k in holds · +526k since T+2</div>
+  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">1.17M</div><div class="s">all in the wallet, holds empty · +420k since 15:15</div>
     <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Wallet plus cargo: 177k, 129k, 129k, 625k, 753k, 1.15M">
-      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,32.6 25.2,34 48.4,34 71.6,19.5 94.8,15.7 118,4"/>
+      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,32.7 21.3,34 40.7,34 60,19.8 79.3,16.1 98.7,4.6 118,4"/>
       <circle cx="118" cy="4" r="2.5" fill="var(--amber)"/></svg></div>
-  <div class="tile"><div class="k">Matched profit / h</div><div class="v">577k</div><div class="s">15:01-16:01 · 45 sales (best hour 981k)</div>
+  <div class="tile"><div class="k">Matched profit / h</div><div class="v">515k</div><div class="s">15:13-16:13 · 39 sales (best hour 981k)</div>
     <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Matched profit per hour: 0, 82k, 792k, 981k, 577k">
-      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34 31,31.5 60,9.8 89,4 118,16.4"/>
-      <circle cx="118" cy="16.4" r="2.5" fill="var(--ice)"/></svg></div>
+      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34 25.2,31.5 48.4,9.8 71.6,4 94.8,16.4 118,18.3"/>
+      <circle cx="118" cy="18.3" r="2.5" fill="var(--ice)"/></svg></div>
   <div class="tile"><div class="k">Traders</div><div class="v">4</div><div class="s">200 cargo · THEO-7 on the gate crew</div></div>
   <div class="tile"><div class="k">Box API</div><div class="v">5/min</div><div class="s">of 105 · no 429s</div></div>
 </section>
@@ -90,11 +90,11 @@ footer{font-size:.8rem;color:var(--dim)}
   <div class="tbl"><table>
     <thead><tr><th>Goal</th><th>Target (stretch)</th><th>Now (hour 3)</th><th>Status</th><th>2026-11-15 week</th></tr></thead>
     <tbody>
-      <tr><td>G1 Gate open</td><td class="n">hour 40 (33)</td><td>FAB_MATS 66 of 1,600 (4%), ADVANCED_CIRCUITRY 0 of 400; one carrier, about 53 units an hour</td><td><span class="pill">On pace</span></td><td class="n">hour 34.2</td></tr>
+      <tr><td>G1 Gate open</td><td class="n">hour 40 (33)</td><td>FAB_MATS 106 of 1,600 (7%), ADVANCED_CIRCUITRY 0 of 400; one carrier</td><td><span class="pill">On pace</span></td><td class="n">hour 34.2</td></tr>
       <tr><td>G2 2M/h for a full hour</td><td class="n">hour 48 (41)</td><td>577k/h</td><td><span class="pill">On pace</span></td><td class="n">hour 103 (about 62 without the crash)</td></tr>
       <tr><td>G3 1M/h for a full hour</td><td class="n">hour 40 (36)</td><td>best 981k (14:12-15:12); hour 3 577k</td><td><span class="pill">On pace</span></td><td class="n">hour 44</td></tr>
       <tr><td>G4a Heavy yard seen</td><td class="n">-</td><td>not yet</td><td><span class="pill">On pace</span></td><td class="n">hour 38.8</td></tr>
-      <tr><td>G4b Heavy affordable (price + floor + 500k)</td><td class="n">-</td><td>wallet 785k; no heavy yard known</td><td><span class="pill">On pace</span></td><td class="n">about hour 43</td></tr>
+      <tr><td>G4b Heavy affordable (price + floor + 500k)</td><td class="n">-</td><td>wallet 1.17M; no heavy yard known</td><td><span class="pill">On pace</span></td><td class="n">about hour 43</td></tr>
       <tr><td>G4c First heavy trading (standing yes)</td><td class="n">hour 40 (36)</td><td>-</td><td><span class="pill">On pace</span></td><td class="n">about hour 55</td></tr>
       <tr><td>G5 No zero-sale hour after T+1</td><td class="n">0</td><td>every hour since T+1 has sales</td><td><span class="pill ok">Met so far</span></td><td class="n">4 hours</td></tr>
       <tr><td>G6 No 2-hour net-negative run</td><td class="n">0</td><td>0</td><td><span class="pill ok">Met so far</span></td><td class="n">the 41-hour crash</td></tr>
@@ -103,42 +103,36 @@ footer{font-size:.8rem;color:var(--dim)}
 </section>
 
 <article class="latest">
-  <div class="when"><span>2026-11-22 16:05 UTC</span><span class="pill">Opening T+3</span><span class="pill warn">Profit down 27% on hour 2</span></div>
-  <h2>Hour 3: 577k matched, wallet + holds 1.15M (+526k), gate at 4% of FAB_MATS with one carrier</h2>
+  <div class="when"><span>2026-11-22 16:15 UTC</span><span class="pill">Hourly</span><span class="pill warn">Profit down 48% on 15:15</span></div>
+  <h2>515k matched in the last hour against 981k at 15:15; the wallet still grew to 1.17M with every hold sold</h2>
   <div class="tbl"><table>
-    <thead><tr><th>Money and pace</th><th>T+2 (15:05)</th><th>T+3 (16:05)</th></tr></thead>
+    <thead><tr><th>Money</th><th>Value</th></tr></thead>
     <tbody>
-      <tr><td>Matched trading, last hour</td><td class="n">791,570 (38)</td><td class="n">577,028 (45): THEO-1 393k, THEO-6 184k</td></tr>
-      <tr><td>Week so far</td><td class="n">874k</td><td class="n">1,450,918 matched + 195,087 contracts</td></tr>
-      <tr><td>Wallet / holds</td><td class="n">426,266 / 199,204</td><td class="n">785,008 / 366,759</td></tr>
-      <tr><td>Wallet + holds</td><td class="n">625,470</td><td class="n">1,151,767 (+526,297, no hulls bought)</td></tr>
-      <tr><td>Profit per sale (15 min)</td><td class="n">16-28k</td><td class="n">11-15k, one 24k bucket</td></tr>
+      <tr><td>Matched profit / sales, 1 h</td><td class="n">514,848 / 39 (THEO-1 346k, THEO-6 169k); contracts 84,767</td></tr>
+      <tr><td>Jumps / net</td><td class="n">0 / 504,372</td></tr>
+      <tr><td>Wallet + holds</td><td class="n">1,173,665 + 0 (+420,272 since 15:15, no hulls bought)</td></tr>
     </tbody></table></div>
   <div class="tbl"><table>
-    <thead><tr><th>Opening task</th><th>T+2</th><th>T+3</th></tr></thead>
+    <thead><tr><th>Constraint</th><th>Now</th><th>Binding?</th><th>Lever</th></tr></thead>
     <tbody>
-      <tr><td>o4-tour, start, gatemission, trader, yardkeep, contract, tourshuttle, keeperline, gatehaul, retour</td><td>done</td><td>done (no change)</td></tr>
-      <tr><td>o4-finalpush (gate 85%)</td><td>queued</td><td>queued: gate at 4%</td></tr>
-      <tr><td>o4-gateopen</td><td>queued</td><td>queued</td></tr>
-      <tr><td>Gate mission</td><td>26 FAB_MATS aboard</td><td>66 of 1,600 delivered, 40 more aboard THEO-7 (cost 1,391); ADVANCED_CIRCUITRY not started; price 1,407 under the 2,000 ceiling</td></tr>
+      <tr><td>Margins in the home system</td><td>matched profit 981k → 577k → 515k an hour on the same 4 hulls</td><td><b>Yes</b></td><td>the margin plan; more markets through the gate</td></tr>
+      <tr><td>Gate pace</td><td>FAB_MATS 106 of 1,600 (+40 since 16:05), one carrier</td><td><b>Yes</b></td><td>a second gate carrier (your yes)</td></tr>
+      <tr><td>Cash / API / jumps</td><td>wallet 1.17M against floor 400k; about 5 calls/min; 0 jumps</td><td>No</td><td>-</td></tr>
     </tbody></table></div>
   <div class="tbl"><table>
-    <thead><tr><th>Reset plan 6.3 checks</th><th>Result</th></tr></thead>
-    <tbody>
-      <tr><td>T+0: autoApproveKeeperProbes back on</td><td>on at 60,000 since 13:13 (o4-start)</td></tr>
-      <tr><td>T+3: o4 tasks queued for the new week</td><td>not by the recovery (third week running); applied by hand at 13:12</td></tr>
-      <tr><td>T+5: template applied by hand and read back</td><td>done 13:15; template 6 since corrected (o4-trader waits for priced markets) and template saves now validate</td></tr>
-    </tbody></table></div>
-  <div class="tbl"><table>
-    <thead><tr><th>Health and risks</th><th></th></tr></thead>
-    <tbody>
-      <tr><td>Margins</td><td>matched profit down 27% on hour 2 (577k against 792k) while wallet + holds still rose by 526k; four 40-80 hulls on 30 home markets</td></tr>
-      <tr><td>Gate pace</td><td>at about 53 units an hour with one 80-cargo carrier, FAB_MATS alone takes about 29 more hours, and ADVANCED_CIRCUITRY waits behind it. G1 (hour 40) is tight</td></tr>
-      <tr><td>Cards, stuck, findings</td><td>none</td></tr>
-      <tr><td>First heavy (standing yes)</td><td>no heavy yard in the home system; nothing to buy until the gate opens or a yard is seen</td></tr>
-    </tbody></table></div>
-  <div class="ask"><strong>Needs your yes:</strong> a second gate carrier would roughly halve the gate time (a light hauler, about 315k at A2, wallet 785k). Also still open: the margin plan (issue, feed check, or both).</div>
+    <thead><tr><th>Fleet changes</th><th></th></tr></thead>
+    <tbody><tr><td>Hulls, systems, settings</td><td>none since 16:05</td></tr></tbody></table></div>
+  <div class="ask"><strong>Needs your yes:</strong> the second gate carrier (light hauler, about 315k at A2), and which margin step to take.</div>
 </article>
+
+<details>
+  <summary><span class="t">16:05</span><span class="h">Opening T+3: hour 3 577k, wallet + holds 1.15M, gate 4% with one carrier</span></summary>
+  <div class="body"><ul>
+    <li>Profit down 27% on hour 2 while wallet + holds rose 526k.</li>
+    <li>Reset plan T+ checks done; the recovery missed the template for the third week.</li>
+    <li>Asked: a second gate carrier.</li>
+  </ul></div>
+</details>
 
 <details>
   <summary><span class="t">15:15</span><span class="h">Hourly: 981k in the last hour, wallet + holds 753k, margins thinning</span></summary>
