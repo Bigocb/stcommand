@@ -785,7 +785,10 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         if (!charted.has(d.systemSymbol) || byWp.has(d.waypointSymbol)) continue;
         byWp.set(d.waypointSymbol, { waypointSymbol: d.waypointSymbol, systemSymbol: d.systemSymbol, goods: new Set([...d.imports, ...d.exports, ...d.exchange]).size, timestamp: null, yard: false });
       }
-      const yards = new Set((await w.store.shipyardDirectory()).map((y) => y.waypointSymbol));
+      // A yard is known from the remote survey's directory OR from a listing a docked ship read. The home system is never
+      // remote-surveyed (the opening tours it instead), so with the directory alone its yards had no YARD chip (2026-11-22).
+      const [directory, inventory] = await Promise.all([w.store.shipyardDirectory(), w.store.shipyardInventory()]);
+      const yards = new Set([...directory.map((y) => y.waypointSymbol), ...inventory.map((y) => y.waypointSymbol)]);
       for (const m of byWp.values()) m.yard = yards.has(m.waypointSymbol);
       res.json({ markets: [...byWp.values()].sort((a, b) => a.waypointSymbol.localeCompare(b.waypointSymbol)) });
     } catch (err) {

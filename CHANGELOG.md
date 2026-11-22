@@ -11,6 +11,12 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-22 — Tower "By system": home-system yards get the YARD chip
+
+The YARD chip on Tower's Expand > By system list came only from the remote survey's yard directory. The home system is never
+remote-surveyed (the opening tours it), so A2, C37 and H55 in X1-AR36 showed no chip while other systems' yards did.
+`GET /api/markets/known` now also counts any waypoint with a shipyard listing a docked ship has read (`shipyard_inventory`).
+
 ## 2026-11-22 — Learned price impact now learns from two-lot trips (issue #79)
 
 `lotImpactMaxFactor` (on, 3x) plans each market on the per-lot move our own recent trades measured there, and sizes a trip to
