@@ -69,46 +69,65 @@ footer{font-size:.8rem;color:var(--dim)}
   <h1>THEO <span>Fleet Snapshots</span></h1>
   <div class="meta">Week of 2026-11-15 · reset 2026-11-22 13:00 UTC · newest first</div>
   <!-- Every snapshot: set "Last snapshot" to the time the page is written and "Next snapshot" to the next scheduled report (list_triggers, earliest next_run_at among the fleet reports) with its name. -->
-  <div class="stamp"><span>Last snapshot <time>2026-11-22 06:55 UTC</time></span><span>Next snapshot <time>07:12 UTC</time> · hourly snapshot</span></div>
+  <div class="stamp"><span>Last snapshot <time>2026-11-22 07:16 UTC</time></span><span>Next snapshot <time>08:12 UTC</time> · hourly snapshot</span></div>
 </header>
 
 <section class="strip" aria-label="Tonight at a glance">
-  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">257.3M</div><div class="s"><span class="up">+54.9M</span> since 22:12</div>
-    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Wallet plus cargo from 202.4M at 22:12 to 257.3M at 06:12">
-      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,34 19,26 35,26 52,14 68,12 85,10 101,8 118,4"/>
+  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">267.9M</div><div class="s"><span class="up">+65.5M</span> since 22:12</div>
+    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Wallet plus cargo from 202.4M at 22:12 to 267.9M at 07:12">
+      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,34 16,27 31,27 46,17 60,16 74,14 89,12 104,9 118,4"/>
       <circle cx="118" cy="4" r="2.5" fill="var(--amber)"/></svg></div>
-  <div class="tile"><div class="k">Matched profit / h</div><div class="v">12.3M</div><div class="s">06:12 hour · range 7.7-13.9M</div>
-    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Hourly matched profit 7.66, 13.91, 13.27, 12.45, 12.70, 11.74, 11.91, 12.25 million">
-      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34 19,4 35,7 52,11 68,10 85,14 101,14 118,12"/>
-      <circle cx="118" cy="12" r="2.5" fill="var(--ice)"/></svg></div>
-  <div class="tile"><div class="k">Traders</div><div class="v">51</div><div class="s">all big hulls · 3 positioning</div></div>
-  <div class="tile"><div class="k">Box API</div><div class="v">32.8/min</div><div class="s">of 105 · 0 rate-limit errors</div></div>
+  <div class="tile"><div class="k">Matched profit / h</div><div class="v">19.0M</div><div class="s">07:12 hour · best of the week</div>
+    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Hourly matched profit 7.66, 13.91, 13.27, 12.45, 12.70, 11.74, 11.91, 12.25, 19.01 million">
+      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34 16,17 31,19 46,21 60,21 74,23 89,23 104,22 118,4"/>
+      <circle cx="118" cy="4" r="2.5" fill="var(--ice)"/></svg></div>
+  <div class="tile"><div class="k">Traders</div><div class="v">51</div><div class="s">all big hulls · 0 free</div></div>
+  <div class="tile"><div class="k">Box API</div><div class="v">26/min</div><div class="s">of 105 · 0 rate-limit errors</div></div>
 </section>
 
 <article class="latest">
-  <div class="when"><span>2026-11-22 06:55 UTC</span><span class="pill">Test result</span><span class="pill ok">Keep 30</span></div>
-  <h2>Wider route list: units up about 40%, profit per hour up about 35%, profit per unit held</h2>
+  <div class="when"><span>2026-11-22 07:12 UTC</span><span class="pill">Hourly</span><span class="pill ok">Best hour of the week</span></div>
+  <h2>19.01M matched on 394 sales; wallet + cargo 267.9M (+17.4M with hulls added back)</h2>
+  <h3>Money</h3>
   <div class="tbl"><table>
-    <thead><tr><th></th><th>Baseline (22:00-04:00, list 12)</th><th>Test hour (05:30-06:30, list 30)</th></tr></thead>
+    <thead><tr><th></th><th>1 h</th><th>3 h</th></tr></thead>
     <tbody>
-      <tr><td>Units sold per hour</td><td class="n">7.5-9k</td><td class="n">11.7k</td></tr>
-      <tr><td>Matched profit per hour</td><td class="n">10-13M</td><td class="n">16.1M</td></tr>
-      <tr><td>Profit per unit</td><td class="n">1,285-1,729</td><td class="n">1,384</td></tr>
-      <tr><td>Ships selling per 15 min</td><td class="n">10-15</td><td class="n">10-23</td></tr>
-      <tr><td>JS heap</td><td class="n">0.5-1.1 GB</td><td class="n">0.56-0.60 GB of 4.1</td></tr>
-      <tr><td>Route build</td><td class="n">93k pairs, 54k routes, 5.8 s</td><td class="n">224k pairs, 121k routes, 7.5 s</td></tr>
+      <tr><td>Matched profit</td><td class="n">19,011,492</td><td class="n">42,928,980</td></tr>
+      <tr><td>Sales</td><td class="n">394</td><td class="n">856</td></tr>
+      <tr><td>Jump fees</td><td class="n">1,318,959 (210 jumps, 7%)</td><td class="n">4,584,072 (704)</td></tr>
+      <tr><td>Net after jumps and fuel</td><td class="n">17,600,676</td><td class="n">about 38.0M</td></tr>
+      <tr><td>Wallet / holds</td><td class="n" colspan="2">248.16M + 19.72M (23 ships loaded) = 267.88M; +10.63M on 06:12, +17.45M with 6.82M of hulls added back</td></tr>
+      <tr><td>Wallet low / high</td><td class="n" colspan="2">237.3M (06:00) / 248.3M (07:00)</td></tr>
     </tbody></table></div>
-  <p>15-minute blocks: 2.20M, 3.50M, 4.32M, 6.13M, then 5.23M at 06:30. Caveat: trade lanes went to every trader at 05:16 and three heavies started trading in the same hour, so the gain is not all the route list's. It did not cost profit per unit, which was the risk.</p>
-  <h3>Buy round 5 (06:22, operator)</h3>
+  <h3>Constraints</h3>
   <div class="tbl"><table>
-    <thead><tr><th>Ship</th><th>Yard</th><th>Price</th><th>For</th></tr></thead>
+    <thead><tr><th>Constraint</th><th>Now</th><th>Limit / target</th><th>Binding?</th><th>Lever</th></tr></thead>
     <tbody>
-      <tr><td>THEO-ACB</td><td>X1-SG30-D11F</td><td class="n">2,063,367</td><td>ANTIMATTER SG30 to KU11 (572k a trip at 225), two CLOTHING routes, same system</td></tr>
-      <tr><td>THEO-ACC</td><td>X1-BX51-A15E</td><td class="n">2,440,697</td><td>LAB_INSTRUMENTS and CLOTHING into VM9 / DA54, 2 jumps</td></tr>
-      <tr><td>THEO-ACD</td><td>X1-KQ7-ZD2C</td><td class="n">2,095,836</td><td>MERITIUM JG6 to RZ24 (482k), 2 jumps</td></tr>
+      <tr><td>Ships</td><td>51 traders, all big, 0 free; 124k routes; best unflown CLOTHING RA46 to DA54 (526k at 225)</td><td>-</td><td><strong>Yes</strong></td><td>hulls (5 h to the wind-down; a heavy pays its price back in about 4-5 h now)</td></tr>
+      <tr><td>Keeper freshness</td><td>110 reads/min, pass 24 min; 2,130 of 2,472 viable covered, 0 waiting</td><td>under 30 min</td><td>No</td><td>-</td></tr>
+      <tr><td>API</td><td>box 26/min (25%), 0 rate-limit errors</td><td>105</td><td>No</td><td>-</td></tr>
+      <tr><td>Cash</td><td>248.2M</td><td>floor 20.4M</td><td>No</td><td>-</td></tr>
+      <tr><td>Fresh systems</td><td>3 staged, last release 07:04</td><td>12 live premium</td><td>No</td><td>-</td></tr>
+      <tr><td>Jumps</td><td>7% of matched profit</td><td>flag over 25%</td><td>No</td><td>-</td></tr>
     </tbody></table></div>
-  <div class="ask"><strong>Recommendation:</strong> keep the route list at 30 to the reset. Going higher adds memory risk with 6 hours left for little gain. Nothing needs your yes.</div>
+  <h3>Fleet changes</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Change</th><th>Detail</th></tr></thead>
+    <tbody>
+      <tr><td>Hulls</td><td>Round 5 heavies THEO-ACB (X1-SG30-D11F, 2.06M), ACC (X1-BX51-A15E, 2.44M), ACD (X1-KQ7-ZD2C, 2.10M); ACC made +478k in its first hour. 9 keeper probes by the engine (about 215k)</td></tr>
+      <tr><td>Settings</td><td>none live; opening template adds trade lanes 50, route list 30, keeper limit 4,000 at the reset</td></tr>
+    </tbody></table></div>
+  <p>Watch list: nothing open. No approvals, no critical stuck ships, no economy findings.</p>
+  <div class="ask"><strong>Needs your yes:</strong> nothing. Hulls are the only binding constraint, if you want one more round before 12:30.</div>
 </article>
+
+<details>
+  <summary><span class="t">06:55</span><span class="h">Route-list test: units +40%, profit/h +35%, keep 30; buy round 5 (three heavies)</span></summary>
+  <div class="body"><ul>
+    <li>05:30-06:30: 11.7k units/h (7.5-9k before), 16.1M/h (10-13M), 1,384 per unit, heap 0.6 GB.</li>
+    <li>THEO-ACB (SG30-D11F, 2.06M), ACC (BX51-A15E, 2.44M), ACD (KQ7-ZD2C, 2.10M), all trading.</li>
+  </ul></div>
+</details>
 
 <details>
   <summary><span class="t">06:12</span><span class="h">Hourly: 12.25M matched, wallet + cargo 257.3M (+13.2M with hulls)</span></summary>
