@@ -1,0 +1,165 @@
+<title>THEO Fleet Updates</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column; newest update first as a full card, older ones as compact entries. Deck's palette and type. */
+:root{
+  --ground:#0a0908; --panel:#15130f; --raised:#201d16; --hair:rgba(255,199,120,.16); --hair-hi:rgba(255,199,120,.30);
+  --amber:#ffb020; --amber-dim:rgba(255,176,32,.14); --ice:#93a6b4; --green:#58d68d; --green-dim:rgba(88,214,141,.14);
+  --red:#ff6152; --red-dim:rgba(255,97,82,.14); --bone:#f3efe6; --dim:#a39886;
+  --chrome:'Chakra Petch',ui-sans-serif,system-ui,sans-serif; --sans:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,'SFMono-Regular',monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light){ :root:not([data-theme="dark"]){
+  --ground:#f6f2ea; --panel:#fffdf8; --raised:#efe8db; --hair:rgba(120,80,20,.16); --hair-hi:rgba(120,80,20,.30);
+  --amber:#a86a00; --amber-dim:rgba(168,106,0,.10); --ice:#4c6272; --green:#1f8a4c; --green-dim:rgba(31,138,76,.10);
+  --red:#c0392b; --red-dim:rgba(192,57,43,.10); --bone:#1d1a14; --dim:#6b6253; color-scheme: light } }
+:root[data-theme="light"]{
+  --ground:#f6f2ea; --panel:#fffdf8; --raised:#efe8db; --hair:rgba(120,80,20,.16); --hair-hi:rgba(120,80,20,.30);
+  --amber:#a86a00; --amber-dim:rgba(168,106,0,.10); --ice:#4c6272; --green:#1f8a4c; --green-dim:rgba(31,138,76,.10);
+  --red:#c0392b; --red-dim:rgba(192,57,43,.10); --bone:#1d1a14; --dim:#6b6253; color-scheme: light }
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--bone);font-family:var(--sans);font-size:15px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+.wrap{max-width:860px;margin:0 auto;display:flex;flex-direction:column;gap:20px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:8px 16px;border-bottom:1px solid var(--hair-hi);padding-bottom:12px}
+h1{font-family:var(--chrome);font-weight:700;font-size:1.6rem;letter-spacing:.04em;margin:0;text-wrap:balance}
+h1 span{color:var(--amber)}
+.meta{font-family:var(--mono);font-size:.8rem;color:var(--dim)}
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
+.tile{background:var(--panel);border:1px solid var(--hair);border-radius:6px;padding:12px 14px;min-width:0}
+.tile .k{font-family:var(--chrome);font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;color:var(--dim)}
+.tile .v{font-family:var(--mono);font-size:1.35rem;font-variant-numeric:tabular-nums;margin-top:2px}
+.tile .s{font-size:.8rem;color:var(--dim)}
+.up{color:var(--green)} .down{color:var(--red)}
+svg.spark{display:block;width:100%;height:38px;margin-top:6px}
+article{background:var(--panel);border:1px solid var(--hair);border-radius:8px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+article.latest{border-color:var(--hair-hi);box-shadow:0 0 0 1px var(--amber-dim)}
+.when{display:flex;flex-wrap:wrap;gap:8px;align-items:center;font-family:var(--mono);font-size:.8rem;color:var(--dim)}
+.pill{font-family:var(--chrome);font-size:.7rem;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1px solid var(--hair-hi);color:var(--amber);background:var(--amber-dim)}
+.pill.ok{color:var(--green);background:var(--green-dim);border-color:transparent}
+.pill.warn{color:var(--red);background:var(--red-dim);border-color:transparent}
+h2{font-family:var(--chrome);font-weight:600;font-size:1.15rem;margin:0;text-wrap:balance}
+h3{font-family:var(--chrome);font-weight:600;font-size:.78rem;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:4px 0 0}
+p{margin:0;max-width:68ch}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:.88rem}
+th,td{text-align:left;padding:6px 10px;border-bottom:1px solid var(--hair);vertical-align:top}
+th{font-family:var(--chrome);font-weight:600;font-size:.72rem;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.ask{border-left:3px solid var(--amber);padding:6px 12px;background:var(--amber-dim);border-radius:0 6px 6px 0}
+details{background:var(--panel);border:1px solid var(--hair);border-radius:8px;padding:10px 16px}
+details[open]{padding-bottom:16px}
+summary{cursor:pointer;display:flex;flex-wrap:wrap;gap:8px 12px;align-items:baseline;list-style:none}
+summary::-webkit-details-marker{display:none}
+summary .t{font-family:var(--mono);font-size:.8rem;color:var(--dim);min-width:4.5rem}
+summary .h{font-weight:500}
+summary:focus-visible{outline:2px solid var(--amber);outline-offset:3px}
+details .body{margin-top:10px;display:flex;flex-direction:column;gap:8px}
+ul{margin:0;padding-left:1.2rem;display:flex;flex-direction:column;gap:4px}
+footer{font-size:.8rem;color:var(--dim)}
+</style>
+
+<div class="wrap">
+<header>
+  <h1>THEO <span>Fleet Updates</span></h1>
+  <div class="meta">Week of 2026-11-15 · reset 2026-11-22 13:00 UTC · newest first</div>
+</header>
+
+<section class="strip" aria-label="Tonight at a glance">
+  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">250.3M</div><div class="s"><span class="up">+48M</span> since 22:12</div>
+    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Wallet plus cargo from 202.4M at 22:12 to 250.3M at 05:12">
+      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,34 20,25 38,25 56,11 74,9 92,7 118,4"/>
+      <circle cx="118" cy="4" r="2.5" fill="var(--amber)"/></svg></div>
+  <div class="tile"><div class="k">Matched profit / h</div><div class="v">11.9M</div><div class="s">05:12 hour · range 7.7-13.9M</div>
+    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Hourly matched profit 7.66, 13.91, 13.27, 12.45, 12.70, 11.74, 11.91 million">
+      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34 20,4 38,7 56,11 74,10 92,14 118,13"/>
+      <circle cx="118" cy="13" r="2.5" fill="var(--ice)"/></svg></div>
+  <div class="tile"><div class="k">Traders</div><div class="v">48</div><div class="s">all big hulls · 0 free</div></div>
+  <div class="tile"><div class="k">Box API</div><div class="v">40.6/min</div><div class="s">of 105 · 0 rate-limit errors</div></div>
+</section>
+
+<article class="latest">
+  <div class="when"><span>2026-11-22 05:44 UTC</span><span class="pill">Check</span><span class="pill ok">Trade lanes clean</span></div>
+  <h2>Every trader on its own proxy: box load halved, no dropped trades</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Trade lanes</th><th>Before (05:16)</th><th>Now</th></tr></thead>
+    <tbody>
+      <tr><td>Calls on the box's IP</td><td class="n">87/min (83%)</td><td class="n">40.6/min (39%)</td></tr>
+      <tr><td>Rate-limit errors, last 60 s</td><td class="n">0-6</td><td class="n">0</td></tr>
+      <tr><td>Trader calls through their own proxy</td><td class="n">1,493 total</td><td class="n">2,849 (+1,356 in ~30 min)</td></tr>
+      <tr><td>Buys or sells lost at a proxy</td><td class="n">-</td><td class="n">none seen</td></tr>
+    </tbody></table></div>
+  <h3>Round 4 heavies (bought 05:17)</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Ship</th><th>Status</th><th>Value per trip</th></tr></thead>
+    <tbody>
+      <tr><td>THEO-AC2</td><td>Loaded 200 MACHINERY, KQ7 to YP68</td><td class="n">168k</td></tr>
+      <tr><td>THEO-AC3</td><td>Loaded 225 MICROPROCESSORS, SG30 to UX69</td><td class="n">171k</td></tr>
+      <tr><td>THEO-AC1</td><td>On the way to buy EQUIPMENT, DT86 to NB43</td><td class="n">258k</td></tr>
+    </tbody></table></div>
+  <h3>Watch</h3>
+  <p>05:15-05:45 made 4.45M (about 8.9M an hour against 11-12M before). Units sold held at 1.6-2.1k per 15 minutes; profit per unit fell from 1,320-2,120 to 1,085-1,380. Two changes overlap (the wider route list and trade lanes), and half an hour is too short to separate them. Full hour at 06:30.</p>
+  <div class="ask"><strong>Needs your yes:</strong> nothing now. If profit per unit is still down at 06:30, the recommendation will be the route list back to 12.</div>
+</article>
+
+<details>
+  <summary><span class="t">05:27</span><span class="h">Volume test started: route list widened from 12 to 30 sell markets per buy</span></summary>
+  <div class="body">
+    <p>Units sold per hour halved in one step around 22:00 on 11-21 (15.5-18k to 7.5-9k) and stayed flat through three hull waves, while profit held through about twice the profit per unit. The step lines up with the route-list filter (12) switched on at 22:04. Test at 30: 05:35 safety check passed (heap 0.53-0.79 GB of 4.1 GB; 224k price pairs, 121k routes offered, 7.5 s build). Result at 06:30. Compare-screen levers filed as issue #75.</p>
+  </div>
+</details>
+
+<details>
+  <summary><span class="t">05:17</span><span class="h">Home stretch: trade lanes to all traders, staging 10 to 3, three heavies</span></summary>
+  <div class="body"><ul>
+    <li>Trade lanes 5 to 50: the 5 lane ships made about 23 sales each in 3 h against a fleet average of about 15.</li>
+    <li>Systems warming up ahead 10 to 3: nothing staged now can release and pay before the 12:30 wind-down.</li>
+    <li>THEO-AC1 (X1-JC62-B11B, 1.96M), AC2 (X1-KQ7-ZD2C, 2.06M), AC3 (X1-SG30-BE7E, 2.06M); expected about 2.7-2.9M each before 12:30.</li>
+  </ul></div>
+</details>
+
+<details>
+  <summary><span class="t">05:12</span><span class="h">Hourly: 11.91M matched, wallet + cargo 250.3M (+9.8M)</span></summary>
+  <div class="body"><ul>
+    <li>219 sales; jump fees 1.77M (15%, easing from 309 jumps to 263); net 10.04M.</li>
+    <li>45 traders, all big; keepers 149 reads/min, full pass every 18 min; box up 6.5 h, heap 0.57 GB.</li>
+    <li>No approvals, no critical stuck ships, no economy findings.</li>
+  </ul></div>
+</details>
+
+<details>
+  <summary><span class="t">04:12</span><span class="h">Hourly: 11.74M matched, wallet + cargo 240.6M (+6.5M)</span></summary>
+  <div class="body"><ul>
+    <li>Jump share rising: 17% of profit, 309 jumps (223 at 00:00). Lever if it passes 25%: positioning jumps 10 to about 6.</li>
+    <li>Wave 3 earning: THEO-A71 483k, THEO-A6E 426k in the hour.</li>
+  </ul></div>
+</details>
+
+<details>
+  <summary><span class="t">03:12</span><span class="h">Hourly: 12.70M matched, wallet + cargo 234.1M</span></summary>
+  <div class="body"><ul>
+    <li>Wave 3 loaded: A6F 180 ADVANCED_CIRCUITRY, A6E 200 LAB_INSTRUMENTS, A70 MEDICINE. Keeper top-up held at its API ceiling.</li>
+    <li>Opening template updated with the five reset settings; issue #74 filed for the triggers it still lacks.</li>
+  </ul></div>
+</details>
+
+<details>
+  <summary><span class="t">02:14</span><span class="h">Wave 3: four hulls (8.19M); dispatcher sends them elsewhere (issue #73)</span></summary>
+  <div class="body"><p>THEO-A6E, A6F, A70 heavies and A71 refining. The dispatcher offers one buy market per good and sell market, so the board's "unflown" alternatives are never assigned; A6E and A70 started with 7-8 empty jumps. Next-week plan written: settings at the reset, lessons, engine hull buying (issue #72).</p></div>
+</details>
+
+<details>
+  <summary><span class="t">00:12</span><span class="h">Hourly: 13.27M matched; wave 2 (five hulls, 10.35M) positioning</span></summary>
+  <div class="body"><p>This week's margin 22.6% of revenue against last week's 17.3%: the engine is choosing richer routes; units sold about half of last week's.</p></div>
+</details>
+
+<details>
+  <summary><span class="t">22:12</span><span class="h">Hourly: 7.66M matched after deploys and a memory crash; memory fixes on</span></summary>
+  <div class="body"><p>Heap 3.6 GB (out of memory at 22:04) to 0.5-1.1 GB after the cached state response and the route-list filter. Fleet list now only re-read when the ship count changes (37 to 2 calls a minute).</p></div>
+</details>
+
+<footer>Figures from the Tailwinds ops tools (ops_pnl, get_cargo_value, ops_api_budget, ops_profit_curve) at each update's time. Detail: docs/journal/2026-11-08.md.</footer>
+</div>
