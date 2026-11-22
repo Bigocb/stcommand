@@ -208,6 +208,8 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   contractSourceAnySystem: ["gate", "Contracts"],
   keeperRotateSystems: ["keeper-buy", "Approval & auto-buy"],
   economyAlerts: ["alerts", "Economy alerts"],
+  weekForecast: ["alerts", "Forecast"],
+  weekForecastHeavyHour: ["alerts", "Forecast"],
   economyNetNegativeHours: ["alerts", "Economy alerts"],
   economyDroughtHours: ["alerts", "Economy alerts"],
   economyMarginDecayPct: ["alerts", "Economy alerts"],
@@ -244,6 +246,7 @@ export const CLAUSE_NEEDS: Readonly<Record<string, readonly string[]>> = {
   buyAdvicePaybackHours: ["buyAdvice"], buyAdviceBigHullHolds: ["buyAdvice"], buyAdviceTraderReserve: ["buyAdvice"],
   economyNetNegativeHours: ["economyAlerts"], economyDroughtHours: ["economyAlerts"], economyMarginDecayPct: ["economyAlerts"],
   economySmallHullCargo: ["economyAlerts"], economySmallHullJumps: ["economyAlerts"], economyCashStarvedMin: ["economyAlerts"],
+  weekForecastHeavyHour: ["weekForecast"],
 };
 
 /** The pinned "Common knobs": the clauses the operator actually changes during a week (doc 7.4, plus this week's). */

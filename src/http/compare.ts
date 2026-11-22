@@ -6,6 +6,7 @@ import { isOperator, operatorAgents } from "./operatorFlag.js";
 import { SNAPSHOT_KIND, fleetPoints } from "../engine/hourlySnapshot.js";
 import { checkpoints, drawnPoints, gateAligned, gateOpenToFirstJob, hoursReached, likeForLike, toPoints, weekTotals, type WeekSeries } from "../engine/weekCompare.js";
 import { GATE_OPEN_SUBJECT } from "../engine/actionEvents.js";
+import { forecastPolicyFromDoctrine, forecastWeek, gateHourOf } from "../engine/forecast.js";
 
 /**
  * Week over week (src/engine/weekCompare.ts), for the Season screen's Compare tab and Tower's card. Mounted in the dashboard router.
@@ -99,7 +100,12 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
         return fleetPoints(rows.filter((r) => r.universeKey === ref.universeKey), ser.startAt, upTo);
       };
       const [fa, fb] = await Promise.all([fleet(base, a), fleet(other, b)]);
+      // The week's forecast (clause weekForecast, issue #76): drawn as a third, dotted line; absent when the clause is off.
+      const doctrine = w.fleet?.doctrine;
+      const policy = doctrine ? forecastPolicyFromDoctrine(doctrine) : null;
+      const fc = policy ? forecastWeek({ ...policy, hours: Math.max(upTo + 1, Math.min(MAX_HOURS, policy.hours)) }) : null;
       res.json({
+        forecast: fc ? { label: "Forecast", gateOpenHour: gateHourOf(fc), points: fc.map((p) => ({ hour: p.hour, cumPnl: p.cumPnl, pnl: p.pnl, rate: p.rate, units: p.units, wallet: p.wallet, ships: null, bigHulls: p.bigHulls, note: p.note })) } : null,
         fleetA: fa, fleetB: fb,
         a: { label: a.label, universeKey: a.universeKey, startAt: a.startAt, firstJumpHour: a.firstJumpHour, gateOpenHour: a.gateOpenHour ?? null, gateOpenToFirstJob: gateOpenToFirstJob(a), totals: weekTotals(a), points: drawnPoints(pa, hoursReached(a)), reached: hoursReached(a) },
         b: { label: b.label, universeKey: b.universeKey, startAt: b.startAt, firstJumpHour: b.firstJumpHour, gateOpenHour: b.gateOpenHour ?? null, gateOpenToFirstJob: gateOpenToFirstJob(b), totals: weekTotals(b), points: drawnPoints(pb, hoursReached(b)), reached: hoursReached(b) },

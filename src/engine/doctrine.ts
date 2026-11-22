@@ -1207,6 +1207,20 @@ const POLICY_CATALOG: PolicyDefinition[] = [
   // Economy alerts and the buy-ship warning (docs/economy-alerts-plan.md, src/engine/economyHealth.ts, src/engine/buyAdvice.ts).
   // Advisory only: they show findings and warnings, and never change what the engine does.
   {
+    key: "weekForecast",
+    name: "Compare charts: the week's forecast line (gate hour)",
+    description: "On = the compare charts (Deck Insights > Compare, Tower's card) draw a third, dotted Forecast line: where the week should be, hour by hour, if the goals hold (src/engine/forecast.ts, issue #76). The value is the hour the gate is planned to open; the first heavy's hour is weekForecastHeavyHour. The model buys a big hull whenever the wallet clears its price plus the working-capital floor, pays the gate's materials when it opens (later if the wallet cannot), and lets what each hull makes fall as more of them trade. Calibrated from the 2026-11-15 and 2026-11-08 weeks. Advisory only: nothing is changed. Off (the default) = no forecast line.",
+    value: 40, min: 10, max: 120, step: 1, unit: " h",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
+    key: "weekForecastHeavyHour",
+    name: "Compare charts: forecast's first heavy hour",
+    description: "The hour the forecast's first heavy freighter may start trading (goal G4). Off = the same hour as the gate (weekForecast). Only read while weekForecast is on.",
+    value: 40, min: 10, max: 120, step: 1, unit: " h",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "economyAlerts",
     name: "Economy alerts",
     description: "Watch the fleet's economy and say when it goes wrong: jump fees over matched profit, losing money after jumps and fuel, wallet plus holds falling, no fresh system opened while staged ones wait, profit per sale falling, small hulls making many gate jumps, the wallet under the working-capital floor. Shown on Tower's home and Deck's Overview (Economy card), in ops economy_health and as an \"Economy warning\" push. Advisory only: nothing is changed. Built after the domino week of 2026-11-17/18 (docs/lessons-learned.md). Off = no findings. The value is not used; the thresholds are the economy rules below.",

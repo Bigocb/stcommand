@@ -11,6 +11,18 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-22 — Compare charts: a "Forecast" line (issue #76)
+
+The operator asked for a third line on the compare charts showing where the week should be if the goals hold. `src/engine/forecast.ts`
+is a pure hourly simulation: a base rate before and after the gate, plus what each big hull makes (more in its first hour, less as more
+of them crowd the same markets, flat in total beyond 48); the gate's materials are paid when it opens (later if the wallet cannot pay);
+a hull is bought whenever the wallet clears its price plus the working-capital floor and it can still pay back before the week ends.
+Calibrated from the 2026-11-15 and 2026-11-08 weeks: with the 11-15 timings (gate 34, first heavy 55) it reaches 2M/h at hour 59,
+the no-crash estimate. `/api/compare` returns `forecast` (168 hourly points) when the clause `weekForecast` is on (value = planned gate
+hour; `weekForecastHeavyHour` = first heavy's hour, off = same as the gate); `public/shared/compare.js` draws it dotted green, up to 12
+hours past the weeks, on the profit, profit-per-hour, units and wallet charts, with a legend entry. Both clauses ship off; off = the
+charts as before. Tests: `tests/forecast.test.ts`, a seam test in `tests/compareRoute.test.ts`.
+
 ## 2026-11-21 — Full fleet list only when the ship count changes (clause `fleetListOnCountChange`, ships off)
 
 The 2-minute full state refresh (`src/engine/tenantRegistry.ts`) paged through every ship, about 124 calls for 2,470 ships, yet only

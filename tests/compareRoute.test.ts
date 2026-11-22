@@ -18,6 +18,7 @@ let me: string, other: string;
 const stamp = Date.now();
 const MY = `TEST-CMP-A-${stamp}`, OTHER = `TEST-CMP-B-${stamp}`;
 let asAgent = MY;
+let forecastOn = false;
 
 async function appPool(): Promise<pg.Pool> {
   const app = createPool(DB_URL);
@@ -53,7 +54,7 @@ before(async () => {
   setTenantUniverse(me, mine("2026-10-25"));
   const app = express();
   app.use((req, _res, next) => { (req as any).agentSymbol = asAgent; next(); });
-  const w = { tenantId: me, agentSymbol: MY, store } as any;
+  const w = { tenantId: me, agentSymbol: MY, store, fleet: { doctrine: { isEnabled: (k: string) => forecastOn && k === "weekForecast", value: () => 40 } } } as any;
   app.use("/api/compare", createCompareRouter(() => w));
   await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -89,6 +90,20 @@ describe("week-over-week routes", () => {
     assert.equal(r.json.b.points[2].units, 20);
     assert.equal(r.json.a.firstJumpHour, 1, "the first gate jump, 1.17 hours in");
     assert.equal(r.json.b.points[2].wallet, 5000);
+  });
+
+  it("the forecast line is absent with the clause off and a week of hourly points with it on (issue #76)", async () => {
+    const week = encodeURIComponent(`${me}|${MY.toUpperCase()}@2026-10-11`);
+    forecastOn = false;
+    assert.equal((await get(`/api/compare?week=${week}`)).json.forecast, null);
+    forecastOn = true;
+    const r = await get(`/api/compare?week=${week}`);
+    forecastOn = false;
+    assert.equal(r.status, 200);
+    assert.equal(r.json.forecast.label, "Forecast");
+    assert.equal(r.json.forecast.points.length, 168);
+    assert.equal(r.json.forecast.gateOpenHour, 40);
+    assert.ok(r.json.forecast.points[100].cumPnl > r.json.forecast.points[50].cumPnl);
   });
 
   it("with OPERATOR_AGENTS unset (one owner on the box) every tenant's weeks are listed", async () => {
