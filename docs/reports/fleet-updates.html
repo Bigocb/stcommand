@@ -69,19 +69,19 @@ footer{font-size:.8rem;color:var(--dim)}
   <h1>THEO <span>Fleet Snapshots</span></h1>
   <div class="meta">Week of 2026-11-22 · reset 13:00 UTC · agent THEO · home X1-AR36 · newest first</div>
   <!-- Every snapshot: set "Last snapshot" to the time the page is written and "Next snapshot" to the next scheduled report (list_triggers, earliest next_run_at among the fleet reports) with its name. -->
-  <div class="stamp"><span>Last snapshot <time>2026-11-22 15:05 UTC</time></span><span>Next snapshot <time>15:12 UTC</time> · hourly</span></div>
+  <div class="stamp"><span>Last snapshot <time>2026-11-22 15:15 UTC</time></span><span>Next snapshot <time>16:00 UTC</time> · opening T+3</span></div>
 </header>
 
 <section class="strip" aria-label="This week at a glance">
-  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">625k</div><div class="s">hour 2 · wallet 426k + 199k in holds · +496k since T+1</div>
-    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Wallet plus cargo: 177k, 129k, 129k, 625k">
-      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,31.1 40.7,34 79.3,34 118,4"/>
+  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">753k</div><div class="s">wallet 664k + 89k in holds · +128k since 15:05</div>
+    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Wallet plus cargo: 177k, 129k, 129k, 625k, 753k">
+      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,32.2 31,34 60,34 89,10.1 118,4"/>
       <circle cx="118" cy="4" r="2.5" fill="var(--amber)"/></svg></div>
-  <div class="tile"><div class="k">Matched profit / h</div><div class="v">792k</div><div class="s">hour 2 · 38 sales (hour 1: 82k)</div>
-    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Matched profit per hour: 0, 82k, 792k">
-      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34 60,30.9 118,4"/>
+  <div class="tile"><div class="k">Matched profit / h</div><div class="v">981k</div><div class="s">14:12-15:12 · 50 sales</div>
+    <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Matched profit per hour: 0, 82k, 792k, 981k">
+      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34 40.7,31.5 79.3,9.8 118,4"/>
       <circle cx="118" cy="4" r="2.5" fill="var(--ice)"/></svg></div>
-  <div class="tile"><div class="k">Traders</div><div class="v">3</div><div class="s">THEO-1, -5, -6 + THEO-7 on the gate (200 cargo)</div></div>
+  <div class="tile"><div class="k">Traders</div><div class="v">4</div><div class="s">200 cargo · THEO-7 on the gate crew</div></div>
   <div class="tile"><div class="k">Box API</div><div class="v">5/min</div><div class="s">of 105 · no 429s</div></div>
 </section>
 
@@ -91,52 +91,56 @@ footer{font-size:.8rem;color:var(--dim)}
     <thead><tr><th>Goal</th><th>Target (stretch)</th><th>Now (hour 2)</th><th>Status</th><th>2026-11-15 week</th></tr></thead>
     <tbody>
       <tr><td>G1 Gate open</td><td class="n">hour 40 (33)</td><td>buying since 14:46 (THEO-7): 0 of 1,600 / 0 of 400 delivered, 26 FAB_MATS aboard at 1,293</td><td><span class="pill">On pace</span></td><td class="n">hour 34.2</td></tr>
-      <tr><td>G2 2M/h for a full hour</td><td class="n">hour 48 (41)</td><td>792k/h</td><td><span class="pill">On pace</span></td><td class="n">hour 103 (about 62 without the crash)</td></tr>
-      <tr><td>G3 1M/h for a full hour</td><td class="n">hour 40 (36)</td><td>792k/h (forecast had 210k/h before the gate)</td><td><span class="pill">On pace</span></td><td class="n">hour 44</td></tr>
+      <tr><td>G2 2M/h for a full hour</td><td class="n">hour 48 (41)</td><td>981k/h</td><td><span class="pill">On pace</span></td><td class="n">hour 103 (about 62 without the crash)</td></tr>
+      <tr><td>G3 1M/h for a full hour</td><td class="n">hour 40 (36)</td><td>981k/h (14:12-15:12), but 5-min buckets fell from 226k to 53k</td><td><span class="pill">On pace</span></td><td class="n">hour 44</td></tr>
       <tr><td>G4a Heavy yard seen</td><td class="n">-</td><td>not yet</td><td><span class="pill">On pace</span></td><td class="n">hour 38.8</td></tr>
-      <tr><td>G4b Heavy affordable (price + floor + 500k)</td><td class="n">-</td><td>wallet 426k</td><td><span class="pill">On pace</span></td><td class="n">about hour 43</td></tr>
+      <tr><td>G4b Heavy affordable (price + floor + 500k)</td><td class="n">-</td><td>wallet 664k; no heavy yard known</td><td><span class="pill">On pace</span></td><td class="n">about hour 43</td></tr>
       <tr><td>G4c First heavy trading (standing yes)</td><td class="n">hour 40 (36)</td><td>-</td><td><span class="pill">On pace</span></td><td class="n">about hour 55</td></tr>
-      <tr><td>G5 No zero-sale hour after T+1</td><td class="n">0</td><td>hour 2 had 38 sales</td><td><span class="pill ok">Met so far</span></td><td class="n">4 hours</td></tr>
+      <tr><td>G5 No zero-sale hour after T+1</td><td class="n">0</td><td>every hour since T+1 has sales</td><td><span class="pill ok">Met so far</span></td><td class="n">4 hours</td></tr>
       <tr><td>G6 No 2-hour net-negative run</td><td class="n">0</td><td>0</td><td><span class="pill ok">Met so far</span></td><td class="n">the 41-hour crash</td></tr>
-      <tr><td>G7 Week matched profit</td><td class="n">650M (750M)</td><td>874k</td><td><span class="pill">On pace</span></td><td class="n">643.9M</td></tr>
+      <tr><td>G7 Week matched profit</td><td class="n">650M (750M)</td><td>1.06M</td><td><span class="pill">On pace</span></td><td class="n">643.9M</td></tr>
     </tbody></table></div>
 </section>
 
 <article class="latest">
-  <div class="when"><span>2026-11-22 15:05 UTC</span><span class="pill">Opening T+2</span><span class="pill ok">792k matched this hour</span></div>
-  <h2>Hour 2: 792k matched from 38 sales, wallet + cargo 625k (+496k), every home market priced, gate buying under way</h2>
+  <div class="when"><span>2026-11-22 15:15 UTC</span><span class="pill">Hourly</span><span class="pill ok">981k in the last hour</span><span class="pill warn">Margins thinning</span></div>
+  <h2>981k matched in the last hour, wallet + holds 753k, but each 5 minutes is earning less as four small hulls work the same home markets</h2>
   <div class="tbl"><table>
-    <thead><tr><th>Opening task</th><th>T+1 (14:05)</th><th>T+2 (15:05)</th></tr></thead>
+    <thead><tr><th>Money</th><th>1 h</th><th>3 h (week so far)</th></tr></thead>
     <tbody>
-      <tr><td>Re-tour, then trade (THEO-1)</td><td>queued 14:03</td><td>done: all 30 markets priced, THEO-1 trading</td></tr>
-      <tr><td>Tour shuttle at 300k</td><td>queued</td><td>done 14:40: THEO-6 (light shuttle 85,110) toured, now trading</td></tr>
-      <tr><td>Auto keepers only at 5M</td><td>queued</td><td>done (keeperAutoApproveMinCash 5M, read back)</td></tr>
-      <tr><td>Gate hauler at 450k, gate buying</td><td>queued</td><td>done 14:46: THEO-7 (light hauler 314,772); mission running, 26 FAB_MATS bought at 1,293 (F49)</td></tr>
-      <tr><td>Gate 85% / gate open</td><td>queued</td><td>queued</td></tr>
-      <tr><td>Start settings, gate mission, yard keepers, contract shuttle</td><td>done</td><td>done</td></tr>
+      <tr><td>Matched profit / sales</td><td class="n">981,310 / 50</td><td class="n">1,063,630 / 58</td></tr>
+      <tr><td>Jump fees / net</td><td class="n">0 / 969,430</td><td class="n">0</td></tr>
+      <tr><td>Contracts</td><td class="n">120,087</td><td class="n">137,157</td></tr>
+      <tr><td>Wallet + holds</td><td class="n" colspan="2">664,242 + 89,151 = 753,393 (+127,923 since 15:05, no hulls bought)</td></tr>
+      <tr><td>Wallet low / high</td><td class="n" colspan="2">122,683 (14:15) / 664,242 (15:10)</td></tr>
     </tbody></table></div>
   <div class="tbl"><table>
-    <thead><tr><th>Money and pace</th><th>T+1</th><th>T+2</th></tr></thead>
+    <thead><tr><th>Constraint</th><th>Now</th><th>Target</th><th>Binding?</th><th>Lever</th></tr></thead>
     <tbody>
-      <tr><td>Matched trading, last hour</td><td class="n">82,320 (8)</td><td class="n">791,570 (38): THEO-1 529k, THEO-6 262k</td></tr>
-      <tr><td>Contracts</td><td class="n">17,070 (1 done)</td><td class="n">137,157 in all (6 done, 77.8k net); open: 51 LIQUID_NITROGEN to F48, 40 aboard</td></tr>
-      <tr><td>Wallet / holds</td><td class="n">128,957 / 0</td><td class="n">426,266 / 199,204</td></tr>
-      <tr><td>Wallet + holds</td><td class="n">128,957</td><td class="n">625,470 (+496,513; +896k with the 400k of hulls added back)</td></tr>
-      <tr><td>Hulls bought this hour</td><td class="n">3 (135,587)</td><td class="n">2 (399,882): THEO-6 shuttle, THEO-7 light hauler (80 cargo)</td></tr>
-      <tr><td>Jumps</td><td class="n">0</td><td class="n">0</td></tr>
+      <tr><td>Ships / cargo</td><td>4 traders, 200 cargo (three 40s, one 80 on the gate)</td><td>80 routes on the board, best unflown FIREARMS E46→J61 about 79k (list)</td><td><b>Yes</b></td><td>a hull buy (needs your yes); no heavy yard is known yet</td></tr>
+      <tr><td>Margins</td><td>5-min profit 226k (14:40) → 53k (15:10); profit per unit 3,014 → 657</td><td>-</td><td><b>Yes</b></td><td>more markets: the gate (0 of 1,600 FAB_MATS delivered so far)</td></tr>
+      <tr><td>Cash</td><td class="n">664k</td><td>floor 400k; 3M line for hulls</td><td>No</td><td>-</td></tr>
+      <tr><td>API</td><td class="n">about 5/min of 105, no 429s</td><td>-</td><td>No</td><td>-</td></tr>
+      <tr><td>Fresh systems / jumps</td><td>gate shut, nothing staged, 0 jumps</td><td>-</td><td>No</td><td>-</td></tr>
     </tbody></table></div>
   <div class="tbl"><table>
-    <thead><tr><th>Health and risks</th><th></th></tr></thead>
+    <thead><tr><th>Fleet changes since 15:05</th><th></th></tr></thead>
     <tbody>
-      <tr><td>Approval cards</td><td>none open: the A2 probe card and the stale contract card both closed without a buy (no probe in the ledger)</td></tr>
-      <tr><td>Stuck</td><td>none (THEO-7 shows "suspended": the gate mission drives it, which is normal)</td></tr>
-      <tr><td>Market data</td><td>30 of 30 home markets priced, oldest 84 min (ZZ5A, H56, H57)</td></tr>
-      <tr><td>Gate ceiling</td><td>the mission shows FAB_MATS 2,000 (template says 2,250); FAB_MATS is 1,288-1,355 now, so it does not bind</td></tr>
-      <tr><td>Routes</td><td>60 on the board, the best now about 56k a trip (EQUIPMENT K86→C37); the SHIP_PARTS/PLATING routes are spaced 30 min after our buys moved the ask 19-32%</td></tr>
-      <tr><td>First heavy (standing yes)</td><td>no heavy yard known (none in the home system); wallet 426k</td></tr>
+      <tr><td>Hulls</td><td>none (this hour: THEO-6 shuttle 85,110 and THEO-7 light hauler 314,772, both reported at T+2)</td></tr>
+      <tr><td>Template 6</td><td>o4-trader now waits for priced home markets as well as a 15k route (your yes)</td></tr>
+      <tr><td>Code</td><td>the MCP template save now validates; pushed to main 15:11 (b9006ca), deploy pending at 15:13</td></tr>
     </tbody></table></div>
-  <div class="ask"><strong>Needs your yes:</strong> nothing new. Still open from T+1: change the template's "trade once a route pays 15k" step so it also waits for the home markets to be priced.</div>
+  <div class="ask"><strong>Needs your yes:</strong> nothing. No cards open, no stuck ships, no economy findings.</div>
 </article>
+
+<details>
+  <summary><span class="t">15:05</span><span class="h">Opening T+2: hour 2 made 792k matched, wallet + cargo 625k, gate buying started</span></summary>
+  <div class="body"><ul>
+    <li>Re-tour, tour shuttle (THEO-6), auto keepers at 5M and gate hauler (THEO-7) all done since T+1.</li>
+    <li>6 contracts done, 137k in; both 14:15 cards closed without a buy.</li>
+    <li>The mission's FAB_MATS ceiling reads 2,000 against the template's 2,250 (not binding at about 1,300).</li>
+  </ul></div>
+</details>
 
 <details>
   <summary><span class="t">14:15</span><span class="h">Hourly: the re-tour found 59 routes; two cards to answer</span></summary>
