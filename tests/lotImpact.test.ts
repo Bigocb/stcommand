@@ -23,6 +23,18 @@ describe("lotImpact", () => {
     assert.equal(measureRun("buy", [{ units: 5, price: 100, at: 0 }, { units: 5, price: 110, at: 1 }], 15), undefined);
   });
 
+  it("learns from a two-lot run (a 40-unit ship in a tradeVolume-20 market)", () => {
+    // 2026-11-22 THEO-6, ADVANCED_CIRCUITRY at X1-AR36-D40: 20 at 3,941 then 20 at 4,130 (+4.8% a lot)
+    const run: Lot[] = [{ units: 20, price: 3941, at: NOW - 5 * MIN }, { units: 20, price: 4130, at: NOW - 5 * MIN + 700 }];
+    const m = measureRun("buy", run, 20)!;
+    assert.ok(Math.abs(m.perLot - (4130 / 3941 - 1)) < 1e-9, `perLot ${m.perLot}`);
+    const l = learnImpact("buy", run, NOW, PRICE_IMPACT_PER_LOT, on, 20);
+    assert.equal(l.runs, 1);
+    assert.ok(l.perLot > PRICE_IMPACT_PER_LOT, `learned ${l.perLot}`);
+    // a single lot still says nothing
+    assert.equal(learnImpact("buy", run.slice(0, 1), NOW, PRICE_IMPACT_PER_LOT, on, 20).runs, 0);
+  });
+
   it("splits runs on a gap", () => {
     const runs = splitRuns([...sells(NOW), ...sells(NOW + 60 * MIN)], 2 * MIN);
     assert.equal(runs.length, 2);

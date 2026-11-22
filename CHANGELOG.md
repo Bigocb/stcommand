@@ -11,6 +11,16 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-22 — Learned price impact now learns from two-lot trips (issue #79)
+
+`lotImpactMaxFactor` (on, 3x) plans each market on the per-lot move our own recent trades measured there, and sizes a trip to
+where the spread stops paying for that impact. It only learned from runs of three or more lots. A 40-unit trader in a
+tradeVolume-20 market runs exactly two, so in the X1-AR36 opening nothing was ever learned and every route was planned on the
+flat 4.5% while `ops analysis` measured 5-10% a lot (EQUIPMENT@K86 9.9%, FAB_MATS@D45 8.4%, MACHINERY@E47 7.9%). The
+minimum is now two lots (`DEFAULT_IMPACT_POLICY.minLots`, `src/engine/lotImpact.ts`); one lot still says nothing. The
+marginal-lot stop asked for in #80 already exists: the buy guards (`buyGuardImpactPct`, on at 6%) judge each further lot
+against the destination's live bid, and `sizeForImpact` cuts the planned trip at the impact peak.
+
 ## 2026-11-22 — Opening templates: the MCP save now validates, and the command ship waits for priced markets
 
 `stcommand_add_opening_template` saved whatever it was given, unlike the HTTP route, so a template with a trigger the engine refuses

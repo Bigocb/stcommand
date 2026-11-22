@@ -34,7 +34,10 @@ export interface ImpactPolicy {
   keepRuns: number;
 }
 
-export const DEFAULT_IMPACT_POLICY: ImpactPolicy = { maxFactor: 0, minLots: 3, runGapMs: 120_000, maxAgeMs: 6 * 3_600_000, keepRuns: 3 };
+// minLots 2 (was 3, 2026-11-22): a 40-unit trader in a tradeVolume-20 market runs exactly two lots, and two lots already
+// give one full step (the second lot's price is the price after the first). With 3, nothing a 40-unit ship did was ever
+// learned, so the whole X1-AR36 opening planned on the flat 4.5% while ops analysis measured 5-10% a lot (issue #79).
+export const DEFAULT_IMPACT_POLICY: ImpactPolicy = { maxFactor: 0, minLots: 2, runGapMs: 120_000, maxAgeMs: 6 * 3_600_000, keepRuns: 3 };
 
 export interface Measured {
   /** Fraction of price per full lot, in the direction of our trade (always positive when the price moved against us). */
