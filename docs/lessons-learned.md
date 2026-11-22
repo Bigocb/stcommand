@@ -118,3 +118,19 @@ passed about 500; more proxy lanes (`apiLaneCount` 3 -> 6) brought it back to 7 
 **Rule.** When the keeper count jumps (a buying spree, staging many systems), watch `measuredKeeperReadsPerMin` and `rotationMin` in
 ops `keeper_coverage` every hour. If reads fall by half while the box and lanes have room, raise `keeperLaneWorkers` (it went 4 -> 8
 on 2026-11-21) before adding lanes; if the lanes are near 90 a minute, add lanes. Stale prices cost more than the keepers save.
+
+## 2026-11-22: raising the gate's price ceiling robs Peter to pay Paul
+
+**What happened.** Through the X1-AR36 opening, each time the gate stalled on SCARCE FAB_MATS (producers D45 and F49 over the 2,000
+ceiling), my suggested lever was "or a higher ceiling". The operator (22:20): raising the price works for a couple of rounds, "but then now
+I'm stuck paying that price". The same day the IRON feeds, forced past their loss limit, pushed H54's ask from 113 to 836 and lost about
+180k for the same reason: buying faster than a market refills just walks up its price curve.
+
+**Why.** A market's price is a function of its stock (2026-10-05 measurements). A higher ceiling lets the mission buy deeper into the curve;
+the stock drains, the price stays at the new level, and every later load costs that much. It does not make the producer make more units an
+hour, so after the first rounds the gate goes no faster, it just costs more (1,000 units at 2,000 instead of 1,500 is 500k).
+
+**Rule.** The gate's speed is the producers' refill rate (FAB_MATS about 70-120 an hour across both X1-AR36 producers), not the ceiling.
+Keep the ceiling near the producer's recovered price and buy at the refill rate (`recoverPct`, buy gap per market, rotate producers). To go
+faster, raise production: keep every input at HIGH with feeds that respect a loss limit (never `force`, issue #83), and use every producer.
+Do not offer "raise the ceiling" as a speed lever; offer it only for the last few loads when finishing beats the extra cost.
