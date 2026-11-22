@@ -69,72 +69,80 @@ footer{font-size:.8rem;color:var(--dim)}
   <h1>THEO <span>Fleet Snapshots</span></h1>
   <div class="meta">Week of 2026-11-22 · reset 13:00 UTC · agent THEO · home X1-AR36 · newest first</div>
   <!-- Every snapshot: set "Last snapshot" to the time the page is written and "Next snapshot" to the next scheduled report (list_triggers, earliest next_run_at among the fleet reports) with its name. -->
-  <div class="stamp"><span>Last snapshot <time>2026-11-22 18:20 UTC</time></span><span>Next snapshot <time>19:12 UTC</time> · hourly</span></div>
+  <div class="stamp"><span>Last snapshot <time>2026-11-22 19:18 UTC</time></span><span>Next snapshot <time>20:12 UTC</time> · hourly</span></div>
 </header>
 
 <section class="strip" aria-label="This week at a glance">
-  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">718k</div><div class="s">wallet 609k + 109k in holds · -76k (gate deliveries)</div>
+  <div class="tile"><div class="k">Wallet + cargo</div><div class="v">665k</div><div class="s">wallet 260k + 405k in holds · +145k with 198k of hulls added back</div>
     <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Wallet plus cargo: 177k, 129k, 129k, 625k, 753k, 1.15M">
-      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,32.6 14.9,34 27.8,34 40.7,19.8 53.6,16.1 66.4,4.6 79.3,4 92.2,18.5 105.1,14.9 118,17.1"/>
-      <circle cx="118" cy="17.1" r="2.5" fill="var(--amber)"/></svg></div>
-  <div class="tile"><div class="k">Matched profit / h</div><div class="v">224k</div><div class="s">17:13-18:13 · 41 sales (best hour 981k)</div>
+      <polyline fill="none" stroke="var(--amber)" stroke-width="2" points="2,32.6 13.6,34 25.2,34 36.8,19.8 48.4,16.1 60,4.6 71.6,4 83.2,18.5 94.8,14.9 106.4,17.1 118,18.6"/>
+      <circle cx="118" cy="18.6" r="2.5" fill="var(--amber)"/></svg></div>
+  <div class="tile"><div class="k">Matched profit / h</div><div class="v">156k</div><div class="s">18:13-19:13 · 27 sales + 188k contracts</div>
     <svg class="spark" viewBox="0 0 120 38" preserveAspectRatio="none" role="img" aria-label="Matched profit per hour: 0, 82k, 792k, 981k, 577k">
-      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34 16.5,31.5 31,9.8 45.5,4 60,16.4 74.5,18.3 89,24.1 103.5,27.2 118,27.1"/>
-      <circle cx="118" cy="27.1" r="2.5" fill="var(--ice)"/></svg></div>
-  <div class="tile"><div class="k">Traders</div><div class="v">5</div><div class="s">280 cargo · THEO-8 on the gate, THEO-6 on the sand feed</div></div>
+      <polyline fill="none" stroke="var(--ice)" stroke-width="2" points="2,34 15,31.5 27.8,9.8 40.7,4 53.6,16.4 66.4,18.3 79.3,24.1 92.2,27.2 105.1,27.1 118,29.2"/>
+      <circle cx="118" cy="29.2" r="2.5" fill="var(--ice)"/></svg></div>
+  <div class="tile"><div class="k">Traders</div><div class="v">6</div><div class="s">320 cargo · gate THEO-1/8, feeds THEO-6/10, trading THEO-5/7</div></div>
   <div class="tile"><div class="k">Box API</div><div class="v">5/min</div><div class="s">of 105 · no 429s</div></div>
 </section>
 
 <section aria-label="Week goals" style="display:flex;flex-direction:column;gap:8px">
   <h2>Week goals</h2>
   <div class="tbl"><table>
-    <thead><tr><th>Goal</th><th>Target (stretch)</th><th>Now (hour 5)</th><th>Status</th><th>2026-11-15 week</th></tr></thead>
+    <thead><tr><th>Goal</th><th>Target (stretch)</th><th>Now (hour 6)</th><th>Status</th><th>2026-11-15 week</th></tr></thead>
     <tbody>
-      <tr><td>G1 Gate open</td><td class="n">hour 40 (33)</td><td>FAB_MATS 266 of 1,600 (17%), circuitry 40 of 400 (paused); buying held: FAB_MATS asks 2,027 / 2,199 over the 2,000 ceiling</td><td><span class="pill">On pace</span></td><td class="n">hour 34.2</td></tr>
-      <tr><td>G2 2M/h for a full hour</td><td class="n">hour 48 (41)</td><td>224k/h this hour</td><td><span class="pill">On pace</span></td><td class="n">hour 103 (about 62 without the crash)</td></tr>
+      <tr><td>G1 Gate open</td><td class="n">hour 40 (33)</td><td>FAB_MATS 326 of 1,600 (20%), circuitry 40 of 400 (paused); held: asks 2,048 / 2,307 over the 2,000 ceiling</td><td><span class="pill">On pace</span></td><td class="n">hour 34.2</td></tr>
+      <tr><td>G2 2M/h for a full hour</td><td class="n">hour 48 (41)</td><td>156k/h this hour</td><td><span class="pill">On pace</span></td><td class="n">hour 103 (about 62 without the crash)</td></tr>
       <tr><td>G3 1M/h for a full hour</td><td class="n">hour 40 (36)</td><td>best 981k (14:12-15:12); hour 4 324k</td><td><span class="pill">On pace</span></td><td class="n">hour 44</td></tr>
       <tr><td>G4a Heavy yard seen</td><td class="n">-</td><td>not yet</td><td><span class="pill">On pace</span></td><td class="n">hour 38.8</td></tr>
-      <tr><td>G4b Heavy affordable (price + floor + 500k)</td><td class="n">-</td><td>wallet 609k; no heavy yard known</td><td><span class="pill">On pace</span></td><td class="n">about hour 43</td></tr>
+      <tr><td>G4b Heavy affordable (price + floor + 500k)</td><td class="n">-</td><td>wallet 260k; no heavy yard known (neighbours unsurveyed)</td><td><span class="pill">On pace</span></td><td class="n">about hour 43</td></tr>
       <tr><td>G4c First heavy trading (standing yes)</td><td class="n">hour 40 (36)</td><td>-</td><td><span class="pill">On pace</span></td><td class="n">about hour 55</td></tr>
       <tr><td>G5 No zero-sale hour after T+1</td><td class="n">0</td><td>every hour since T+1 has sales</td><td><span class="pill ok">Met so far</span></td><td class="n">4 hours</td></tr>
       <tr><td>G6 No 2-hour net-negative run</td><td class="n">0</td><td>0</td><td><span class="pill ok">Met so far</span></td><td class="n">the 41-hour crash</td></tr>
-      <tr><td>G7 Week matched profit</td><td class="n">650M (750M)</td><td>2.0M (11-15 at hour 4: 1.68M)</td><td><span class="pill">On pace</span></td><td class="n">643.9M</td></tr>
+      <tr><td>G7 Week matched profit</td><td class="n">650M (750M)</td><td>2.16M</td><td><span class="pill">On pace</span></td><td class="n">643.9M</td></tr>
     </tbody></table></div>
 </section>
 
 <article class="latest">
-  <div class="when"><span>2026-11-22 18:20 UTC</span><span class="pill">Hourly</span><span class="pill warn">FAB_MATS producers drained</span></div>
-  <h2>224k matched; the gate has 266 FAB_MATS but both producers are now over the 2,000 ceiling, D45 SCARCE; the sand feed lifted D45's sand to MODERATE</h2>
+  <div class="when"><span>2026-11-22 19:18 UTC</span><span class="pill">Hourly</span><span class="pill warn">Wallet under the floor</span></div>
+  <h2>156k matched + 188k contracts; wallet 260k (405k in holds, mostly THEO-7's DRUGS); D45's sand is HIGH but its FAB_MATS still SCARCE</h2>
   <div class="tbl"><table>
     <thead><tr><th>Money</th><th>Value</th></tr></thead>
     <tbody>
-      <tr><td>Matched profit 1 h / 3 h</td><td class="n">224,474 (41 sales) / 960,330</td></tr>
-      <tr><td>Jumps / net</td><td class="n">0 / 215,618</td></tr>
-      <tr><td>Wallet + holds</td><td class="n">608,935 + 108,983 = 717,918 (-75,536 since 17:15, no hulls; about 80 FAB_MATS and 20 circuitry went into the gate)</td></tr>
+      <tr><td>Matched profit 1 h / 3 h</td><td class="n">156,051 (27 sales; THEO-7 87k, THEO-1 56k) / 601,533</td></tr>
+      <tr><td>Contracts this hour</td><td class="n">187,719</td></tr>
+      <tr><td>Wallet + holds</td><td class="n">260,401 + 404,895 = 665,296 (-52,622 since 18:20; +145k with 198,010 of hulls and probes added back)</td></tr>
     </tbody></table></div>
   <div class="tbl"><table>
     <thead><tr><th>Constraint</th><th>Now</th><th>Binding?</th><th>Lever</th></tr></thead>
     <tbody>
-      <tr><td>FAB_MATS supply</td><td>F49 2,027 LIMITED, D45 2,199 SCARCE; mission yielding (ceiling 2,000), THEO-7 back to trading</td><td><b>Yes</b></td><td>let them refill; a second feed (sand or iron into F49); the ceiling only if speed beats price</td></tr>
-      <tr><td>Home margins</td><td>profit per sale 5.5k against 12k over 6 h (economy finding marginDecay)</td><td><b>Yes</b></td><td>the gate (more markets)</td></tr>
-      <tr><td>Cash / API / jumps</td><td>wallet 609k against floor 500k; 0 jumps</td><td>No</td><td>-</td></tr>
+      <tr><td>FAB_MATS supply</td><td>F49 2,048 LIMITED, D45 2,307 SCARCE; the mission waits (ceiling 2,000); 326 of 1,600</td><td><b>Yes</b></td><td>feeds (running); time</td></tr>
+      <tr><td>Cash</td><td>wallet 260k against the 600k floor (17 ships); 348k sits in THEO-7's 80 DRUGS, sold at H54 next</td><td>Briefly</td><td>none: it clears when THEO-7 sells</td></tr>
+      <tr><td>Home margins</td><td>matched profit 224k → 156k</td><td>Yes</td><td>the gate</td></tr>
     </tbody></table></div>
   <div class="tbl"><table>
-    <thead><tr><th>Changes since 17:15</th><th></th></tr></thead>
+    <thead><tr><th>Changes since 18:20</th><th></th></tr></thead>
     <tbody>
-      <tr><td>Deploy 17:35</td><td>learned impact from two-lot runs (a2e424c); applied in route pricing, no log line of its own</td></tr>
-      <tr><td>Circuitry pin</td><td>two trips, +36,960 and -33,020; ended 17:34; bug #82</td></tr>
-      <tr><td>Feed</td><td>QUARTZ_SAND H56 → D45 since 17:41 (THEO-6 since 17:56); D45 sand SCARCE → MODERATE</td></tr>
-      <tr><td>Keeper card</td><td>B7 (18 goods, your tag) approved 18:13</td></tr>
+      <tr><td>Hulls</td><td>THEO-10 light shuttle (A2) for the F49 sand feed; probes for B7 and D41 (your tags)</td></tr>
+      <tr><td>Feeds</td><td>sand into D45 (THEO-6) and F49 (THEO-10). D45 sand SCARCE → HIGH, so that feed now stops by itself; F49 sand still LIMITED</td></tr>
+      <tr><td>Deploy 19:05</td><td>YARD chip for the home system's yards</td></tr>
     </tbody></table></div>
   <div class="tbl"><table>
     <thead><tr><th>Watch list</th><th></th></tr></thead>
     <tbody>
-      <tr><td>Keeper card ZZ5A (1 good), 29,936c, 23 min old</td><td>raised by the engine, not one of your tags; expires 19:50</td></tr>
-      <tr><td>marginDecay finding</td><td>profit per sale 5.5k against 12k</td></tr>
+      <tr><td>Keeper card G50 (engine-raised), 25,737c, 43 min old, expires 20:30</td><td>not one of your tags</td></tr>
+      <tr><td>Keeper card D44 (3 goods, under the 5-good line), 30,965c, 12 min old</td><td>raised from the keeper list</td></tr>
+      <tr><td>Profit -30% on the hour before</td><td>wallet + holds rose with hulls added back</td></tr>
     </tbody></table></div>
-  <div class="ask"><strong>Needs your yes:</strong> the ZZ5A keeper card (1-good market; I would skip it), and whether to add a second feed into F49 now.</div>
+  <div class="ask"><strong>Needs your yes:</strong> the G50 and D44 keeper cards (I would hold both while the wallet is under the floor), and surveying the three gate neighbours.</div>
 </article>
+
+<details>
+  <summary><span class="t">18:20</span><span class="h">Hourly: 224k; FAB_MATS producers drained; sand feed working</span></summary>
+  <div class="body"><ul>
+    <li>FAB_MATS 266; both producers over the 2,000 ceiling.</li>
+    <li>D45 sand SCARCE → MODERATE after the first feed loads.</li>
+  </ul></div>
+</details>
 
 <details>
   <summary><span class="t">17:15</span><span class="h">Hourly: 221k matched; first circuitry trip; gate circuitry paused</span></summary>
