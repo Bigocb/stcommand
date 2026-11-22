@@ -91,7 +91,7 @@ import { DEFAULT_KEEPER_PLAN_POLICY, decodeRouteSeen, encodeRouteSeen, fixedReas
 import { DEFAULT_DELIVERY_POLICY, MAX_DELIVERY_MS, deliveryArrived, deliveryExpired, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
 import { ChangeTracker } from "./changeTracker.js";
 import { StaleWhileRevalidate } from "./staleCache.js";
-import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys, readIncomplete, withClosedGateNeighbours } from "./remoteSurvey.js";
+import { DEFAULT_REMOTE_SURVEY_POLICY, emptyOrUncharted, pickRemoteSurveys, readIncomplete, withClosedGateNeighbours } from "./remoteSurvey.js";
 import { DEFAULT_STALL_POLICY, inCooldown, releaseReason, serviceableFirst, shouldRelease, type StallPolicy } from "./keeperQueueStall.js";
 import { maxPriceFor } from "./missionCeiling.js";
 import { pickCheapestKeeperYard, pickKeeperYardWithShip, preferYardWithShip } from "./keeperYard.js";
@@ -6869,6 +6869,11 @@ export class FleetManager {
         if (!waypoints.length) {
           this.remoteSurveyRetry.set(system, now + 2 * 3_600_000);
           timersChanged = true;
+        } else if (counts.markets + counts.shipyards === 0 && emptyOrUncharted(waypoints) === "uncharted") {
+          // Uncharted waypoints list only UNCHARTED, so a market or yard there is invisible: try again later, never reject.
+          this.remoteSurveyRetry.set(system, now + 2 * 3_600_000);
+          timersChanged = true;
+          this.log(`remote survey: ${system} shows no market or shipyard but has uncharted waypoints; not rejected, next try in 2 h`);
         } else if (counts.markets + counts.shipyards === 0) {
           await this.markSystemSurveyed(system, "rejected", { markets: 0, shipyards: 0 });
           this.log(`remote survey: ${system} has no market and no shipyard; marked rejected, not read again`);
@@ -6881,7 +6886,7 @@ export class FleetManager {
         if (counts.markets === 0 && counts.shipyards > 0) {
           this.remoteSurveyRetry.set(system, now + 6 * 3_600_000);
           timersChanged = true;
-        } else if (waypoints.length && this.remoteSurveyRetry.delete(system)) timersChanged = true;
+        } else if (waypoints.length && !(counts.markets + counts.shipyards === 0 && emptyOrUncharted(waypoints) === "uncharted") && this.remoteSurveyRetry.delete(system)) timersChanged = true;
       } catch (err) {
         this.remoteSurveyRetry.set(system, now + 2 * 3_600_000);
         timersChanged = true;

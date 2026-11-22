@@ -52,3 +52,13 @@ export function withClosedGateNeighbours(reachable: ReadonlyMap<string, number>,
 export function readIncomplete(expectedMarkets: number, gotMarkets: number): boolean {
   return expectedMarkets > 0 && gotMarkets * 2 < expectedMarkets;
 }
+
+/**
+ * Is a system whose traits list no market and no shipyard actually empty, or just uncharted? A waypoint nobody has charted
+ * returns only the UNCHARTED trait, so an uncharted system counts as empty. 2026-11-22: the three systems across the closed
+ * X1-AR36 gate were read at 13:05, five minutes after the reset, counted 0 markets and 0 yards, and were marked "rejected" for
+ * good, so nothing read them again. Rejected only when no waypoint is uncharted; otherwise the caller retries later.
+ */
+export function emptyOrUncharted(waypoints: readonly { traits?: readonly { symbol: string }[] }[]): "empty" | "uncharted" {
+  return waypoints.some((w) => (w.traits ?? []).some((t) => t.symbol === "UNCHARTED")) ? "uncharted" : "empty";
+}

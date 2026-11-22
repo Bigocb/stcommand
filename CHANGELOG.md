@@ -11,6 +11,15 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-22 — Remote survey: uncharted systems are retried, not rejected
+
+The remote surveyor reads the systems across a closed home gate so the queue is ready when it opens. A waypoint nobody has charted
+lists only the UNCHARTED trait, so an uncharted system counted 0 markets and 0 shipyards and was marked "rejected" for good. On
+2026-11-22 all three systems across the X1-AR36 gate (HD68, YD45, XR41) were rejected at 13:05, five minutes after the reset, and
+nothing read them again. Such a system is now retried every 2 hours instead (`emptyOrUncharted`, `src/engine/remoteSurvey.ts`); a
+charted system with no market or yard is still rejected. Also fixed the `remoteSurveyGaps` test fixture, which lacked
+`gatesAllClosed` and had failed since the closed-gate neighbours change.
+
 ## 2026-11-22 — Tower "By system": home-system yards get the YARD chip
 
 The YARD chip on Tower's Expand > By system list came only from the remote survey's yard directory. The home system is never

@@ -13,6 +13,7 @@ function fake(opts: { waypoints: { symbol: string; traits: { symbol: string }[] 
       recentSystemSurveys: async () => [],
       recordMarketDirectory: async () => {},
       recordShipyardDirectory: async () => {},
+      marks: [] as string[],
     },
     timers: () => ({ load: async () => {}, save: async () => {} }),
     tenantId: "t",
@@ -24,12 +25,14 @@ function fake(opts: { waypoints: { symbol: string; traits: { symbol: string }[] 
     galaxy: {
       connectedSystems: (u: string) => (u === "X1-HOME" ? ["X1-AA"] : []),
       canJump: () => true,
+      gatesAllClosed: () => false,
       loadSystem: async () => {},
       surveyMarkets: async () => opts.waypoints.filter((w) => w.traits.some((t) => t.symbol === "MARKETPLACE")).map((w) => ({ symbol: w.symbol })),
       surveyShipyards: async () => opts.waypoints.filter((w) => w.traits.some((t) => t.symbol === "SHIPYARD")).map((w) => ({ symbol: w.symbol, shipTypes: [] })),
       getSystem: () => ({ waypoints: opts.waypoints }),
     },
     refreshTraitsIfEmpty: async () => {},
+    markSystemSurveyed: async (system: string, verdict: string) => { self.store.marks.push(`${system}:${verdict}`); },
     judgeAndIntake: opts.judge,
     log: (m: string) => logs.push(m),
   };
@@ -59,5 +62,20 @@ describe("maybeRemoteSurvey gaps", () => {
     const { self, retry } = fake({ waypoints: [yard], directory: [], judge: async () => {} });
     await run(self);
     assert.ok((retry.get("X1-AA") ?? 0) > Date.now() + 5 * 3_600_000);
+  });
+
+  it("does not reject a system that shows no market only because its waypoints are uncharted (X1-AR36 neighbours, 2026-11-22)", async () => {
+    const uncharted = { symbol: "X1-AA-U1", traits: [{ symbol: "UNCHARTED" }] };
+    const { self, retry, logs } = fake({ waypoints: [uncharted, { symbol: "X1-AA-U2", traits: [] }], directory: [], judge: async () => {} });
+    await run(self);
+    assert.deepEqual(self.store.marks, [], "not marked rejected");
+    assert.ok((retry.get("X1-AA") ?? 0) > Date.now() + 3_600_000, "retried in about 2 h");
+    assert.ok(logs.some((l) => /uncharted waypoints; not rejected/.test(l)));
+  });
+
+  it("still rejects a charted system with no market and no shipyard", async () => {
+    const { self } = fake({ waypoints: [{ symbol: "X1-AA-B1", traits: [{ symbol: "BARREN" }] }], directory: [], judge: async () => {} });
+    await run(self);
+    assert.deepEqual(self.store.marks, ["X1-AA:rejected"]);
   });
 });

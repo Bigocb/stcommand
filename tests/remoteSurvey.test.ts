@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_REMOTE_SURVEY_POLICY, pickRemoteSurveys, readIncomplete, withClosedGateNeighbours } from "../src/engine/remoteSurvey.js";
+import { DEFAULT_REMOTE_SURVEY_POLICY, emptyOrUncharted, pickRemoteSurveys, readIncomplete, withClosedGateNeighbours } from "../src/engine/remoteSurvey.js";
 
 const reach = new Map([["X1-A", 1], ["X1-B", 1], ["X1-C", 2], ["X1-D", 3]]);
 const ctx = (over: Partial<Parameters<typeof pickRemoteSurveys>[0]> = {}) => ({ reachable: reach, alreadyRead: new Set<string>(), retryAt: new Map<string, number>(), nowMs: 1000, ...over });
@@ -48,4 +48,10 @@ describe("readIncomplete", () => {
     assert.equal(readIncomplete(6, 6), false);
     assert.equal(readIncomplete(0, 0), false, "no markets expected: nothing to compare (the caller marks such a system rejected)");
   });
+});
+
+it("a system showing no market because its waypoints are uncharted is not judged empty (X1-AR36 neighbours, 2026-11-22)", () => {
+  assert.equal(emptyOrUncharted([{ traits: [{ symbol: "UNCHARTED" }] }, { traits: [] }]), "uncharted");
+  assert.equal(emptyOrUncharted([{ traits: [{ symbol: "BARREN" }] }, { traits: [] }]), "empty");
+  assert.equal(emptyOrUncharted([]), "empty");
 });
