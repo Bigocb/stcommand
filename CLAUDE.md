@@ -34,6 +34,9 @@ saved template "Opening: auto at reset" itself (`docs/reset-opening-playbook.md`
 shuttle; 1M keepers on the top markets; back at 1M a light hauler on the gate crew; gate ceilings FAB_MATS 2,000 and ADVANCED_CIRCUITRY 4,000. Adjust in real time.
 Goals for the 2026-11-22 week (operator, 2026-11-22): gate open by hour 40 (stretch 33; the 11-15 week did 34.2), 2M/h matched profit by hour 48
 (stretch 41; the 11-15 week first did it at hour 103, about hour 62 without its 41-hour crash). Proposed additions and the levers: `docs/plan-week-2026-11-22.md` §0.
+Contract ship stays on contracts (operator, 2026-11-23): "Do not take that off of the contract duty. We need those contracts going
+until we get to like 10-15 million." Never dispatch, re-role, feed or tour the contract-duty ship (THEO-5 this week) while the wallet is
+under about 10-15M; pick another hull, or wait.
 Update this section when the operator states a layout for a following week.
 
 ## Buying a ship: nearest yard to the destination, not the cheapest
