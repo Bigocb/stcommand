@@ -51,3 +51,7 @@ contributor" in the CHANGELOG; on 2026-11-18 they were one of the rivals (with S
 - 2026-11-23 about 12:00: **HYDRA finished the gate.** HYDRA-22 (a ship new to us) bought 67 circuitry at D40 at 11:50, 14,871 -> 25,047
   (about 1.24M), and delivered the last 55. They pay any price at the end to open the gate early. Their week: about 480 FAB_MATS and about
   140 circuitry (of 1,600 and 400).
+- 2026-11-23 16:15, 600 sells (13:40-22:15 and 06:18-16:13; 22:15-06:18 not read): fed markets 465k of 4.12M (11.3%), 223 a unit
+  against 413 elsewhere. After the gate HYDRA went back to a copper chain (ore into H54, COPPER to F49/A3) and profit trading; it does not
+  follow us into the new systems. The new competition there is other agents: HERMES-BRAVO (9 ships, 80-unit loads) bought 960 units at
+  QY43-ZD8A in an hour, VEPRINE-C sold 40 LAB_INSTRUMENTS into QY43-AC5Z.
