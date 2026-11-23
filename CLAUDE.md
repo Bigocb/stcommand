@@ -75,6 +75,13 @@ line (the 11-17 second heavy on a 625k wallet helped cause that week's crash). E
 
 **Which big hull (operator, 2026-11-19):** prefer heavy freighters (225 cargo). Buy a refining freighter (150) only when its yard is where the ship will trade; never just because it is the cheapest big hull. Once the wallet is above about **15,000,000c**, buy bulk freighters (490 cargo, about 5.6M). Operator (2026-11-20): when the wallet reaches **15M**, buy one bulk freighter; this is pre-approved and the hourly update buys it (one only). A yard sells only to a ship docked there: bulk yards seen are X1-YQ84-XX9F and X1-JD68-A32F, and none of our ships was docked at either on 2026-11-20.
 
+**Bulk freighter at 5M (operator, 2026-11-23 22:05):** "There is a yard with a bulk freighter, when the wallet gets to 5m buy one." Yard seen:
+X1-NM65-XZ5D, SHIP_BULK_FREIGHTER 3,489,001 (490 cargo, seen 22:02; NM65 is a staged system). One hull only. Trigger: the wallet (credits, not
+wallet + holds) reads 5,000,000 or more. Before the buy: a ship of ours must be docked at that yard (a yard sells only to a docked ship; if none,
+say which ship to send, usually the tour ship in NM65, and do not buy); run the route check for 490 units (sell side tradeVolume and our own price
+impact; a 490-unit load into one 20-60 lot market can crash it), re-read the ledger just before `buy_ship`, then set the role to trader and report the
+buy (yard, price, hour). The operator's hold on manual keeper approvals (19:20) is separate and still stands.
+
 **Swapping small hulls for heavies (operator, 2026-11-20):** as money grows, replace the 40-unit hulls first, then the 80s, with heavy
 freighters. One swap at a time: buy the heavy at the yard nearest the small hull's working area (or a route `ops unflown_routes` shows
 unflown), and retire the small hull (`sell_ship`) only once the heavy is trading. Worst earners go first (by `ops pnl` per ship over 48 h).
