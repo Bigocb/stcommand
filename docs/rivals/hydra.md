@@ -55,3 +55,8 @@ contributor" in the CHANGELOG; on 2026-11-18 they were one of the rivals (with S
   against 413 elsewhere. After the gate HYDRA went back to a copper chain (ore into H54, COPPER to F49/A3) and profit trading; it does not
   follow us into the new systems. The new competition there is other agents: HERMES-BRAVO (9 ships, 80-unit loads) bought 960 units at
   QY43-ZD8A in an hour, VEPRINE-C sold 40 LAB_INSTRUMENTS into QY43-AC5Z.
+- 2026-11-23 22:12, 600 sells (11-22 13:40 to 11-23 about 00:30, and 11-23 about 10:10 to 22:10; the 4-hour blocks from about 01:00 to 09:00 not
+  read): fed markets (F49, D45, G50, F48) 422k of 7.38M (5.7%), 281 a unit against 748 elsewhere (10.9% and 11.3% in the two earlier readings).
+  Fed markets per unit by 4-hour block: 503, 296, 373, then 124 and 132 in the two latest; elsewhere 1,050, 455, 415, then 114, 425, 1,187, 1,197.
+  Our profit now comes from the new systems (QY43, CJ53, MM91, CK92), not the home markets HYDRA feeds. HYDRA itself (4 ships, 1,204 units in the
+  hour: SILVER 450, PLATINUM 180, FERTILIZERS 136) is profit trading at home and has not followed us out.
