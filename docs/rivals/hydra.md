@@ -42,3 +42,9 @@ contributor" in the CHANGELOG; on 2026-11-18 they were one of the rivals (with S
 - 2026-11-23 04:30, first 15 hours: fed markets 703k of 5.61M matched (12.5%), 342 a unit against 584 elsewhere; both groups followed
   the same arc. Our top routes are all in markets they do not touch. Their gate FAB_MATS (about 400 units at 1,500-2,000) saved us
   roughly 600-800k of gate cost.
+- 2026-11-23 10:15, 600 of the week's sells (13:40-22:15 and 02:08-10:08; 22:15-02:08 not read, the ledger tool stops at 300 a call):
+  fed markets 534k of 4.89M matched (10.9%), 270 a unit against 485 elsewhere. Both fell together after hour 16 (fed 99-126, other
+  168-220 a unit), the home system thinning while the gate waits; their feeding is not holding our margins up.
+- 2026-11-23 10:00: HYDRA-20 bought 22 circuitry at D40 the moment it reached 9,036 (20 at 9,036, 2 at 10,404), the price our 9,000
+  ceiling was waiting for. With both of us buying from one SCARCE market of 20 a lot, they take the cheap loads at any price; they
+  are also finishing our gate for us (about 480 FAB_MATS and 107 circuitry so far).
