@@ -597,3 +597,23 @@ result (42.5% refund on a light hauler), cargo left at the reset.
 
 **Code items** (added to docs/TODO.md): board per-hour figure; "where is no hull" view for buying; keeper spend cap by profit.
 
+
+## Home-system neighbours: find them at the reset, track them all week (operator, 2026-11-23)
+
+Operator (2026-11-23, after HYDRA shared our X1-AR36 headquarters and put about 400 FAB_MATS into our gate): "we will probably want to do
+this with our neighbors each week". Other agents that start in our home system share our markets and our gate; their play changes
+what our opening should do.
+
+1. **At T+1 (the reset check), list the neighbours.** Agents trading in our home markets: `stcommand_ops_rival_activity sinceHours=1`
+   (and again at T+3, since some start later). Confirm each one's headquarters with the public `GET /agents/<symbol>` (tokenless).
+   Do not rely on `ops_agent_watch`'s `system` field for agents that also played last week until issue "agent watch keeps last week's
+   start system" is fixed.
+2. **Look up their history:** `stcommand_ops_agent_watch resetDate=<each past week>` and jq for the symbol: ships, end credits, rank,
+   when their gate finished. Grep the journals and CHANGELOG for the name.
+3. **Open a profile:** `docs/rivals/<symbol>.md` in the format of `docs/rivals/hydra.md` (profile table, how they play, impact method,
+   findings). The hourly report's neighbour watch (section 6) covers every neighbour in the list, not only one.
+4. **Plan around them.** A neighbour that builds the gate at any price (HYDRA, 2026-11-23) finishes FAB_MATS for us: hold our ceiling
+   and spend on the material they do not buy (circuitry). A neighbour that feeds factories keeps those markets stocked but harvests the
+   same outputs (HYDRA-fed markets earned us 342 a unit against 584 elsewhere in the first 15 hours). Expect them in the fresh systems
+   the moment the gate opens.
+5. **No asterisk on our results** (operator): the point is to learn their play and measure their effect, not to discount our week.
