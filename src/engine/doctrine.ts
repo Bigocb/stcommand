@@ -1221,6 +1221,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "weekForecastAnchor",
+    name: "Compare charts: anchor the forecast on what happened",
+    description: "On = the forecast line follows the week instead of the plan it was set up with: up to the latest real hour it is the real line, and from the next hour it is simulated from the real wallet and profit, with the gate's real opening hour (its materials already paid for), the mean of the last six real hours as the base rate, and the first heavy allowed from the next hour. So when the gate opens earlier or later than weekForecast, or a stretch of trading runs faster or slower, the line moves with it. Advisory only: nothing is changed. Off = today's plan-only line (gate and heavy hours from weekForecast and weekForecastHeavyHour). Only read while weekForecast is on. src/engine/forecast.ts forecastFrom().",
+    value: 1, min: 0, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "economyAlerts",
     name: "Economy alerts",
     description: "Watch the fleet's economy and say when it goes wrong: jump fees over matched profit, losing money after jumps and fuel, wallet plus holds falling, no fresh system opened while staged ones wait, profit per sale falling, small hulls making many gate jumps, the wallet under the working-capital floor. Shown on Tower's home and Deck's Overview (Economy card), in ops economy_health and as an \"Economy warning\" push. Advisory only: nothing is changed. Built after the domino week of 2026-11-17/18 (docs/lessons-learned.md). Off = no findings. The value is not used; the thresholds are the economy rules below.",

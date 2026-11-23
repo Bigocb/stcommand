@@ -19,6 +19,10 @@
  *     opens at `gateHour` only if the wallet can pay for it, otherwise at the first hour it can
  *   - keepers, probes and small hulls after the gate: about 400k/h (11-17: 5-25 ships bought an hour while the wallet sat near 3M)
  * With the gate at 34 and the first heavy at 55 this gives 2M/h at about hour 60-64, the no-crash estimate for 11-15.
+ *
+ * Re-anchoring (clause weekForecastAnchor, operator request 2026-11-23): forecastFrom() restarts the same loop from the week's
+ * latest real hour, with the gate's real opening hour, the recent real profit rate and the real wallet, so the line follows what
+ * happened instead of the plan it was set up with.
  */
 
 export interface ForecastPolicy {
@@ -126,13 +130,27 @@ export function floorFor(bigHulls: number, p: ForecastPolicy): number {
   return p.floorBase + bigHulls * p.floorPerHull;
 }
 
-export function forecastWeek(p: ForecastPolicy = DEFAULT_FORECAST): ForecastPoint[] {
-  const out: ForecastPoint[] = [];
-  let wallet = p.startWallet, cum = 0, units = 0;
-  let gateOpenAt: number | null = null;
+/** Where a simulation starts: hour 0 with the start wallet for a plain forecast, or the latest real reading for an anchored one. */
+interface ForecastStart {
+  /** First hour to simulate. */
+  fromHour: number;
+  wallet: number;
+  cumPnl: number;
+  units: number;
+  /** Hour the gate opened (real or simulated before `fromHour`), or null while it is closed. */
+  gateOpenAt: number | null;
   /** Hour each big hull starts trading. */
-  const trading: number[] = [];
-  for (let h = 0; h < p.hours; h++) {
+  trading: number[];
+}
+
+/** The hourly loop, shared by forecastWeek (from hour 0) and forecastFrom (from the latest real hour). Points cover `start.fromHour` to the last hour. */
+function simulate(p: ForecastPolicy, start: ForecastStart): ForecastPoint[] {
+  const out: ForecastPoint[] = [];
+  let wallet = start.wallet, cum = start.cumPnl, units = start.units;
+  let gateOpenAt = start.gateOpenAt;
+  /** Hour each big hull starts trading. */
+  const trading = [...start.trading];
+  for (let h = start.fromHour; h < p.hours; h++) {
     const notes: string[] = [];
     if (gateOpenAt === null && h >= p.gateHour && wallet >= p.gateCost) {
       wallet -= p.gateCost;
@@ -166,13 +184,76 @@ export function forecastWeek(p: ForecastPolicy = DEFAULT_FORECAST): ForecastPoin
     if (bought) notes.push(`${bought} hull${bought > 1 ? "s" : ""} bought (${trading.length} in all)`);
     out.push({ hour: h, gateOpen, cumPnl: Math.round(cum), pnl: Math.round(pnl), rate: 0, units: Math.round(units), wallet: Math.round(wallet), bigHulls: trading.length, note: notes.join("; ") });
   }
-  for (let i = 0; i < out.length; i++) {
+  return out;
+}
+
+/** Profit an hour averaged over this hour and the two before it (as weekCompare's `rate`), filled in place. */
+function fillRates(points: ForecastPoint[]): ForecastPoint[] {
+  for (let i = 0; i < points.length; i++) {
     const from = Math.max(0, i - 2);
     let sum = 0;
-    for (let j = from; j <= i; j++) sum += out[j]!.pnl;
-    out[i]!.rate = Math.round(sum / (i - from + 1));
+    for (let j = from; j <= i; j++) sum += points[j]!.pnl;
+    points[i]!.rate = Math.round(sum / (i - from + 1));
   }
-  return out;
+  return points;
+}
+
+export function forecastWeek(p: ForecastPolicy = DEFAULT_FORECAST): ForecastPoint[] {
+  return fillRates(simulate(p, { fromHour: 0, wallet: p.startWallet, cumPnl: 0, units: 0, gateOpenAt: null, trading: [] }));
+}
+
+/** What the week has actually done, as far as it has got: the forecast restarts from here (clause weekForecastAnchor). */
+export interface ForecastAnchor {
+  /** Last hour with real data. The forecast's own hours begin the hour after. */
+  hour: number;
+  /** Matched profit so far and the wallet at that hour. */
+  cumPnl: number;
+  wallet: number;
+  units: number;
+  /** The hour the home gate really opened, or null while it is still closed. */
+  gateOpenHour: number | null;
+  /** Matched profit of each real hour, oldest first: the recent ones set the base rate. */
+  pnlByHour: readonly number[];
+  /** Big hulls already trading (0 when not known). */
+  bigHulls?: number;
+}
+
+/** Real hours that set the base rate; fewer than `MIN_RATE_HOURS` of them and the calibrated default stays. */
+export const ANCHOR_RATE_HOURS = 6;
+export const MIN_RATE_HOURS = 3;
+
+/**
+ * The forecast re-anchored on what has happened (operator request 2026-11-23: "the forecast line changes based on when the gate
+ * actually did open"). Hours up to `anchor.hour` are the real ones; from the next hour the simulation continues from the real wallet and
+ * profit, with:
+ *   - the gate: open from its real hour (its materials are already paid for), or, while closed, not before the next hour;
+ *   - the base rate: the mean of the last `ANCHOR_RATE_HOURS` real hours, in place of the calibrated 210k / 650k;
+ *   - the first heavy: allowed from the next hour (the standing yes), not at the planned hour.
+ * Returns only the hours after the anchor; the caller joins them to the real points. Pure.
+ */
+export function forecastFrom(anchor: ForecastAnchor, p: ForecastPolicy = DEFAULT_FORECAST): { points: ForecastPoint[]; policy: ForecastPolicy; baseRate: number | null } {
+  const next = anchor.hour + 1;
+  const recent = anchor.pnlByHour.slice(-ANCHOR_RATE_HOURS);
+  const baseRate = recent.length >= MIN_RATE_HOURS ? Math.round(recent.reduce((a, b) => a + b, 0) / recent.length) : null;
+  const gateOpen = anchor.gateOpenHour !== null && anchor.gateOpenHour <= anchor.hour;
+  const policy: ForecastPolicy = {
+    ...p,
+    hours: Math.max(p.hours, next),
+    gateHour: gateOpen ? anchor.gateOpenHour! : Math.max(p.gateHour, next),
+    firstHeavyHour: next,
+    ...(baseRate !== null ? (gateOpen ? { postGateBase: Math.max(0, baseRate) } : { preGateRate: Math.max(0, baseRate) }) : {}),
+  };
+  const points = simulate(policy, {
+    fromHour: next, wallet: anchor.wallet, cumPnl: anchor.cumPnl, units: anchor.units,
+    gateOpenAt: gateOpen ? anchor.gateOpenHour! : null,
+    trading: Array.from({ length: Math.max(0, anchor.bigHulls ?? 0) }, () => anchor.hour),
+  });
+  return { points, policy, baseRate };
+}
+
+/** Real hours first, then the anchored forecast, as one series with rates over the join. `real` carries the actual points as ForecastPoints. */
+export function joinForecast(real: readonly ForecastPoint[], future: readonly ForecastPoint[]): ForecastPoint[] {
+  return fillRates([...real.map((x) => ({ ...x })), ...future.map((x) => ({ ...x }))]);
 }
 
 /** The hour the gate opened in the forecast, or null. */

@@ -6,7 +6,7 @@ import { isOperator, operatorAgents } from "./operatorFlag.js";
 import { SNAPSHOT_KIND, fleetPoints } from "../engine/hourlySnapshot.js";
 import { checkpoints, drawnPoints, gateAligned, gateOpenToFirstJob, hoursReached, likeForLike, toPoints, weekTotals, type WeekSeries } from "../engine/weekCompare.js";
 import { GATE_OPEN_SUBJECT } from "../engine/actionEvents.js";
-import { forecastPolicyFromDoctrine, forecastWeek, gateHourOf } from "../engine/forecast.js";
+import { forecastFrom, forecastPolicyFromDoctrine, forecastWeek, gateHourOf, joinForecast, type ForecastPoint } from "../engine/forecast.js";
 
 /**
  * Week over week (src/engine/weekCompare.ts), for the Season screen's Compare tab and Tower's card. Mounted in the dashboard router.
@@ -103,9 +103,24 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
       // The week's forecast (clause weekForecast, issue #76): drawn as a third, dotted line; absent when the clause is off.
       const doctrine = w.fleet?.doctrine;
       const policy = doctrine ? forecastPolicyFromDoctrine(doctrine) : null;
-      const fc = policy ? forecastWeek({ ...policy, hours: Math.max(upTo + 1, Math.min(MAX_HOURS, policy.hours)) }) : null;
+      const sized = policy ? { ...policy, hours: Math.max(upTo + 1, Math.min(MAX_HOURS, policy.hours)) } : null;
+      // Clause weekForecastAnchor: the line is the real week up to its latest hour, then simulated from the real wallet, the real gate
+      // hour and the recent profit rate (src/engine/forecast.ts forecastFrom). Off, or no wallet reading yet: the plan-only line.
+      const reached = hoursReached(a);
+      const last = pa[reached];
+      let fc: ForecastPoint[] | null = null;
+      let anchored: { hour: number; gateOpenHour: number | null; baseRate: number | null } | null = null;
+      if (sized && doctrine?.isEnabled("weekForecastAnchor") && last && last.wallet !== null) {
+        const gateAt = a.gateOpenHour ?? null;
+        const real: ForecastPoint[] = pa.slice(0, reached + 1).map((x) => ({ hour: x.hour, gateOpen: gateAt !== null && x.hour >= gateAt, cumPnl: x.cumPnl, pnl: x.pnl, rate: x.rate, units: x.units, wallet: x.wallet ?? last.wallet!, bigHulls: 0, note: "real" }));
+        const f = forecastFrom({ hour: reached, cumPnl: last.cumPnl, wallet: last.wallet, units: last.units, gateOpenHour: gateAt, pnlByHour: pa.slice(0, reached + 1).map((x) => x.pnl) }, sized);
+        fc = joinForecast(real, f.points);
+        anchored = { hour: reached, gateOpenHour: gateAt, baseRate: f.baseRate };
+      } else if (sized) {
+        fc = forecastWeek(sized);
+      }
       res.json({
-        forecast: fc ? { label: "Forecast", gateOpenHour: gateHourOf(fc), points: fc.map((p) => ({ hour: p.hour, cumPnl: p.cumPnl, pnl: p.pnl, rate: p.rate, units: p.units, wallet: p.wallet, ships: null, bigHulls: p.bigHulls, note: p.note })) } : null,
+        forecast: fc ? { label: "Forecast", gateOpenHour: anchored ? anchored.gateOpenHour : gateHourOf(fc), anchored, points: fc.map((p) => ({ hour: p.hour, cumPnl: p.cumPnl, pnl: p.pnl, rate: p.rate, units: p.units, wallet: p.wallet, ships: null, bigHulls: p.bigHulls, note: p.note })) } : null,
         fleetA: fa, fleetB: fb,
         a: { label: a.label, universeKey: a.universeKey, startAt: a.startAt, firstJumpHour: a.firstJumpHour, gateOpenHour: a.gateOpenHour ?? null, gateOpenToFirstJob: gateOpenToFirstJob(a), totals: weekTotals(a), points: drawnPoints(pa, hoursReached(a)), reached: hoursReached(a) },
         b: { label: b.label, universeKey: b.universeKey, startAt: b.startAt, firstJumpHour: b.firstJumpHour, gateOpenHour: b.gateOpenHour ?? null, gateOpenToFirstJob: gateOpenToFirstJob(b), totals: weekTotals(b), points: drawnPoints(pb, hoursReached(b)), reached: hoursReached(b) },

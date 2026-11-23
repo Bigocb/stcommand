@@ -11,6 +11,19 @@ here; link it from the entry when that happens.
 
 
 
+## 2026-11-23 — Forecast line follows the real week (clause `weekForecastAnchor`)
+
+The compare charts' dotted Forecast line was a plan: it started at hour 0 and opened the gate at the hour set in `weekForecast`
+(40), whatever happened. On 2026-11-23 the gate really opened at hour 23.0, so the line sat far from the week from the gate on.
+With the new clause `weekForecastAnchor` on (ships off, needs `weekForecast`), the line is the real week up to its latest hour and is
+simulated from there (`forecastFrom`, `src/engine/forecast.ts`): from the real wallet and profit, with the gate's real opening hour (its
+materials already paid for), the mean of the last six real hours as the base rate (the calibrated 210k / 650k only when fewer than three
+hours exist), and the first heavy allowed from the next hour. Off, the plan-only line is unchanged (tested: the plan loop was moved into a
+shared `simulate()` with the same output). `/api/compare` adds `forecast.anchored` (`{ hour, gateOpenHour, baseRate }`) and the legend
+reads "follows the real week from hour N, gate opened at hour G". Not yet read in: big hulls already trading (taken as 0, their profit
+shows in the rate), the real keeper and probe spend (the plan's 400k an hour stays), and the yard's real hull price (2.2M stays).
+Tests: `tests/forecast.test.ts` (5 new), `tests/compareRoute.test.ts` (1 new).
+
 ## 2026-11-22 — Remote survey: uncharted systems are retried, not rejected
 
 The remote surveyor reads the systems across a closed home gate so the queue is ready when it opens. A waypoint nobody has charted

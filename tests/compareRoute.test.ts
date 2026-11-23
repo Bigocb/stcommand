@@ -19,6 +19,7 @@ const stamp = Date.now();
 const MY = `TEST-CMP-A-${stamp}`, OTHER = `TEST-CMP-B-${stamp}`;
 let asAgent = MY;
 let forecastOn = false;
+let anchorOn = false;
 
 async function appPool(): Promise<pg.Pool> {
   const app = createPool(DB_URL);
@@ -54,7 +55,7 @@ before(async () => {
   setTenantUniverse(me, mine("2026-10-25"));
   const app = express();
   app.use((req, _res, next) => { (req as any).agentSymbol = asAgent; next(); });
-  const w = { tenantId: me, agentSymbol: MY, store, fleet: { doctrine: { isEnabled: (k: string) => forecastOn && k === "weekForecast", value: () => 40 } } } as any;
+  const w = { tenantId: me, agentSymbol: MY, store, fleet: { doctrine: { isEnabled: (k: string) => forecastOn && (k === "weekForecast" || (anchorOn && k === "weekForecastAnchor")), value: () => 40 } } } as any;
   app.use("/api/compare", createCompareRouter(() => w));
   await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
@@ -104,6 +105,28 @@ describe("week-over-week routes", () => {
     assert.equal(r.json.forecast.points.length, 168);
     assert.equal(r.json.forecast.gateOpenHour, 40);
     assert.ok(r.json.forecast.points[100].cumPnl > r.json.forecast.points[50].cumPnl);
+  });
+
+  it("anchored (clause weekForecastAnchor) the forecast is the real week up to its latest hour, then simulated from the real wallet", async () => {
+    const base = encodeURIComponent(`${me}|${MY.toUpperCase()}@2026-10-11`);
+    const week = encodeURIComponent(`${me}|${MY.toUpperCase()}@2026-10-25`);
+    forecastOn = true; anchorOn = false;
+    const plan = (await get(`/api/compare?base=${base}&week=${week}`)).json.forecast;
+    anchorOn = true;
+    const r = await get(`/api/compare?base=${base}&week=${week}`);
+    forecastOn = false; anchorOn = false;
+    assert.equal(r.status, 200);
+    const f = r.json.forecast;
+    assert.equal(plan.anchored, null, "clause off: the plan-only line");
+    assert.equal(f.anchored.hour, 2, "the latest real hour of the base week");
+    assert.equal(f.anchored.gateOpenHour, null);
+    assert.equal(f.points.length, 168);
+    assert.equal(f.points[2].cumPnl, 400, "the real cumulative profit at the anchor");
+    assert.equal(f.points[2].wallet, 5000, "the real wallet at the anchor");
+    assert.equal(f.points[2].note, "real");
+    assert.equal(f.points[3].hour, 3);
+    assert.ok(f.points[3].cumPnl > 400);
+    assert.notEqual(f.points[3].cumPnl, plan.points[3].cumPnl, "it follows the week, not the plan");
   });
 
   it("with OPERATOR_AGENTS unset (one owner on the box) every tenant's weeks are listed", async () => {
