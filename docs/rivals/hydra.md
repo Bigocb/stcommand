@@ -48,3 +48,6 @@ contributor" in the CHANGELOG; on 2026-11-18 they were one of the rivals (with S
 - 2026-11-23 10:00: HYDRA-20 bought 22 circuitry at D40 the moment it reached 9,036 (20 at 9,036, 2 at 10,404), the price our 9,000
   ceiling was waiting for. With both of us buying from one SCARCE market of 20 a lot, they take the cheap loads at any price; they
   are also finishing our gate for us (about 480 FAB_MATS and 107 circuitry so far).
+- 2026-11-23 about 12:00: **HYDRA finished the gate.** HYDRA-22 (a ship new to us) bought 67 circuitry at D40 at 11:50, 14,871 -> 25,047
+  (about 1.24M), and delivered the last 55. They pay any price at the end to open the gate early. Their week: about 480 FAB_MATS and about
+  140 circuitry (of 1,600 and 400).
