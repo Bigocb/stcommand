@@ -66,3 +66,6 @@ contributor" in the CHANGELOG; on 2026-11-18 they were one of the rivals (with S
 - 2026-11-24 10:12, 300 sells (11-24 05:48 to 10:12 only, a 4.4-hour reading, not the weekly sample): none from the markets HYDRA feeds (F49, D45, G50, F48); all 7.27M of
   matched profit came from other markets, 841 a unit (787 in the 05:00-09:00 block, 982 since 09:00). HYDRA itself fell from 1,901 units (08:12) to 189 (09:12) and back to 717
   (5 ships, AMMUNITION 256, at AR36 H54, E46 and F48); it has still not followed us out of the home system.
+- 2026-11-24 16:12, 300 sells (11-24 13:57 to 16:12 only, a 2.3-hour reading, not the weekly sample): none from the markets HYDRA feeds (F49, D45, G50, F48); all 9.53M of
+  matched profit came from other markets, 678 a unit (PM62, RC73, YK65, TV69). HYDRA did not appear in the rival fills at all this hour (it was at 717 units at 10:12); the new
+  traffic is JEANLUC (12,054 units), HERMES-BRAVO (6,870) and TUSK-1 (4,601), all in UF92 and our other new systems, so the neighbours are now following our releases, not HYDRA.
