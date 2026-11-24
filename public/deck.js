@@ -27,6 +27,7 @@ import { clausesFrom } from "/shared/doctrineView.js";
 import { startRateLimitIndicator } from "/shared/rateLimit.js";
 import { mountMetrics } from "/shared/metrics.js";
 import { mountSeason } from "/shared/season.js";
+import { mountGlance } from "/shared/glance.js";
 import { mountEconomy, economyCount, preflightBuy } from "/shared/economy.js";
 import { mountWeeks } from "/shared/weeks.js";
 import { mountCompare } from "/shared/compare.js";
@@ -89,6 +90,7 @@ $("auth-form").addEventListener("submit", async (e) => {
  */
 let metricsScreen = null;
 let seasonScreen = null;
+let glanceScreen = null;
 let weeksScreen = null;
 let compareScreen = null;
 let systemsScreen = null;
@@ -106,6 +108,7 @@ function setView(name) {
   if (viewEl) viewEl.hidden = false;
   if (name !== "metrics") metricsScreen?.hide();
   if (name !== "season") seasonScreen?.hide();
+  if (name !== "glance") glanceScreen?.hide();
   if (name !== "weeks") weeksScreen?.hide();
   if (name !== "compare") compareScreen?.hide();
   if (name !== "systems") systemsScreen?.hide();
@@ -160,6 +163,13 @@ function setView(name) {
     compareScreen ??= mountCompare($("compare-root"), { api });
     compareScreen.show();
   }
+  if (name === "glance") {
+    glanceScreen ??= mountGlance($("glance-root"), {
+      api,
+      getAlerts: () => ({ approvals: approvals.length, stranded: (fleetStatus.stranded ?? []).length, manualHold: (fleetStatus.ships ?? []).filter((x) => x.paused).length }),
+    });
+    glanceScreen.show();
+  }
   if (name === "season") {
     seasonScreen ??= mountSeason($("season-root"), { api });
     seasonScreen.show();
@@ -199,7 +209,7 @@ function setView(name) {
  * `oneCol` does the same for a two-column row.
  */
 const NAV_GROUPS = [
-  { key: "overview", label: "Overview", ic: "◎", tabs: [{ key: "overview", label: "Overview", view: "overview" }] },
+  { key: "overview", label: "Overview", ic: "◎", tabs: [{ key: "overview", label: "Overview", view: "overview" }, { key: "glance", label: "Glance", view: "glance" }] },
   { key: "fleet", label: "Fleet", ic: "⛴", tabs: [
     { key: "ships", label: "Ships", view: "fleet" },
     { key: "mining", label: "Mining", view: "mining" },
