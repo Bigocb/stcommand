@@ -8,9 +8,8 @@
  * Reads (all existing, read-only):
  *   GET /api/metrics?hours=24        hourly net, cumulative matched profit this week, the next reset (week start = reset - 7 days)
  *   GET /api/ops/economy_health      wallet, holds, floor, traders, big hulls, last hour, findings
- *   GET /api/ops/pnl?sinceHours=24   per-ship matched profit
  *   GET /api/ops/system_queue        scouted / staged / live counts, last release
- * `getWorth()` gives { wallet, holds, total, partial } from the Deck store (same as the top bar); `getAlerts()` gives { approvals, stranded, manualHold } from the Deck store, so the alerts row needs no extra call.
+ * `getFleet()` gives { traderCaps } (hold sizes of trader-role ships) from the Deck store. `getWorth()` gives { wallet, holds, total, partial } from the Deck store (same as the top bar); `getAlerts()` gives { approvals, stranded, manualHold } from the Deck store, so the alerts row needs no extra call.
  * Design notes: docs/deck-desktop-design.md, "Glance" (operator 2026-11-24: "I am going to have the overview up on a screen to glance at").
  */
 import { escapeHtml } from "/shared/domain.js";
@@ -18,6 +17,7 @@ import { hourlyRows } from "/shared/hourly.js";
 
 const WEEK_GOAL = 800_000_000; // operator, 2026-11-23
 const WEEK_HOURS = 168;
+const CARGO_TARGET = 15_000; // operator, 2026-11-24: total trader cargo by reset
 const REFRESH_MS = 60_000;
 const h = (s) => escapeHtml(String(s ?? ""));
 
@@ -75,7 +75,7 @@ function ago(iso) {
   return m < 90 ? `${m} min ago` : `${(m / 60).toFixed(1)} h ago`;
 }
 
-export function glanceHtml({ metrics, econ, pnl, queue, alerts, worth: live }) {
+export function glanceHtml({ metrics, econ, queue, alerts, worth: live, fleet }) {
   const now = Date.now();
   const resetAt = Date.parse(metrics?.resetAt ?? "");
   const weekStart = Number.isFinite(resetAt) ? resetAt - WEEK_HOURS * 3_600_000 : null;
@@ -107,14 +107,20 @@ export function glanceHtml({ metrics, econ, pnl, queue, alerts, worth: live }) {
     { k: "Week to go", v: `${Math.max(0, WEEK_HOURS - Math.floor(hourOfWeek))} h`, s: `${fmtM(Math.max(0, WEEK_GOAL - (matched ?? 0)))} left`, c: "" },
   ].map((t) => `<div class="gl-tile ${t.c}"><div class="k">${h(t.k)}</div><div class="v">${h(t.v)}</div><div class="s">${h(t.s)}</div></div>`).join("");
 
-  const ships = (pnl?.topShips ?? []).filter((s) => s.shipSymbol);
-  const maxP = Math.max(1, ...ships.map((s) => Math.abs(s.pnl)));
-  const hulls = ships.slice(0, 8).map((s) => `<div class="gl-hull ${s.pnl < 0 ? "neg" : ""}">
-      <span class="n">${h(s.shipSymbol)}</span>
-      <span class="b"><i style="width:${Math.round((Math.abs(s.pnl) / maxP) * 100)}%"></i></span>
-      <span class="p">${fmtM(s.pnl)}</span><span class="m">${s.sells} sales</span></div>`).join("");
-  const weakest = ships.length > 8 ? ships[ships.length - 1] : null;
-
+  // Hold count: sum of every trader's hold size (the operator's cargo target, 15,000 units, 2026-11-24).
+  const caps = (fleet?.traderCaps ?? []).filter((c) => c > 0);
+  const units = caps.reduce((n, c) => n + c, 0);
+  const cls = [["Bulk 490", (c) => c >= 400], ["Heavy 225", (c) => c >= 200 && c < 400], ["Refining 150", (c) => c >= 100 && c < 200], ["Small ≤80", (c) => c < 100]]
+    .map(([k, f]) => ({ k, n: caps.filter(f).length, u: caps.filter(f).reduce((a, c) => a + c, 0) }));
+  const bar = (pct, mark) => `<span class="b"><i style="width:${Math.min(100, Math.max(0, pct)).toFixed(1)}%"></i>${mark === undefined ? "" : `<u style="left:${Math.min(100, mark).toFixed(1)}%"></u>`}</span>`;
+  const expected = (hourOfWeek / WEEK_HOURS) * 100;
+  const goalRows = [
+    { k: "Hold count", v: `${units.toLocaleString("en-US")} / ${CARGO_TARGET.toLocaleString("en-US")} units`, pct: (units / CARGO_TARGET) * 100, s: `${caps.length} traders` },
+    { k: "Week profit", v: `${fmtM(matched)} / ${fmtM(WEEK_GOAL)}`, pct: ((matched ?? 0) / WEEK_GOAL) * 100, mark: expected, s: `line = even pace (${Math.round(expected)}%)` },
+    { k: "Profit rate", v: `${fmtM(rate)}/h of ${fmtM(v.needed)}/h`, pct: v.needed ? ((rate ?? 0) / v.needed) * 100 : 0, s: "last 3 full hours" },
+  ].map((g) => `<div class="gl-goal"><div class="t"><span>${h(g.k)}</span><b>${h(g.v)}</b></div>${bar(g.pct, g.mark)}<div class="s">${h(g.s)}</div></div>`).join("");
+  const mix = cls.map((c) => `<div><b>${c.n}</b><span>${h(c.k)} · ${c.u.toLocaleString("en-US")}u</span></div>`).join("");
+  const hulls = `${goalRows}<div class="gl-mix">${mix}</div>`;
   const pipeline = `<div class="gl-pipe">
       <div><b>${q.live}</b><span>live</span></div><div><b>${q.staged}</b><span>staged</span></div><div><b>${q.scouted}</b><span>scouted</span></div>
       <div><b>${q.fading}</b><span>fading</span></div><div class="wide"><b>${h(ago(q.lastRelease))}</b><span>last release</span></div></div>`;
@@ -135,23 +141,23 @@ export function glanceHtml({ metrics, econ, pnl, queue, alerts, worth: live }) {
     <div class="gl-tiles">${tiles}</div>
     <div class="gl-panel"><div class="gl-h">Net per hour, last 24 h <em>amber line = pace needed</em></div>${barsSvg(rows, v.needed)}</div>
     <div class="gl-cols">
-      <div class="gl-panel"><div class="gl-h">Earners, last 24 h ${weakest ? `<em>weakest: ${h(weakest.shipSymbol)} ${fmtM(weakest.pnl)}</em>` : ""}</div>${hulls || '<div class="gl-empty">No sales yet</div>'}</div>
+      <div class="gl-panel"><div class="gl-h">Goals and hold count</div>${hulls}</div>
       <div class="gl-panel"><div class="gl-h">Fresh systems</div>${pipeline}</div>
     </div>
     <div class="gl-alerts">${alertRow}</div>`;
 }
 
-export function mountGlance(root, { api, getAlerts = () => ({}), getWorth = () => null }) {
+export function mountGlance(root, { api, getAlerts = () => ({}), getWorth = () => null, getFleet = () => null }) {
   let timer = null, busy = false, data = {};
-  const draw = () => { root.innerHTML = glanceHtml({ ...data, alerts: getAlerts(), worth: getWorth() }); };
+  const draw = () => { root.innerHTML = glanceHtml({ ...data, alerts: getAlerts(), worth: getWorth(), fleet: getFleet() }); };
   const load = async () => {
     if (busy) return;
     busy = true;
     const get = (path) => api("GET", path).catch(() => null);
-    const [metrics, econ, pnl, queue] = await Promise.all([
-      get("/api/metrics?hours=24"), get("/api/ops/economy_health"), get("/api/ops/pnl?sinceHours=24"), get("/api/ops/system_queue"),
+    const [metrics, econ, queue] = await Promise.all([
+      get("/api/metrics?hours=24"), get("/api/ops/economy_health"), get("/api/ops/system_queue"),
     ]);
-    data = { metrics: metrics ?? data.metrics, econ: econ ?? data.econ, pnl: pnl ?? data.pnl, queue: queue ?? data.queue };
+    data = { metrics: metrics ?? data.metrics, econ: econ ?? data.econ, queue: queue ?? data.queue };
     busy = false;
     draw();
   };

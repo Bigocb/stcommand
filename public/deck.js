@@ -171,6 +171,7 @@ function setView(name) {
         const w = walletPlusHolds(walletForHolds(state.agent), state.cargoValues);
         return { wallet: walletForHolds(state.agent), holds: w.holds, total: w.total, partial: w.partial };
       },
+      getFleet: () => ({ traderCaps: fleetRows().filter((r) => r.role === "trader").map((r) => r.cargoCap) }),
       getAlerts: () => ({ approvals: approvals.length, stranded: (fleetStatus.stranded ?? []).length, manualHold: (fleetStatus.ships ?? []).filter((x) => x.paused).length }),
     });
     glanceScreen.show();

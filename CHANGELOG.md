@@ -8589,3 +8589,7 @@ module scouted at two locations shows both under one grouped entry.
 
 For anything before this, `git log` is the record until it's worth
 backfilling further.
+
+## 2026-11-24 — Glance: goals and hold count replace the per-ship earners
+
+The Glance panel "Earners, last 24 h" is gone (operator: "I don't really look at the per ship metric"). In its place, "Goals and hold count": total trader cargo against the 15,000-unit target, the hull mix by class (bulk, heavy, refining, small, with units), week profit against 800M with an even-pace marker, and the profit rate against the rate needed. Hold sizes come from the Deck store (`getFleet`), so no new API call; the `/api/ops/pnl` read was dropped. `public/shared/glance.js`, `public/deck.js`, `public/deck.css`.
