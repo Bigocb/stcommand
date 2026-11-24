@@ -29,7 +29,7 @@ const tone = (n) => (n > 0 ? "good" : n < 0 ? "bad" : "");
  * `forecast` (optional, clause weekForecast, issue #76): a third, dotted line, drawn up to 12 hours past the weeks so it shows where the
  * week should be next.
  */
-export function compareChart(a, b, { key, gateA, gateB, openA, openB, height = 150, width = 560, label = "", forecast = null }) {
+export function compareChart(a, b, { key, gateA, gateB, openA, openB, height = 150, width = 560, label = "", forecast = null, axisPx = 9 }) {
   const f = forecast ?? [];
   const seen = Math.max(a.length, b.length);
   const n = f.length ? Math.max(seen, Math.min(f.length, seen + 12)) : seen;
@@ -40,7 +40,9 @@ export function compareChart(a, b, { key, gateA, gateB, openA, openB, height = 1
   if (!all.length) return `<div class="cmp-empty">No ${h(label)} readings yet.</div>`;
   let lo = Math.min(0, ...all), hi = Math.max(...all);
   if (hi === lo) hi = lo + 1;
-  const pad = { l: 44, r: 8, t: 8, b: 18 };
+  // The left margin fits the longest y label (axisPx is the CSS font size: 9 on Deck, 15 on Tower), so "11.8M" is never clipped on a phone.
+  const longest = Math.max(...[lo, lo + (hi - lo) / 2, hi].map((v) => compact(v).length));
+  const pad = { l: Math.max(44, Math.ceil(longest * axisPx * 0.62) + 10), r: 8, t: 8, b: 18 };
   const X = (i) => pad.l + (i / (n - 1)) * (width - pad.l - pad.r);
   const Y = (v) => pad.t + (1 - (v - lo) / (hi - lo)) * (height - pad.t - pad.b);
   const path = (pts) => {
@@ -63,7 +65,7 @@ export function compareChart(a, b, { key, gateA, gateB, openA, openB, height = 1
 function fleetChart(key, title, data, gateA, gateB, small) {
   const has = (pts) => (pts ?? []).some((p) => p[key] !== null && p[key] !== undefined);
   const body = has(data.fleetA) || has(data.fleetB)
-    ? compareChart(data.fleetA ?? [], data.fleetB ?? [], { key, gateA, gateB, openA: data.a?.gateOpenHour, openB: data.b?.gateOpenHour, label: title.toLowerCase(), height: small ? 120 : 150 })
+    ? compareChart(data.fleetA ?? [], data.fleetB ?? [], { key, gateA, gateB, openA: data.a?.gateOpenHour, openB: data.b?.gateOpenHour, label: title.toLowerCase(), height: small ? 120 : 150, axisPx: small ? 15 : 9 })
     : `<div class="cmp-empty">No readings yet: they are written once an hour from now on, so a week from before 2026-10-30 has none.</div>`;
   return `<div class="cmp-chart-box"><div class="cmp-chart-h">${h(title)}</div>${body}</div>`;
 }
@@ -156,9 +158,9 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
     const gateRows = G ? G.checkpoints.filter((r) => !small || [6, 12, 24].includes(r.hour)) : [];
     const gateTable = gateRows.length ? `<div class="cmp-scroll"><table class="cmp-table"><thead><tr><th>Since gate</th><th class="num">${small ? "This week" : h(A.label)}</th><th class="num">${small ? "Other" : h(B.label)}</th><th class="num">${small ? "Diff" : "Difference"}</th></tr></thead><tbody>${gateRows.map((r) => `<tr><td>+${r.hour} h</td><td class="num">${compact(r.a)}</td><td class="num">${compact(r.b)}</td><td class="num ${tone(r.delta)}">${signed(r.delta)}</td></tr>`).join("")}</tbody></table></div>` : "";
     const charts = `<div class="cmp-charts">
-      <div class="cmp-chart-box"><div class="cmp-chart-h">Matched profit, cumulative <span class="cmp-legend"><i class="a"></i>${h(A.label)}<i class="b"></i>${h(B.label)}${F ? `<i class="f"></i>Forecast${data.forecast?.anchored ? ` (follows the real week from hour ${data.forecast.anchored.hour}${data.forecast.anchored.gateOpenHour != null ? `, gate opened at hour ${data.forecast.anchored.gateOpenHour}` : ", gate not open yet"})` : ""}` : ""}</span></div>${compareChart(A.points, B.points, { key: "cumPnl", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "matched profit", height: small ? 120 : 160 })}</div>
-      <div class="cmp-chart-box"><div class="cmp-chart-h">Profit per hour, 3-hour average</div>${compareChart(A.points, B.points, { key: "rate", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "profit per hour", height: small ? 120 : 160 })}</div>
-      <div class="cmp-chart-box"><div class="cmp-chart-h">Trade volume, cumulative</div>${compareChart(A.points, B.points, { key: "units", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "units sold", height: small ? 120 : 160 })}</div>
+      <div class="cmp-chart-box"><div class="cmp-chart-h">Matched profit, cumulative <span class="cmp-legend"><i class="a"></i>${h(A.label)}<i class="b"></i>${h(B.label)}${F ? `<i class="f"></i>Forecast${data.forecast?.anchored ? ` (follows the real week from hour ${data.forecast.anchored.hour}${data.forecast.anchored.gateOpenHour != null ? `, gate opened at hour ${data.forecast.anchored.gateOpenHour}` : ", gate not open yet"})` : ""}` : ""}</span></div>${compareChart(A.points, B.points, { key: "cumPnl", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "matched profit", height: small ? 120 : 160, axisPx: small ? 15 : 9 })}</div>
+      <div class="cmp-chart-box"><div class="cmp-chart-h">Profit per hour, 3-hour average</div>${compareChart(A.points, B.points, { key: "rate", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "profit per hour", height: small ? 120 : 160, axisPx: small ? 15 : 9 })}</div>
+      <div class="cmp-chart-box"><div class="cmp-chart-h">Trade volume, cumulative</div>${compareChart(A.points, B.points, { key: "units", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "units sold", height: small ? 120 : 160, axisPx: small ? 15 : 9 })}</div>
       ${fleetChart("live", "Live systems", data, gate(A), gate(B), small)}
       ${small ? "" : fleetChart("keepers", "Keepers polling", data, gate(A), gate(B), small)}
       ${small ? "" : fleetChart("calls", "Keeper API calls a minute (planned)", data, gate(A), gate(B), small)}
