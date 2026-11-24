@@ -18,6 +18,9 @@ import { hourlyRows } from "/shared/hourly.js";
 const WEEK_GOAL = 800_000_000; // operator, 2026-11-23
 const WEEK_HOURS = 168;
 const CARGO_TARGET = 15_000; // operator, 2026-11-24: total trader cargo by reset
+const HEAVY_PRICE_HINT = 1_800_000; // about what the next heavy costs; the buy warning gives the exact figure
+const STAGING_STEPS = [[0, 3], [7_500, 5], [12_000, 6]]; // [units, freshStagedAhead], CLAUDE.md "Cargo target"
+const SAMPLES_KEY = "glance.holdSamples";
 const REFRESH_MS = 60_000;
 const h = (s) => escapeHtml(String(s ?? ""));
 
@@ -60,6 +63,24 @@ function barsSvg(rows, needed) {
     <text class="gl-ax pace" x="${W - pad.r}" y="${(yn - 5).toFixed(1)}" text-anchor="end">needed ${fmtM(needed)}/h</text></svg>`;
 }
 
+/** Staging depth the cargo level calls for, and the next step up. Pure. */
+export function stagingAdvice(units, current) {
+  let want = STAGING_STEPS[0][1];
+  for (const [u, n] of STAGING_STEPS) if (units >= u) want = n;
+  const next = STAGING_STEPS.find(([u]) => u > units) ?? null;
+  return { want, current, behind: current !== null && current !== undefined && current < want, next: next ? { units: next[0], ahead: next[1], toGo: next[0] - units } : null };
+}
+
+/** Units per hour from timestamped samples [{t, u}] over the last 24 h (needs 45+ minutes of history); null until then. Pure. */
+export function holdPace(samples, now) {
+  const recent = (samples ?? []).filter((x) => now - x.t <= 24 * 3_600_000);
+  if (recent.length < 2) return null;
+  const first = recent[0], last = recent[recent.length - 1];
+  const hrs = (last.t - first.t) / 3_600_000;
+  if (hrs < 0.75) return null;
+  return Math.max(0, (last.u - first.u) / hrs);
+}
+
 function queueCounts(q) {
   const list = Array.isArray(q?.queue) ? q.queue : [];
   const c = { scouted: 0, staged: 0, live: 0 };
@@ -75,7 +96,7 @@ function ago(iso) {
   return m < 90 ? `${m} min ago` : `${(m / 60).toFixed(1)} h ago`;
 }
 
-export function glanceHtml({ metrics, econ, queue, alerts, worth: live, fleet }) {
+export function glanceHtml({ metrics, econ, queue, alerts, worth: live, fleet, doctrine, samples }) {
   const now = Date.now();
   const resetAt = Date.parse(metrics?.resetAt ?? "");
   const weekStart = Number.isFinite(resetAt) ? resetAt - WEEK_HOURS * 3_600_000 : null;
@@ -112,15 +133,32 @@ export function glanceHtml({ metrics, econ, queue, alerts, worth: live, fleet })
   const units = caps.reduce((n, c) => n + c, 0);
   const cls = [["Bulk 490", (c) => c >= 400], ["Heavy 225", (c) => c >= 200 && c < 400], ["Refining 150", (c) => c >= 100 && c < 200], ["Small ≤80", (c) => c < 100]]
     .map(([k, f]) => ({ k, n: caps.filter(f).length, u: caps.filter(f).reduce((a, c) => a + c, 0) }));
+  const pace = holdPace(samples, now);
+  const hoursToTarget = pace && pace > 0 && units < CARGO_TARGET ? (CARGO_TARGET - units) / pace : null;
+  const hoursLeft = Math.max(0, WEEK_HOURS - hourOfWeek);
+  const targetNote = units >= CARGO_TARGET ? "target reached"
+    : pace === null ? "buy pace: measuring (needs 45 min open)"
+    : hoursToTarget === null ? "no hulls added lately"
+    : `${Math.round(pace)} units/h → ${hoursToTarget <= hoursLeft ? "target in " : "misses reset: "}${hoursToTarget.toFixed(0)} h (${hoursLeft.toFixed(0)} h left)`;
   const bar = (pct, mark) => `<span class="b"><i style="width:${Math.min(100, Math.max(0, pct)).toFixed(1)}%"></i>${mark === undefined ? "" : `<u style="left:${Math.min(100, mark).toFixed(1)}%"></u>`}</span>`;
   const expected = (hourOfWeek / WEEK_HOURS) * 100;
   const goalRows = [
-    { k: "Hold count", v: `${units.toLocaleString("en-US")} / ${CARGO_TARGET.toLocaleString("en-US")} units`, pct: (units / CARGO_TARGET) * 100, s: `${caps.length} traders` },
+    { k: "Hold count", v: `${units.toLocaleString("en-US")} / ${CARGO_TARGET.toLocaleString("en-US")} units`, pct: (units / CARGO_TARGET) * 100, s: `${caps.length} traders · ${targetNote}` },
     { k: "Week profit", v: `${fmtM(matched)} / ${fmtM(WEEK_GOAL)}`, pct: ((matched ?? 0) / WEEK_GOAL) * 100, mark: expected, s: `line = even pace (${Math.round(expected)}%)` },
     { k: "Profit rate", v: `${fmtM(rate)}/h of ${fmtM(v.needed)}/h`, pct: v.needed ? ((rate ?? 0) / v.needed) * 100 : 0, s: "last 3 full hours" },
   ].map((g) => `<div class="gl-goal"><div class="t"><span>${h(g.k)}</span><b>${h(g.v)}</b></div>${bar(g.pct, g.mark)}<div class="s">${h(g.s)}</div></div>`).join("");
   const mix = cls.map((c) => `<div><b>${c.n}</b><span>${h(c.k)} · ${c.u.toLocaleString("en-US")}u</span></div>`).join("");
   const hulls = `${goalRows}<div class="gl-mix">${mix}</div>`;
+  const stg = stagingAdvice(units, doctrine?.freshStagedAhead ?? null);
+  const stagingLine = `<div class="gl-stage ${stg.behind ? "warn" : ""}"><b>Staged ahead ${stg.current ?? "—"}</b> `
+    + (stg.behind ? `· cargo calls for ${stg.want}: ask to raise freshStagedAhead` : stg.next ? `· steps to ${stg.next.ahead} at ${stg.next.units.toLocaleString("en-US")} units (${stg.next.toGo.toLocaleString("en-US")} to go)` : "· top step reached") + "</div>";
+  const floorV = sum.floor ?? null;
+  const buyLine = floorV !== null && wallet !== null ? floorV + HEAVY_PRICE_HINT : null;
+  const wmax = Math.max(wallet ?? 0, buyLine ?? 0, 1) * 1.1;
+  const walletPanel = floorV === null || wallet === null ? "" : `<div class="gl-goal"><div class="t"><span>Wallet vs floor</span><b>${fmtM(wallet)} · floor ${fmtM(floorV)}</b></div>
+    <span class="b"><i style="width:${((wallet / wmax) * 100).toFixed(1)}%;background:${wallet >= buyLine ? "var(--green)" : "var(--amber)"}"></i><u style="left:${((floorV / wmax) * 100).toFixed(1)}%"></u><u style="left:${((buyLine / wmax) * 100).toFixed(1)}%;background:var(--green)"></u></span>
+    <div class="s">${wallet >= buyLine ? `a heavy fits (${fmtM(wallet - buyLine)} spare above floor + ~${fmtM(HEAVY_PRICE_HINT)})` : `${fmtM(buyLine - wallet)} short of floor + a heavy (~${fmtM(HEAVY_PRICE_HINT)})`} · white = floor, green = floor + heavy</div></div>`;
+
   const pipeline = `<div class="gl-pipe">
       <div><b>${q.live}</b><span>live</span></div><div><b>${q.staged}</b><span>staged</span></div><div><b>${q.scouted}</b><span>scouted</span></div>
       <div><b>${q.fading}</b><span>fading</span></div><div class="wide"><b>${h(ago(q.lastRelease))}</b><span>last release</span></div></div>`;
@@ -142,22 +180,32 @@ export function glanceHtml({ metrics, econ, queue, alerts, worth: live, fleet })
     <div class="gl-panel"><div class="gl-h">Net per hour, last 24 h <em>amber line = pace needed</em></div>${barsSvg(rows, v.needed)}</div>
     <div class="gl-cols">
       <div class="gl-panel"><div class="gl-h">Goals and hold count</div>${hulls}</div>
-      <div class="gl-panel"><div class="gl-h">Fresh systems</div>${pipeline}</div>
+      <div class="gl-panel"><div class="gl-h">Fresh systems</div>${pipeline}${stagingLine}${walletPanel}</div>
     </div>
     <div class="gl-alerts">${alertRow}</div>`;
 }
 
 export function mountGlance(root, { api, getAlerts = () => ({}), getWorth = () => null, getFleet = () => null }) {
-  let timer = null, busy = false, data = {};
-  const draw = () => { root.innerHTML = glanceHtml({ ...data, alerts: getAlerts(), worth: getWorth(), fleet: getFleet() }); };
+  let timer = null, busy = false, data = {}, samples = [];
+  try { samples = JSON.parse(localStorage.getItem(SAMPLES_KEY) ?? "[]"); } catch { samples = []; }
+  // Hold count over time, per viewer, so a wall screen left open can show the buy pace; a convenience, not a decision input.
+  const sample = () => {
+    const units = (getFleet()?.traderCaps ?? []).reduce((n, c) => n + c, 0);
+    const t = Date.now();
+    if (!units || (samples.length && t - samples[samples.length - 1].t < 10 * 60_000)) return;
+    samples = [...samples.filter((x) => t - x.t <= 24 * 3_600_000), { t, u: units }];
+    try { localStorage.setItem(SAMPLES_KEY, JSON.stringify(samples)); } catch { /* storage unavailable */ }
+  };
+  const draw = () => { root.innerHTML = glanceHtml({ ...data, alerts: getAlerts(), worth: getWorth(), fleet: getFleet(), samples }); sample(); };
   const load = async () => {
     if (busy) return;
     busy = true;
     const get = (path) => api("GET", path).catch(() => null);
-    const [metrics, econ, queue] = await Promise.all([
-      get("/api/metrics?hours=24"), get("/api/ops/economy_health"), get("/api/ops/system_queue"),
+    const [metrics, econ, queue, doc] = await Promise.all([
+      get("/api/metrics?hours=24"), get("/api/ops/economy_health"), get("/api/ops/system_queue"), get("/api/doctrine"),
     ]);
-    data = { metrics: metrics ?? data.metrics, econ: econ ?? data.econ, queue: queue ?? data.queue };
+    const staged = (doc?.clauses ?? []).find((c) => c.key === "freshStagedAhead")?.value;
+    data = { metrics: metrics ?? data.metrics, econ: econ ?? data.econ, queue: queue ?? data.queue, doctrine: staged === undefined ? data.doctrine : { freshStagedAhead: staged } };
     busy = false;
     draw();
   };

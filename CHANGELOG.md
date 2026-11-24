@@ -8593,3 +8593,7 @@ backfilling further.
 ## 2026-11-24 — Glance: goals and hold count replace the per-ship earners
 
 The Glance panel "Earners, last 24 h" is gone (operator: "I don't really look at the per ship metric"). In its place, "Goals and hold count": total trader cargo against the 15,000-unit target, the hull mix by class (bulk, heavy, refining, small, with units), week profit against 800M with an even-pace marker, and the profit rate against the rate needed. Hold sizes come from the Deck store (`getFleet`), so no new API call; the `/api/ops/pnl` read was dropped. `public/shared/glance.js`, `public/deck.js`, `public/deck.css`.
+
+## 2026-11-24 — Glance: staging check, time-to-target, wallet vs floor
+
+Three additions to the Glance (operator, 2026-11-24). (1) Staging check under Fresh systems: `freshStagedAhead` from `/api/doctrine`, the next cargo step (5 at 7,500 units, 6 at 12,000) and how far off it is; turns amber and says "ask to raise" when the hold count already calls for a deeper stage. It never changes the setting. (2) Time-to-target on the hold-count bar: units per hour from hold-count samples the page keeps in the viewer's localStorage (10-minute spacing, 24 h; needs 45 minutes of open time), then hours to 15,000 against hours left in the week. (3) Wallet vs floor bar: wallet against the working-capital floor and floor plus a heavy (about 1.8M, a hint constant). Pure helpers `stagingAdvice` and `holdPace` in `public/shared/glance.js`.
