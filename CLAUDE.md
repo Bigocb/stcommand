@@ -89,6 +89,7 @@ role to trader. This is the second heavy and overrides the "wait for 3.5M and ab
 (important ones first: 5+ goods, staged or just-released systems) while the wallet stays over 1M, until the wallet reaches 5M and `keeperAutoApproveMinCash` takes over; check
 every live and staged system is covered and say which are not ready. (3) At 5M the standing bulk-freighter buy at X1-NM65-XZ5D applies (one hull). Driven by the "Overnight wallet
 watch" scheduled task (:42 every hour) and the hourly report (:12). One heavy only; never a second under this order.
+DONE 2026-11-24 12:12: the heavy THEO-161 (2,052,855, UT22-B10B) and the bulk THEO-15E (3,863,650, NM65-XZ5D, 11:54) are both bought and set to trader; the "Overnight wallet watch" task is deleted. Lesson: a `buy_ship` for a big hull stopped on an unanswered approval prompt three times while the operator slept (05:56, 06:13, 06:42); it went through the moment the operator was present. A big buy ordered for the night will not run unattended.
 
 **Swapping small hulls for heavies (operator, 2026-11-20):** as money grows, replace the 40-unit hulls first, then the 80s, with heavy
 freighters. One swap at a time: buy the heavy at the yard nearest the small hull's working area (or a route `ops unflown_routes` shows
