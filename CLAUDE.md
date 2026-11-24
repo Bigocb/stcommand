@@ -82,6 +82,14 @@ say which ship to send, usually the tour ship in NM65, and do not buy); run the 
 impact; a 490-unit load into one 20-60 lot market can crash it), re-read the ledger just before `buy_ship`, then set the role to trader and report the
 buy (yard, price, hour). The operator's hold on manual keeper approvals (19:20) is separate and still stands.
 
+**Overnight orders (operator, 2026-11-24 05:05, going to bed):** "Wait till the wallet has 4 million, buy a heavy. Then you can start approving keepers until the auto takes
+over at 5 million, we need to make sure systems are ready etc." So: (1) the small-hull hold (probes, surveyors) stays on until the wallet (credits, not wallet + holds)
+reads 4,000,000 or more; then buy ONE SHIP_HEAVY_FREIGHTER at X1-UT22-B10B (about 2.05M; a ship of ours must be docked there: THEO-8C is held at B10B for this), set the
+role to trader. This is the second heavy and overrides the "wait for 3.5M and about 1M in holds" line for this buy only. (2) After it, lift the hold: approve keeper cards
+(important ones first: 5+ goods, staged or just-released systems) while the wallet stays over 1M, until the wallet reaches 5M and `keeperAutoApproveMinCash` takes over; check
+every live and staged system is covered and say which are not ready. (3) At 5M the standing bulk-freighter buy at X1-NM65-XZ5D applies (one hull). Driven by the "Overnight wallet
+watch" scheduled task (:42 every hour) and the hourly report (:12). One heavy only; never a second under this order.
+
 **Swapping small hulls for heavies (operator, 2026-11-20):** as money grows, replace the 40-unit hulls first, then the 80s, with heavy
 freighters. One swap at a time: buy the heavy at the yard nearest the small hull's working area (or a route `ops unflown_routes` shows
 unflown), and retire the small hull (`sell_ship`) only once the heavy is trading. Worst earners go first (by `ops pnl` per ship over 48 h).
