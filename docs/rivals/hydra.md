@@ -63,3 +63,6 @@ contributor" in the CHANGELOG; on 2026-11-18 they were one of the rivals (with S
 - 2026-11-24 04:12, 137 sells (11-24 01:16 to 04:12 only, a 3-hour reading, not the weekly sample): none of our profit came from the markets
   HYDRA feeds (F49, D45, G50, F48); the one home-system origin was C37 (THEO-7, 4 sells, 155k of 3.54M matched, 4.4%). HYDRA (5 ships, 909 units
   in the hour: GOLD 270, JEWELRY 110, MICROPROCESSORS 110) is profit trading at home and has not followed us out.
+- 2026-11-24 10:12, 300 sells (11-24 05:48 to 10:12 only, a 4.4-hour reading, not the weekly sample): none from the markets HYDRA feeds (F49, D45, G50, F48); all 7.27M of
+  matched profit came from other markets, 841 a unit (787 in the 05:00-09:00 block, 982 since 09:00). HYDRA itself fell from 1,901 units (08:12) to 189 (09:12) and back to 717
+  (5 ships, AMMUNITION 256, at AR36 H54, E46 and F48); it has still not followed us out of the home system.
