@@ -91,6 +91,8 @@ every live and staged system is covered and say which are not ready. (3) At 5M t
 watch" scheduled task (:42 every hour) and the hourly report (:12). One heavy only; never a second under this order.
 DONE 2026-11-24 12:12: the heavy THEO-161 (2,052,855, UT22-B10B) and the bulk THEO-15E (3,863,650, NM65-XZ5D, 11:54) are both bought and set to trader; the "Overnight wallet watch" task is deleted. Lesson: a `buy_ship` for a big hull stopped on an unanswered approval prompt three times while the operator slept (05:56, 06:13, 06:42); it went through the moment the operator was present. A big buy ordered for the night will not run unattended.
 
+**Cargo target for the 2026-11-22 week (operator, 2026-11-24 17:15):** "We are targeting 10,000 units or higher by reset (no rush, just a long term target)." Total trader cargo (sum of hold sizes) was 2,280 at 17:13 with 6 big hulls after the sixth (bulk THEO-1BA, 4,008,625; see the journal). Report cargo against 10,000 in the hourly snapshot and the Glance tab; each buy still needs the operator's yes, big hulls first, nearest yard to the route.
+
 **Swapping small hulls for heavies (operator, 2026-11-20):** as money grows, replace the 40-unit hulls first, then the 80s, with heavy
 freighters. One swap at a time: buy the heavy at the yard nearest the small hull's working area (or a route `ops unflown_routes` shows
 unflown), and retire the small hull (`sell_ship`) only once the heavy is trading. Worst earners go first (by `ops pnl` per ship over 48 h).
