@@ -10,7 +10,7 @@
  *   GET /api/ops/economy_health      wallet, holds, floor, traders, big hulls, last hour, findings
  *   GET /api/ops/pnl?sinceHours=24   per-ship matched profit
  *   GET /api/ops/system_queue        scouted / staged / live counts, last release
- * `getAlerts()` gives { approvals, stranded, manualHold } from the Deck store, so the alerts row needs no extra call.
+ * `getWorth()` gives { wallet, holds, total, partial } from the Deck store (same as the top bar); `getAlerts()` gives { approvals, stranded, manualHold } from the Deck store, so the alerts row needs no extra call.
  * Design notes: docs/deck-desktop-design.md, "Glance" (operator 2026-11-24: "I am going to have the overview up on a screen to glance at").
  */
 import { escapeHtml } from "/shared/domain.js";
@@ -75,7 +75,7 @@ function ago(iso) {
   return m < 90 ? `${m} min ago` : `${(m / 60).toFixed(1)} h ago`;
 }
 
-export function glanceHtml({ metrics, econ, pnl, queue, alerts }) {
+export function glanceHtml({ metrics, econ, pnl, queue, alerts, worth: live }) {
   const now = Date.now();
   const resetAt = Date.parse(metrics?.resetAt ?? "");
   const weekStart = Number.isFinite(resetAt) ? resetAt - WEEK_HOURS * 3_600_000 : null;
@@ -86,9 +86,11 @@ export function glanceHtml({ metrics, econ, pnl, queue, alerts }) {
   const matched = metrics?.matchedSinceReset ?? null;
   const v = paceVerdict({ matched, hourOfWeek, rate });
   const sum = econ?.summary ?? {};
-  const wallet = sum.wallet ?? metrics?.credits ?? null;
-  const holds = sum.holds ?? null;
-  const worth = wallet !== null && holds !== null ? wallet + holds : null;
+  // Wallet and holds come from the Deck store, the same figures as the top bar, so the two always agree. The economy
+  // report is a separate read that can be a minute older (a sale in between moves money from holds to wallet).
+  const wallet = live?.wallet ?? sum.wallet ?? metrics?.credits ?? null;
+  const holds = live?.holds ?? sum.holds ?? null;
+  const worth = live?.total ?? (wallet !== null && holds !== null ? wallet + holds : null);
   const last = sum.lastHour ?? null;
   const q = queueCounts(queue);
   const levelText = { good: "On pace", warn: "Behind pace", bad: "Well behind pace", unknown: "Reading…" }[v.level];
@@ -99,7 +101,7 @@ export function glanceHtml({ metrics, econ, pnl, queue, alerts }) {
   </div>`;
 
   const tiles = [
-    { k: "Wallet + holds", v: fmtM(worth), s: `wallet ${fmtM(wallet)} · holds ${fmtM(holds)}`, c: "amber" },
+    { k: "Wallet + holds", v: `${fmtM(worth)}${live?.partial ? "+" : ""}`, s: `wallet ${fmtM(wallet)} · holds ${fmtM(holds)}`, c: "amber" },
     { k: "Last hour (net)", v: fmtM(last?.net), s: `${last?.sales ?? "—"} sales · jumps ${fmtM(last?.jumpFees)}`, c: last && last.net >= v.needed ? "good" : "" },
     { k: "Hulls", v: `${sum.traders ?? "—"}`, s: `${sum.bigHulls ?? "—"} big · floor ${fmtM(sum.floor)}`, c: "" },
     { k: "Week to go", v: `${Math.max(0, WEEK_HOURS - Math.floor(hourOfWeek))} h`, s: `${fmtM(Math.max(0, WEEK_GOAL - (matched ?? 0)))} left`, c: "" },
@@ -139,9 +141,9 @@ export function glanceHtml({ metrics, econ, pnl, queue, alerts }) {
     <div class="gl-alerts">${alertRow}</div>`;
 }
 
-export function mountGlance(root, { api, getAlerts = () => ({}) }) {
+export function mountGlance(root, { api, getAlerts = () => ({}), getWorth = () => null }) {
   let timer = null, busy = false, data = {};
-  const draw = () => { root.innerHTML = glanceHtml({ ...data, alerts: getAlerts() }); };
+  const draw = () => { root.innerHTML = glanceHtml({ ...data, alerts: getAlerts(), worth: getWorth() }); };
   const load = async () => {
     if (busy) return;
     busy = true;

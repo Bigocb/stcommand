@@ -166,6 +166,11 @@ function setView(name) {
   if (name === "glance") {
     glanceScreen ??= mountGlance($("glance-root"), {
       api,
+      getWorth: () => {
+        if (!state?.agent) return null;
+        const w = walletPlusHolds(walletForHolds(state.agent), state.cargoValues);
+        return { wallet: walletForHolds(state.agent), holds: w.holds, total: w.total, partial: w.partial };
+      },
       getAlerts: () => ({ approvals: approvals.length, stranded: (fleetStatus.stranded ?? []).length, manualHold: (fleetStatus.ships ?? []).filter((x) => x.paused).length }),
     });
     glanceScreen.show();
