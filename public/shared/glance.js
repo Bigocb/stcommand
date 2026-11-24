@@ -81,12 +81,20 @@ export function holdPace(samples, now) {
   return Math.max(0, (last.u - first.u) / hrs);
 }
 
+/** Premium / fading-soon counts from the engine's own release check (its decision note), so the display agrees with the rule that releases systems. */
+export function releaseCounts(q) {
+  const note = (q?.lastCheck?.decision?.notes ?? []).join(" ");
+  const premium = Number(/(\d+) live premium/.exec(note)?.[1]);
+  const target = Number(/target (\d+)/.exec(note)?.[1] ?? q?.policy?.target);
+  const soon = Number(/(\d+) fading within/.exec(note)?.[1] ?? 0);
+  return { premium: Number.isFinite(premium) ? premium : null, target: Number.isFinite(target) ? target : null, soon: Number.isFinite(soon) ? soon : 0 };
+}
+
 function queueCounts(q) {
   const list = Array.isArray(q?.queue) ? q.queue : [];
   const c = { scouted: 0, staged: 0, live: 0 };
   for (const s of list) if (s.state in c) c[s.state]++;
-  const fading = list.filter((s) => s.state === "live" && /fading/.test(s.note ?? "")).length;
-  return { ...c, lastRelease: q?.lastRelease ?? null, fading };
+  return { ...c, lastRelease: q?.lastRelease ?? null, ...releaseCounts(q) };
 }
 
 function ago(iso) {
@@ -161,7 +169,7 @@ export function glanceHtml({ metrics, econ, queue, alerts, worth: live, fleet, d
 
   const pipeline = `<div class="gl-pipe">
       <div><b>${q.live}</b><span>live</span></div><div><b>${q.staged}</b><span>staged</span></div><div><b>${q.scouted}</b><span>scouted</span></div>
-      <div><b>${q.fading}</b><span>fading</span></div><div class="wide"><b>${h(ago(q.lastRelease))}</b><span>last release</span></div></div>`;
+      <div><b>${q.premium ?? "—"}</b><span>premium (target ${q.target ?? "—"})</span></div><div><b>${q.soon}</b><span>fading soon</span></div><div class="wide"><b>${h(ago(q.lastRelease))}</b><span>last release</span></div></div>`;
 
   const flags = [];
   if (alerts?.approvals) flags.push({ t: `${alerts.approvals} approval${alerts.approvals === 1 ? "" : "s"} waiting`, c: "warn" });

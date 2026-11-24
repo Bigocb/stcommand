@@ -765,7 +765,7 @@ table.mf .dim{color:var(--dim)}
 .gl-hull{display:grid;grid-template-columns:7.5em 1fr 5.5em 6em;gap:12px;align-items:center;padding:5px 0;font:1.15rem var(--mono);color:var(--bone)}
 .gl-hull .b{height:12px;background:var(--sunken);border-radius:6px;overflow:hidden} .gl-hull .b i{display:block;height:100%;background:var(--green);border-radius:6px}
 .gl-hull.neg .b i{background:var(--red)} .gl-hull.neg .p{color:var(--red)} .gl-hull .m{color:var(--dim);font-size:.9rem}
-.gl-pipe{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.gl-pipe{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .gl-pipe div{display:flex;flex-direction:column} .gl-pipe b{font:700 2.6rem var(--chrome);color:var(--bone);line-height:1.1} .gl-pipe span{font:.85rem var(--mono);color:var(--dim)}
 .gl-pipe .wide{grid-column:1 / -1} .gl-pipe .wide b{font-size:1.6rem}
 .gl-goal{padding:8px 0}.gl-goal .t{display:flex;justify-content:space-between;font:1.2rem var(--mono);color:var(--bone)}.gl-goal .t b{color:var(--amber)}
