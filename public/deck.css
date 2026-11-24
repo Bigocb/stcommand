@@ -773,3 +773,16 @@ table.mf .dim{color:var(--dim)}
 .gl-flag.ok{color:var(--green);background:var(--green-dim)} .gl-flag.warn{color:var(--amber);background:var(--amber-dim)} .gl-flag.bad{color:var(--red);background:var(--red-dim);border-color:var(--red)}
 .gl-empty{color:var(--dim);font:1rem var(--mono);padding:10px 0}
 @media (max-width:900px){.gl-tiles{grid-template-columns:repeat(2,1fr)}.gl-cols{grid-template-columns:1fr}}
+
+/* ── Approvals tab + topbar badge (the right bar is gone) ── */
+.tb-appr{cursor:pointer;background:none;border:0;font:inherit;color:inherit;text-align:left}
+.tb-appr .v{color:var(--dim);width:fit-content} .tb-appr.has .v{color:#1a1204;background:var(--amber);border-radius:999px;padding:0 9px;font-weight:700}
+.tb-appr.has{animation:tbpulse 2.4s ease-in-out infinite}
+@keyframes tbpulse{50%{opacity:.7}}
+.apv{display:flex;flex-direction:column;gap:14px;max-width:900px}
+.apv-h{font:600 1.1rem var(--chrome);letter-spacing:.16em;text-transform:uppercase;color:var(--dim)} .apv-h b{color:var(--amber)}
+.apv-list{display:flex;flex-direction:column;gap:12px}
+.apv-list .approval{margin:0;padding:16px 18px;gap:10px;border-left-width:5px}
+.apv-list .approval .kind{font-size:12px} .apv-list .approval .body{font-size:15px} .apv-list .approval .body code{font-size:14px} .apv-list .approval .meta{font-size:12px}
+.apv-list .btn{font-size:13px;min-height:44px;padding:10px 22px}
+.apv-empty{color:var(--dim);font:1rem var(--mono);padding:18px;background:var(--panel);border:1px solid var(--hair);border-radius:12px}

@@ -209,7 +209,7 @@ function setView(name) {
  * `oneCol` does the same for a two-column row.
  */
 const NAV_GROUPS = [
-  { key: "overview", label: "Overview", ic: "◎", tabs: [{ key: "overview", label: "Overview", view: "overview" }, { key: "glance", label: "Glance", view: "glance" }] },
+  { key: "overview", label: "Overview", ic: "◎", tabs: [{ key: "overview", label: "Overview", view: "overview" }, { key: "glance", label: "Glance", view: "glance" }, { key: "approvals", label: "Approvals", view: "approvals" }] },
   { key: "fleet", label: "Fleet", ic: "⛴", tabs: [
     { key: "ships", label: "Ships", view: "fleet" },
     { key: "mining", label: "Mining", view: "mining" },
@@ -530,9 +530,12 @@ function renderWantsDoing() {
  */
 function renderApprovals() {
   $("sig-approvals-count").textContent = approvals.length;
+  // Topbar badge: visible on every screen, since the right bar that used to carry the cards is gone.
+  $("tb-approvals-n").textContent = approvals.length;
+  $("tb-approvals").classList.toggle("has", approvals.length > 0);
   const el = $("sig-approvals");
   if (!approvals.length) {
-    el.innerHTML = '<div class="empty">No approvals waiting.</div>';
+    el.innerHTML = '<div class="apv-empty">Nothing waiting. Big buys and keeper cards will show here, and the badge in the top bar counts them.</div>';
     return;
   }
 
@@ -549,6 +552,8 @@ function renderApprovals() {
     </div>
   `).join("");
 }
+
+$("tb-approvals").addEventListener("click", () => openTab("overview", "approvals"));
 
 $("sig-approvals").addEventListener("click", async (e) => {
   const approveBtn = e.target.closest("button[data-approve-id]");
@@ -576,6 +581,7 @@ const ACTIVITY_HIDDEN_KINDS = new Set(["extract", "survey", "siphon", "scan", "m
 
 function renderActivity() {
   const el = $("sig-activity");
+  if (!el) return; // the Activity feed left with the right bar (operator 2026-11-24)
   const rows = activity.filter((a) => !ACTIVITY_HIDDEN_KINDS.has(a.kind)).slice(0, 30);
   if (!rows.length) {
     el.innerHTML = '<div class="empty">No activity yet.</div>';

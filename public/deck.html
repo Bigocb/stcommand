@@ -48,6 +48,7 @@
         <div class="stat"><span class="l">Rate</span><span class="v" id="tb-rate">—</span></div>
         <div class="stat" title="Change in credits plus the estimated value of every hold, per hour, ship purchases added back"><span class="l">Worth/hr</span><span class="v" id="tb-worthrate">—</span></div>
         <div class="stat"><span class="l">Ships</span><span class="v" id="tb-ships">—</span></div>
+        <button class="stat tb-appr" id="tb-approvals" type="button" title="Open approvals"><span class="l">Approvals</span><span class="v" id="tb-approvals-n">0</span></button>
         <div class="stat" id="tb-rank-stat"><span class="l">Rank</span><span class="v" id="tb-rank">—</span></div>
         <div class="grow"></div>
         <div class="pill" id="tb-conn"><i></i>—</div>
@@ -351,6 +352,12 @@
         <div class="content" id="view-glance" hidden>
           <div id="glance-root"></div>
         </div>
+        <div class="content" id="view-approvals" hidden>
+          <div class="apv">
+            <div class="apv-h">Approvals <b id="sig-approvals-count">—</b></div>
+            <div class="apv-list" id="sig-approvals"></div>
+          </div>
+        </div>
         <div class="content" id="view-season" hidden>
           <div id="season-root" class="mx ss"></div>
         </div>
@@ -385,14 +392,6 @@
           </div>
         </div>
 
-        <div class="signal">
-          <div class="sig-sec">
-            <div class="sig-h">Approvals<b id="sig-approvals-count">—</b></div>
-            <div id="sig-approvals"></div>
-          </div>
-          <div class="sig-h">Activity</div>
-          <div class="actlog" id="sig-activity"></div>
-        </div>
       </div>
     </div>
   </div>
