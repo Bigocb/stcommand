@@ -6,6 +6,16 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-25 — arrival surveys read through the proxy lanes
+
+At 18:12 the box's IP ran at 89 of 105 calls a minute with 429s, while the 15 active proxies sat at up to 22 of 90. The biggest caller
+on the box was `FleetManager.surveySystem` -> `GalaxyAtlas.surveyMarkets`, 23.6 market reads a minute: keeper probes hopping out to
+newly staged systems ran an arrival survey (every market and shipyard of the system) in each system they entered, and those GETs
+inherited the ship task's critical priority, so `chooseLane` kept them on the box. The market and shipyard sweeps in `surveySystem`
+now run under `runWithApiPriority(API_PRIORITY.DEFERRABLE)`, so with `apiLaneProxy` on they leave through the proxies (and fall back
+to the box if every proxy is out). Writes (the probes' own navigate, jump, dock) still stay on the box. `apiLaneCount` raised 15 -> 20
+the same hour (100 proxies are configured). Test: `tests/surveyLanePriority.test.ts`.
+
 ## 2026-11-25 — tour-only markets no longer go unread: loop keeper seeds, and the home system is covered
 
 The operator's rule: no market we rely on should carry a price older than 90 minutes. A sweep of the 78 live systems found 42 markets

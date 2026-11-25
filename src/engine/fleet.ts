@@ -2797,8 +2797,11 @@ export class FleetManager {
     await this.refreshTraitsIfEmpty(systemSymbol);
     await this.galaxy.scanJumpGates(systemSymbol);
     this.log(`surveyMarkets: fetching markets in ${systemSymbol}`);
-    const markets = await this.galaxy.surveyMarkets(systemSymbol, this.store);
-    const shipyards = await this.galaxy.surveyShipyards(systemSymbol, this.store);
+    // Read-only sweeps (20-30 GETs a system) at deferrable priority, so with apiLaneProxy on they leave through the proxy lanes instead
+    // of the box's IP. They used to inherit the calling ship's task priority: 2026-11-25 18:12, keeper probes hopping out to newly
+    // staged systems ran an arrival survey in every system they entered, 23.6 market reads a minute on the box (85% of its budget, 429s).
+    const markets = await runWithApiPriority(API_PRIORITY.DEFERRABLE, () => this.galaxy.surveyMarkets(systemSymbol, this.store));
+    const shipyards = await runWithApiPriority(API_PRIORITY.DEFERRABLE, () => this.galaxy.surveyShipyards(systemSymbol, this.store));
     for (const m of markets) {
       for (const g of Object.values(m.tradeGoods)) {
         await this.store?.recordMarket({
