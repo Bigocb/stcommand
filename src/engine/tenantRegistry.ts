@@ -170,7 +170,14 @@ export class TenantRegistry {
         if (d.isEnabledOr("tradeLaneShips", false)) {
           const reads = this.lanePolicyFor(agentSymbol);
           const firstSlot = reads.enabled ? Math.min(this.laneSlots.length, Math.max(1, Math.floor(reads.active ?? this.laneSlots.length))) : 0;
-          policy = { enabled: true, ships: enrolledShips(fleet.traderSymbols(), d.value("tradeLaneShips", 5)), firstSlot };
+          const ships = enrolledShips(fleet.traderSymbols(), d.value("tradeLaneShips", 5));
+          // Operator escape hatch for a ship stuck on a flaky proxy: a write
+          // that times out through a trade lane is not retried, so one bad
+          // lane can keep failing the same ship. TRADE_LANE_AVOID (comma or
+          // spaces, exact symbols) removes it from the enrolled set so its
+          // calls use the box path instead.
+          for (const s of (process.env.TRADE_LANE_AVOID ?? "").split(/[,\s]+/)) if (s) ships.delete(s);
+          policy = { enabled: true, ships, firstSlot };
         }
       } catch { policy = TRADE_LANES_OFF; }
     }
