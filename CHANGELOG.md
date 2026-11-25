@@ -6,6 +6,15 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-25 - ops `stale_markets`: uncovered markets with old prices, in one call
+
+The operator asked for a watch on "uncovered markets with 5 or more products with prices older than 55 min". Checking that took a
+`market_freshness` call per live system (about 106). New ops tool `stale_markets` (MCP `stcommand_ops_stale_markets`) answers it in one:
+every market in the systems the keepers cover (`FleetManager.keeperCoverSystems()`, now public) with at least `minGoods` goods (5), no
+keeper stationed on it, and a newest price older than `olderThanMin` (55) or never priced, oldest first, with counts by system. Pure
+filter `staleUncoveredMarkets` in `src/engine/marketDirectory.ts` (test `tests/staleMarkets.test.ts`), store read
+`marketNewestBySystems`. A scheduled task runs it every hour at :42.
+
 ## 2026-11-25 - Glance banner: last full hour beside the 3-hour average
 
 The Deck Glance banner said "now 4.32M/h" while Tower showed 7.36M/h and the Deck tile 6.99M/h. The banner's figure is the

@@ -52,3 +52,37 @@ export function summarizeDirectory(rows: readonly DirectoryRow[], coveredMarkets
     })
     .sort((a, b) => b.worthKeeping - a.worthKeeping || a.system.localeCompare(b.system));
 }
+
+export interface StaleMarket {
+  system: string;
+  market: string;
+  goods: number;
+  /** Minutes since the newest price we hold for it; null = never priced. */
+  ageMin: number | null;
+}
+
+/**
+ * Markets in the given systems with at least `minGoods` goods, no keeper stationed on them, and a newest price older than
+ * `olderThanMin` minutes (or none at all), oldest first. The operator's watch (2026-11-25): "uncovered markets with 5 or more
+ * products with prices older than 55 min". Goods come from the survey directory; ages from the newest snapshot per market. Pure.
+ */
+export function staleUncoveredMarkets(
+  rows: readonly DirectoryRow[],
+  newestByMarket: ReadonlyMap<string, number>,
+  keeperMarkets: ReadonlySet<string>,
+  systems: ReadonlySet<string>,
+  nowMs: number,
+  opts: { minGoods: number; olderThanMin: number },
+): StaleMarket[] {
+  const out: StaleMarket[] = [];
+  for (const r of rows) {
+    if (!systems.has(r.systemSymbol) || keeperMarkets.has(r.waypointSymbol)) continue;
+    const goods = new Set([...r.imports, ...r.exports, ...r.exchange]).size;
+    if (goods < opts.minGoods) continue;
+    const t = newestByMarket.get(r.waypointSymbol);
+    const ageMin = t === undefined ? null : Math.round((nowMs - t) / 60_000);
+    if (ageMin !== null && ageMin <= opts.olderThanMin) continue;
+    out.push({ system: r.systemSymbol, market: r.waypointSymbol, goods, ageMin });
+  }
+  return out.sort((a, b) => (b.ageMin ?? Infinity) - (a.ageMin ?? Infinity) || b.goods - a.goods || a.market.localeCompare(b.market));
+}

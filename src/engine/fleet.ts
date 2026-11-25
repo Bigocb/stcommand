@@ -6370,7 +6370,7 @@ export class FleetManager {
    * that never went through the queue. 2026-11-25: the home system X1-AR36 was in neither list, so nothing added keepers there or toured
    * it, and J61 (15 goods), K86 (10), E47 (8) and D39 (7) went 38 hours without a price.
    */
-  private keeperCoverSystems(): string[] {
+  keeperCoverSystems(): string[] {
     const out = new Set<string>();
     const inQueue = new Set<string>();
     for (const q of this.systemQueue.list()) {

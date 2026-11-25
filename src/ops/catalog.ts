@@ -33,7 +33,7 @@ import { miningFieldsReport, type FieldWaypoint } from "../engine/miningFields.j
 import { contractsOverview } from "../http/contractsOverview.js";
 import { runAnalysis } from "./analysis.js";
 import { DEFAULT_YARD_POLICY, yardReport } from "../engine/yardScan.js";
-import { summarizeDirectory } from "../engine/marketDirectory.js";
+import { summarizeDirectory, staleUncoveredMarkets } from "../engine/marketDirectory.js";
 import { buyPreflight, economyReport } from "./economy.js";
 import { summarizeMarketChanges } from "../engine/marketChanges.js";
 
@@ -881,6 +881,27 @@ export const OPS_TOOLS: OpsTool[] = [
       const yardsBySystem = new Map<string, { yard: string; sellsProbes: boolean; types: number }[]>();
       for (const y of yardRows) yardsBySystem.set(y.systemSymbol, [...(yardsBySystem.get(y.systemSymbol) ?? []), { yard: y.waypointSymbol, sellsProbes: y.shipTypes.includes("SHIP_PROBE"), types: y.shipTypes.length }]);
       return { systems: systems.length, rows: rows.length, list: systems.slice(0, Math.min(Math.max(a.limit, 1), 200)).map((s) => ({ ...s, yards: yardsBySystem.get(s.system) ?? [], ranked: a.system ? s.ranked : s.ranked.slice(0, 6) })) };
+    },
+  },
+
+  {
+    name: "stale_markets",
+    title: "Uncovered markets with old prices, across every live system",
+    description: "The operator's stale-market watch (2026-11-25): every market in the systems the keepers cover (live fresh systems plus systems outside the queue, such as home) with at least minGoods goods (default 5), no keeper stationed on it, and a newest price older than olderThanMin minutes (default 55) or never priced, oldest first. A tour ship or loop keeper may still be on its way to it; a market drops off the list once it is read again. Goods from the survey directory, ages from market_latest. One call instead of a market_freshness call per system. Read-only.",
+    input: { minGoods: num(5), olderThanMin: num(55), limit: num(60) },
+    async run(ctx, a) {
+      const systems = ctx.w.fleet.keeperCoverSystems();
+      const [rows, newest] = await Promise.all([ctx.w.store.marketDirectory(), ctx.w.store.marketNewestBySystems(systems)]);
+      const keepers = new Set(ctx.w.fleet.keeperStations().map((k) => k.market));
+      const list = staleUncoveredMarkets(rows, newest, keepers, new Set(systems), ctx.now(), { minGoods: Math.max(1, a.minGoods), olderThanMin: Math.max(0, a.olderThanMin) });
+      const bySystem = new Map<string, number>();
+      for (const m of list) bySystem.set(m.system, (bySystem.get(m.system) ?? 0) + 1);
+      return {
+        systems: systems.length, minGoods: a.minGoods, olderThanMin: a.olderThanMin, count: list.length,
+        neverPriced: list.filter((m) => m.ageMin === null).length,
+        bySystem: [...bySystem.entries()].sort((x, y) => y[1] - x[1]).map(([system, n]) => ({ system, n })),
+        markets: list.slice(0, Math.min(Math.max(a.limit, 1), 300)),
+      };
     },
   },
 
