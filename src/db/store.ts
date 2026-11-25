@@ -2170,12 +2170,18 @@ export class Store {
   /** Record one system's waypoints with whether each is still uncharted. Idempotent: a re-read replaces the rows' state and time. */
   async recordWaypointCharts(systemSymbol: string, rows: readonly { symbol: string; type: string; uncharted: boolean }[]): Promise<void> {
     if (rows.length === 0) return;
+    // The game's paginated /waypoints list can return the same symbol on two
+    // pages. A duplicate target in one INSERT ... ON CONFLICT batch makes
+    // Postgres reject the whole statement ("ON CONFLICT DO UPDATE command
+    // cannot affect row a second time"), which is what failed the X1-DU24
+    // chart crawl. Keep the last occurrence per symbol.
+    const unique = [...new Map(rows.map((r) => [r.symbol, r])).values()];
     await withPool(this.pool, (c) =>
       c.query(
         `INSERT INTO waypoint_charts (waypoint_symbol, system_symbol, waypoint_type, uncharted, checked_at)
          SELECT s, $1, t, u, now() FROM unnest($2::text[], $3::text[], $4::boolean[]) AS x(s, t, u)
          ON CONFLICT (waypoint_symbol) DO UPDATE SET waypoint_type = excluded.waypoint_type, uncharted = excluded.uncharted, checked_at = now()`,
-        [systemSymbol, rows.map((r) => r.symbol), rows.map((r) => r.type), rows.map((r) => r.uncharted)],
+        [systemSymbol, unique.map((r) => r.symbol), unique.map((r) => r.type), unique.map((r) => r.uncharted)],
       ),
     );
   }
