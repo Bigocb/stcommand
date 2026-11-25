@@ -100,3 +100,49 @@ export function rivalActivity(fills: readonly RivalFill[], opts: { agentFilter?:
   agents.sort((a, b) => b.units - a.units || a.agent.localeCompare(b.agent));
   return { fills: sorted.length, agents: agents.slice(0, opts.limit ?? 25) };
 }
+
+/**
+ * Rival trading per system (operator, 2026-11-25: "look at where the competition is, and see if when we're making money is where
+ * they aren't"). Per system: rival units, the value they moved (units x price), fills, how many agents, and the goods and agents with
+ * the most value. Same input and caveats as rivalActivity: a floor, only markets we read, FUEL left out.
+ */
+export interface RivalSystem {
+  system: string;
+  units: number;
+  value: number;
+  fills: number;
+  agents: number;
+  topGoods: { good: string; units: number; value: number }[];
+  topAgents: { agent: string; value: number }[];
+}
+
+export const systemOfWaypoint = (wp: string): string => wp.split("-").slice(0, 2).join("-");
+
+export function rivalBySystem(fills: readonly RivalFill[], limit = 40): RivalSystem[] {
+  const by = new Map<string, { units: number; value: number; fills: number; agents: Map<string, number>; goods: Map<string, { units: number; value: number }> }>();
+  for (const f of fills) {
+    if (f.good === "FUEL") continue;
+    const sys = systemOfWaypoint(f.waypoint);
+    const s = by.get(sys) ?? { units: 0, value: 0, fills: 0, agents: new Map(), goods: new Map() };
+    by.set(sys, s);
+    const v = f.units * f.pricePerUnit;
+    s.units += f.units; s.value += v; s.fills += 1;
+    const ag = agentOf(f.shipSymbol);
+    s.agents.set(ag, (s.agents.get(ag) ?? 0) + v);
+    const g = s.goods.get(f.good) ?? { units: 0, value: 0 };
+    g.units += f.units; g.value += v;
+    s.goods.set(f.good, g);
+  }
+  return [...by]
+    .map(([system, s]) => ({
+      system,
+      units: s.units,
+      value: Math.round(s.value),
+      fills: s.fills,
+      agents: s.agents.size,
+      topGoods: [...s.goods].sort((a, b) => b[1].value - a[1].value || a[0].localeCompare(b[0])).slice(0, 4).map(([good, g]) => ({ good, units: g.units, value: Math.round(g.value) })),
+      topAgents: [...s.agents].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 3).map(([agent, value]) => ({ agent, value: Math.round(value) })),
+    }))
+    .sort((a, b) => b.value - a.value || a.system.localeCompare(b.system))
+    .slice(0, Math.max(1, limit));
+}

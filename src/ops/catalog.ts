@@ -4,7 +4,8 @@ import { systemCandidates } from "./systems.js";
 import { explorerReport } from "./explorers.js";
 import { buildKeeperReview } from "../engine/keeperValue.js";
 import { keeperSales, profitByGoodsCount } from "../engine/keeperSales.js";
-import { rivalActivity } from "../engine/rivalActivity.js";
+import { rivalActivity, rivalBySystem } from "../engine/rivalActivity.js";
+import { agentCurve } from "../engine/agentCurve.js";
 import { marketSpread } from "../engine/marketSpread.js";
 import { tradeTempo } from "../engine/tradeTempo.js";
 import { profitCurve } from "../engine/profitCurve.js";
@@ -797,12 +798,29 @@ export const OPS_TOOLS: OpsTool[] = [
   {
     name: "rival_activity",
     title: "Rival activity: what other agents trade at the markets we watch",
-    description: "Other agents' fills at markets our ships or keepers have scanned, grouped by agent (the ship symbol without its last suffix): ships, visits, units bought and sold, the median and largest load per visit (about their hold size), the goods and markets they trade most. A visit joins one ship's fills at one market that are under three minutes apart. A floor, not a census: a scan shows only the recent fills, and an agent only appears where we look. Filter with agent (a name or part of one, for example POPEX or TIPTAP), minUnits and limit. Read-only; sinceHours is capped at 168.",
-    input: { sinceHours: num(24), agent: z.string().optional(), minUnits: num(0), limit: num(25) },
+    description: "Other agents' fills at markets our ships or keepers have scanned, grouped by agent (the ship symbol without its last suffix): ships, visits, units bought and sold, the median and largest load per visit (about their hold size), the goods and markets they trade most. With bySystem N, also the top N systems by the value rivals moved there (units, value, fills, agents, top goods and agents). A visit joins one ship's fills at one market that are under three minutes apart. A floor, not a census: a scan shows only the recent fills, and an agent only appears where we look. Filter with agent (a name or part of one, for example POPEX or TIPTAP), minUnits and limit. Read-only; sinceHours is capped at 168.",
+    input: { sinceHours: num(24), agent: z.string().optional(), minUnits: num(0), limit: num(25), bySystem: num(0) },
     async run(ctx, a) {
       const hours = Math.min(Math.max(a.sinceHours, 0.25), 168);
       const fills = await ctx.w.store.rivalMarketFills(ctx.w.agentSymbol, new Date(ctx.now() - hours * 3_600_000).toISOString());
-      return { window: { sinceHours: hours, rowsRead: fills.length, capped: fills.length >= 200000 }, ...rivalActivity(fills, { agentFilter: a.agent, minUnits: a.minUnits, limit: Math.min(Math.max(a.limit, 1), 100) }) };
+      return { window: { sinceHours: hours, rowsRead: fills.length, capped: fills.length >= 200000 }, ...rivalActivity(fills, { agentFilter: a.agent, minUnits: a.minUnits, limit: Math.min(Math.max(a.limit, 1), 100) }), ...(a.bySystem ? { bySystem: rivalBySystem(fills, Math.min(Math.max(a.bySystem, 1), 200)) } : {}) };
+    },
+  },
+
+  {
+    name: "agent_curve",
+    title: "Agent curve: every agent's credits hour by hour, and whether they dipped when we did",
+    description: "From the public leaderboard samples the agent watcher records (agent_samples, about every 15-30 minutes): the top agents by credits now, each one's credits change per bucket (default 60 min) and ships added, and, with pivot (an ISO time, e.g. 2026-11-25T06:00:00Z), the mean credits change per hour before and after it over equal windows and the ratio after/before, plus how many of them fell by more than half. Credits change is a proxy for earnings: buying a ship lowers it, so read it with shipsAdded. Filter with agent (part of a name). Read-only.",
+    input: { sinceHours: num(24), bucketMin: num(60), top: num(15), pivot: z.string().optional(), agent: z.string().optional() },
+    async run(ctx, a) {
+      const resets = await ctx.w.store.agentWatchResets();
+      const resetDate = resets[0];
+      if (!resetDate) return { note: "no leaderboard samples recorded yet" };
+      const toMs = ctx.now();
+      const fromMs = toMs - Math.min(Math.max(a.sinceHours, 1), 168) * 3_600_000;
+      const samples = await ctx.w.store.agentSamplesSince(resetDate, new Date(fromMs - 3_600_000).toISOString());
+      const pivotMs = a.pivot ? Date.parse(a.pivot) : undefined;
+      return { resetDate, samples: samples.length, ...agentCurve(samples, { fromMs, toMs, bucketMin: a.bucketMin, top: Math.min(Math.max(a.top, 1), 100), ...(pivotMs !== undefined && Number.isFinite(pivotMs) ? { pivotMs } : {}), agentFilter: a.agent }) };
     },
   },
 

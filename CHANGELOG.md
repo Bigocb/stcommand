@@ -6,6 +6,18 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-25 — ops agent_curve and rival_activity bySystem
+
+Two read-only views the operator asked for on 2026-11-25 ("look at where the competition is", "I'm curious if the other traders are
+seeing the same dip"):
+- **`ops agent_curve`** (new, `src/engine/agentCurve.ts`, store `agentSamplesSince`): from the leaderboard samples the agent watcher
+  already records (`agent_samples`), the top agents by credits with their credits change and ships added per bucket, and with `pivot`
+  (an ISO time) each agent's credits per hour before and after it over equal windows, the ratio, and how many fell by more than half.
+  Credits change is a proxy: a ship purchase lowers it, so read it with ships added.
+- **`ops rival_activity bySystem=N`**: the top N systems by the value rivals moved there (units x price), with fills, agent count, and
+  the goods and agents with the most value (`rivalBySystem`, `src/engine/rivalActivity.ts`). Same floor as before: only markets we read.
+Tests: `tests/agentCurve.test.ts`.
+
 ## 2026-11-25 — arrival surveys read through the proxy lanes
 
 At 18:12 the box's IP ran at 89 of 105 calls a minute with 429s, while the 15 active proxies sat at up to 22 of 90. The biggest caller

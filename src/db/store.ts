@@ -3785,6 +3785,14 @@ export class Store {
     });
   }
 
+  /** Leaderboard samples (agent_samples) of one reset since a time, oldest first (ops agent_curve). */
+  async agentSamplesSince(resetDate: string, sinceIso: string): Promise<{ agent: string; at: number; credits: number; ships: number }[]> {
+    const r = await withPool(this.pool, (c) =>
+      c.query(`SELECT agent_symbol, sampled_at, credits, ships FROM agent_samples WHERE reset_date = $1 AND sampled_at >= $2 ORDER BY sampled_at ASC`, [resetDate, sinceIso]),
+    );
+    return r.rows.map((x: any) => ({ agent: x.agent_symbol, at: new Date(x.sampled_at).getTime(), credits: Number(x.credits), ships: Number(x.ships) }));
+  }
+
   async insertAgentSamples(resetDate: string, at: number, agents: { symbol: string; credits: number; shipCount: number }[]): Promise<void> {
     if (!agents.length) return;
     await withPool(this.pool, async (c) => {
