@@ -288,3 +288,27 @@ describe("release by tour (clause releaseOnTourPct)", () => {
     assert.equal(decideReleases({ ...base, queue: [stagedQ("X1-K", 1, 1)] }, off).release.length, 1, "keeper-ready systems release as before");
   });
 });
+
+describe("release for idle traders prefers the system they can reach", () => {
+  const queue = [staged("X1-FAR", 1, { idleNear: 0 }), staged("X1-NEAR", 0.85, { idleNear: 3 })];
+  const target = { ...auto, target: 0 };
+
+  it("picks the ready system with idle traders in reach over a more ready one nobody can reach", () => {
+    const d = decideReleases(sig({ queue, idleTraders: 4 }), target);
+    assert.equal(d.release[0]?.system, "X1-NEAR");
+    assert.match(d.release[0]!.reason, /3 idle trader\(s\) within reach/);
+  });
+
+  it("says when no idle trader can reach any ready system, and falls back to the most ready one", () => {
+    const d = decideReleases(sig({ queue: [staged("X1-A", 1, { idleNear: 0 }), staged("X1-B", 0.9, { idleNear: 0 })], idleTraders: 4 }), target);
+    assert.equal(d.release[0]?.system, "X1-A");
+    assert.match(d.release[0]!.reason, /no idle trader within reach/);
+  });
+
+  it("ignores reach when the release is for the target, not for idle traders, and when reach is unknown", () => {
+    const short = decideReleases(sig({ queue, idleTraders: 0 }), { ...auto, target: 3 });
+    assert.equal(short.release[0]?.system, "X1-FAR", "target release: most ready first, as before");
+    const unknown = decideReleases(sig({ queue: [staged("X1-A", 1), staged("X1-B", 0.9)], idleTraders: 4 }), target);
+    assert.equal(unknown.release[0]?.system, "X1-A");
+  });
+});

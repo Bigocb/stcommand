@@ -6,6 +6,15 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-25 - release for idle traders picks the system they can reach
+
+`decideReleases` (`src/engine/systemRelease.ts`) ranked ready staged systems by keepers in place and pricing only. When a release is for
+idle traders (3 or more idle), it now first counts, per ready system, the idle traders within `positioningHops` finished-gate jumps
+(`QueueFacts.idleNear`, filled in `FleetManager.maybeManageFreshSystems` via `idleTradersNear`) and releases the one the most idle ships can
+reach; the reason line says how many, or that none can reach any ready system. Releases for the live target are unchanged, and an unknown
+reach (undefined) behaves as before. Cause: 2026-11-25 the idle-trader releases (FF40, MP5, ZV90) opened systems that none of the 6 idle traders
+could reach under positioningHops 4. Tests in `tests/systemRelease.test.ts`.
+
 ## 2026-11-25 - stcommand_fill_keeper_gaps: cover uncovered worthwhile markets in one batch
 
 New MCP write tool (`src/engine/keeperFill.ts`, `FleetManager.fillKeeperGaps`, `src/mcp/tools.ts`). Top-up adds one market every 5 minutes

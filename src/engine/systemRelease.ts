@@ -105,6 +105,12 @@ export interface QueueFacts {
    * hours and kept every reachable system out). undefined = not known, treated as reachable.
    */
   reachable?: boolean;
+  /**
+   * Idle traders that could take a route here: within positioningHops gate jumps of the system. undefined = not known (treated as 0).
+   * Only used when the release is for idle traders: of the ready systems, the one the most idle ships can reach goes first
+   * (2026-11-25: FF40, MP5 and ZV90 were released for idle traders that could not reach any of them).
+   */
+  idleNear?: number;
 }
 
 export interface LiveFacts {
@@ -211,7 +217,7 @@ export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDeci
   const unpriced = staged.filter((q) => eligible(q) && reachable(q) && keepersReady(q) && !priced(q) && !tourReady(q));
   const ready = staged
     .filter((q) => eligible(q) && reachable(q) && ((keepersReady(q) && priced(q)) || tourReady(q)))
-    .sort((a, b) => Number(keepersReady(b) && priced(b)) - Number(keepersReady(a) && priced(a)) || (b.readyShare ?? 0) - (a.readyShare ?? 0) || (b.pricedShare ?? 0) - (a.pricedShare ?? 0) || (a.stagedAt ?? 0) - (b.stagedAt ?? 0) || a.addedAt - b.addedAt);
+    .sort((a, b) => (idle ? (b.idleNear ?? 0) - (a.idleNear ?? 0) : 0) || Number(keepersReady(b) && priced(b)) - Number(keepersReady(a) && priced(a)) || (b.readyShare ?? 0) - (a.readyShare ?? 0) || (b.pricedShare ?? 0) - (a.pricedShare ?? 0) || (a.stagedAt ?? 0) - (b.stagedAt ?? 0) || a.addedAt - b.addedAt);
   const pick = ready[0];
   if (!pick) {
     out.notes.push(
@@ -222,6 +228,7 @@ export function decideReleases(s: ReleaseSignals, p: ReleasePolicy): ReleaseDeci
   }
   const why = idle ? `${s.idleTraders} trader(s) idle, at or over ${p.idleTradersMax}` : `${covered} live premium system(s) not fading, target ${p.target}${soon ? `, ${soon} fading within ${Math.round(p.leadMs / 60_000)} min` : ""}${untraded ? `, ${untraded} not counted for lack of sales` : ""}`;
   const viaTour = !(keepersReady(pick) && priced(pick));
-  out.release.push({ system: pick.system, reason: viaTour ? `${why}; ${pick.system} has a tour ship in it and ${Math.round((pick.pricedShare ?? 0) * 100)}% of its markets priced (tour path, ${Math.round(p.tourReleaseShare * 100)}% needed), ${Math.round((pick.readyShare ?? 0) * 100)}% of keepers in place` : `${why}; ${pick.system} is ${Math.round((pick.readyShare ?? 0) * 100)}% ready` });
+  const nearNote = idle && (pick.idleNear ?? 0) > 0 ? `; ${pick.idleNear} idle trader(s) within reach` : idle && ready.some((q) => q.idleNear !== undefined) ? "; no idle trader within reach of any ready system" : "";
+  out.release.push({ system: pick.system, reason: (viaTour ? `${why}; ${pick.system} has a tour ship in it and ${Math.round((pick.pricedShare ?? 0) * 100)}% of its markets priced (tour path, ${Math.round(p.tourReleaseShare * 100)}% needed), ${Math.round((pick.readyShare ?? 0) * 100)}% of keepers in place` : `${why}; ${pick.system} is ${Math.round((pick.readyShare ?? 0) * 100)}% ready`) + nearNote });
   return out;
 }

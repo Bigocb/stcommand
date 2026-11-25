@@ -6956,6 +6956,20 @@ export class FleetManager {
     await this.saveFreshGate();
   }
 
+  /** How many of these idle traders are within positioningHops finished-gate jumps of `system`: the ships that could take a route there (release pick, systemRelease.ts idleNear). */
+  private idleTradersNear(system: string, idle: readonly { waypoint?: string }[]): number {
+    const maxHops = this.doctrine.isEnabledOr("positioningHops", true) ? Math.floor(this.doctrine.value("positioningHops")) : 3;
+    let n = 0;
+    for (const t of idle) {
+      if (!t.waypoint) continue;
+      const from = t.waypoint.slice(0, t.waypoint.lastIndexOf("-"));
+      if (from === system) { n++; continue; }
+      const path = this.galaxy.jumpPath(from, system);
+      if (path && path.length - 1 <= maxHops) n++;
+    }
+    return n;
+  }
+
   private async maybeManageFreshSystems(): Promise<void> {
     const mode = this.freshGateMode();
     if (mode === "off" || !this.tenantId || !this.store) return;
@@ -6991,12 +7005,14 @@ export class FleetManager {
       const sh = agent.getShip();
       if (sh.nav.systemSymbol) toured.add(sh.nav.systemSymbol);
     }
+    const idleNow = this.idleTraders(now);
     const queue: QueueFacts[] = all.filter((q) => q.state !== "live").map((q) => ({
       system: q.system, state: q.state as "scouted" | "staged", held: q.held, addedAt: q.addedAt, stagedAt: q.stagedAt, markets: q.markets.length,
       ...(reachKnown ? { reachable: reach.has(q.system) } : {}),
       ...(q.state === "staged" ? { readyShare: q.markets.length ? q.markets.filter((m) => ready.has(m)).length / q.markets.length : 0 } : {}),
       ...(q.state === "staged" && pricedSeen && q.markets.length ? { pricedShare: q.markets.filter((m) => pricedSeen.has(m)).length / q.markets.length } : {}),
       ...(q.state === "staged" ? { tourHere: toured.has(q.system) } : {}),
+      ...(q.state === "staged" ? { idleNear: this.idleTradersNear(q.system, idleNow) } : {}),
     }));
 
     let live: LiveFacts[] = [];
@@ -7020,7 +7036,7 @@ export class FleetManager {
     }
 
     const max = this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0;
-    const idle = this.idleTraders(now).length;
+    const idle = idleNow.length;
     const decision = decideReleases({ now, queue, live, idleTraders: idle, budgetRoom: max > 0 ? Math.max(0, max - this.keeperSlotsUsed()) : null, lastReleaseAt: this.lastFreshReleaseAt, credits: this.credits }, policy);
     this.freshLast = { at: now, mode, decision, queue, live, idleTraders: idle };
 
