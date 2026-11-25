@@ -6,6 +6,14 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-25 - Glance banner: last full hour beside the 3-hour average
+
+The Deck Glance banner said "now 4.32M/h" while Tower showed 7.36M/h and the Deck tile 6.99M/h. The banner's figure is the
+average of the last three completed clock hours, so it trails the current rate by an hour or two (on 11-25 it still held the
+dip hours and the THEO-25F MERITIUM loss). The banner now reads "last hour X/h · 3 h avg Y/h": the last completed hour next to
+the average, with the colour still judged on the average so one hour does not flip it (`public/shared/glance.js`). Operator
+request, 2026-11-25.
+
 ## 2026-11-25 — loop keepers step again with the read scheduler on
 
 Found at the 19:12 hourly: CJ53's loop keeper (THEO-3F, made 16:58) had not moved off its first market in two hours, and its tracked

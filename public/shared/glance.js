@@ -111,7 +111,10 @@ export function glanceHtml({ metrics, econ, queue, alerts, worth: live, fleet, d
   const hourOfWeek = weekStart ? Math.max(0, (now - weekStart) / 3_600_000) : 0;
   const rows = metrics?.buckets ? hourlyRows(metrics.buckets, metrics.bucketMinutes, now) : [];
   const done = rows.filter((r) => !r.partial).slice(0, 3);
+  // The colour is judged on the 3-hour average so one good or bad hour does not flip it; the last full hour is shown beside
+  // it because the average trails the current rate by an hour or two (operator, 2026-11-25).
   const rate = done.length ? done.reduce((s, r) => s + r.net, 0) / done.length : null;
+  const lastFull = done.length ? done[0].net : null;
   const matched = metrics?.matchedSinceReset ?? null;
   const v = paceVerdict({ matched, hourOfWeek, rate });
   const sum = econ?.summary ?? {};
@@ -126,7 +129,7 @@ export function glanceHtml({ metrics, econ, queue, alerts, worth: live, fleet, d
 
   const status = `<div class="gl-status ${v.level}">
     <div class="gl-hr">Hour ${Math.floor(hourOfWeek)}</div>
-    <div class="gl-line"><b>${h(levelText)}</b> · ${fmtM(matched)} of ${fmtM(WEEK_GOAL)} · needs ${fmtM(v.needed)}/h · now ${fmtM(rate)}/h</div>
+    <div class="gl-line"><b>${h(levelText)}</b> · ${fmtM(matched)} of ${fmtM(WEEK_GOAL)} · needs ${fmtM(v.needed)}/h · last hour ${fmtM(lastFull)}/h · 3 h avg ${fmtM(rate)}/h</div>
   </div>`;
 
   const tiles = [
