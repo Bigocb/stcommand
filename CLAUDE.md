@@ -93,6 +93,15 @@ DONE 2026-11-24 12:12: the heavy THEO-161 (2,052,855, UT22-B10B) and the bulk TH
 
 **Cargo target for the 2026-11-22 week (operator, 2026-11-24 17:15, raised 20:40):** first "We are targeting 10,000 units or higher by reset (no rush, just a long term target)"; then, after the 11-15 week's fleet was counted from the ledger (38 heavies - 1 scrapped, 11 bulks, 3 refining freighters = about 14,165 units, all 51 traders big hulls from 11-20 night), "the unit target is 15,000". Total trader cargo (sum of hold sizes) was 3,590 at 20:14 (36% of 10,000, 24% of 15,000). Report cargo against 15,000 in the hourly snapshot; each buy still needs the operator's yes, big hulls first, nearest yard to the route. Staging steps scale with the target: `freshStagedAhead` 3 now, 5 from about 7,500 units, 6-8 from about 12,000 (they were 5,000 and 8,000 against the old 10,000 target).
 
+**8,000-unit push: standing yes (operator, 2026-11-25 ~02:00, "I want to push to 8k units in the next few hours"; mode "Standing yes").** Buy ONE big hull at a
+time (bulk at X1-NM65-XZ5D, or a heavy at X1-VB83-EC8C, X1-KC13-EE2A or X1-UT22-B10B; spread yards to slow the ~1.7% a buy price creep) whenever the wallet
+holds at least the floor (`ops_economy_health` summary.floor, about 0.3-0.4M more per hull) + the hull price + about 2M cushion AND the previous big hull is
+about 45 minutes old. Never two in one round. Before each buy: preflight, a ship of ours docked at the yard, `get_approvals` empty, the ledger read, the route
+check for the route it is meant for (CLAUDE.md "Checking a route"), then `buy_ship`, `set_ship_role trader`, a journal line and a report. The hourly report and
+a 30-minute check (send_later) run the test. Stops at 8,000 units of trader cargo (5,535 at 01:58), or if matched profit falls over 25% two hours running, or
+the wallet goes under the floor. Journal-only commits go to the feature branch only while the restart question is open (13 deploys in 7 hours, each after a push
+to main). `freshStagedAhead` was set to 5 now (operator, same message), earlier than the 7,500-unit step. Evidence: journal 2026-11-25.
+
 **Swapping small hulls for heavies (operator, 2026-11-20):** as money grows, replace the 40-unit hulls first, then the 80s, with heavy
 freighters. One swap at a time: buy the heavy at the yard nearest the small hull's working area (or a route `ops unflown_routes` shows
 unflown), and retire the small hull (`sell_ship`) only once the heavy is trading. Worst earners go first (by `ops pnl` per ship over 48 h).
