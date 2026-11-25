@@ -6,6 +6,17 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-25 - releasing a system no longer re-parks its keepers
+
+`FleetManager.releaseSystem` (`src/engine/fleet.ts`) unparked a staged system's keepers one at a time (about 1.5 s each, awaited) and
+flipped the queue entry to live only afterwards. While the entry still said "staged", the maintenance pass `maintainFreshGate` saw each
+freshly unparked keeper standing on a staged market that was no longer in `stagedParked` and parked it again. 6 of 8 X1-FF40 keepers
+(14:08) and 7 of 8 X1-MP5 keepers (14:27) went back to parked; the systems with 3-4 keepers mostly escaped. The cost was FF40's top
+markets going 40 minutes unread after the release. Fix: flip the queue entry to live first, then unpark. Regression test in
+`tests/freshGateFleet.test.ts` (fails on the old order, passes on the new). Until this is deployed, check `ops_keepers system=<id>`
+after a release and `unpark_ship` any keeper still shown as staged. Two other tests in that file (hold, auto stage) already fail on a
+clean checkout (wallet floor).
+
 
 
 

@@ -95,6 +95,30 @@ describe("fresh-system gate at the fleet", () => {
     assert.ok(typeof saved.lastReleaseAt === "number");
   });
 
+  it("a keeper unparked by a release is not parked again by the maintenance pass that runs while the release is still unparking", async () => {
+    // 2026-11-25: releasing X1-FF40 (8 keepers) and X1-MP5 (8) put 6 and 7 of them straight back to parked, because
+    // the queue still said "staged" while the unparks (about 1.5 s each) were awaited, so maintainFreshGate parked each
+    // keeper that was already back on its staged market.
+    const { fleet, calls, arrive, on } = await rig();
+    await on(2);
+    fleet.queueFreshSystem("X1-NEW", MARKETS);
+    await fleet.stageSystem("X1-NEW", "test");
+    const ships = MARKETS.slice(0, 4).map(arrive);
+    await fleet.maintainFreshGate();
+    assert.deepEqual(calls.parked.sort(), ships.sort());
+    const parkedBefore = calls.parked.length;
+    const market = new Map(ships.map((s, i) => [s, MARKETS[i]]));
+    fleet.unparkShip = async (ship: string) => {
+      calls.unparked.push(ship);
+      fleet.parkedShips.delete(ship);
+      fleet.keeperMarkets.set(ship, market.get(ship));
+      await fleet.maintainFreshGate(); // the maintenance tick lands in the middle of the release
+    };
+    await fleet.releaseSystem("X1-NEW", "test");
+    assert.equal(calls.parked.length, parkedBefore, "no keeper was parked again during the release");
+    assert.deepEqual([...fleet.stagedParked.keys()], []);
+  });
+
   it("releases a scouted system by hand by listing its markets then, and refuses a live or unknown one", async () => {
     const { fleet, calls, on } = await rig();
     await on(1);

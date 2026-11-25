@@ -6060,13 +6060,17 @@ export class FleetManager {
     if (q.state === "live") throw new Error(`${system} is already live`);
     const wasScouted = q.state === "scouted";
     const unparked: string[] = [];
+    // Flip the system to live BEFORE unparking its keepers. Each unpark awaits (about 1.5 s per ship), so an 8-keeper
+    // system takes ~12 s; while the queue still said "staged", maintainFreshGate saw each freshly unparked keeper
+    // standing on a staged market that was no longer in stagedParked and parked it again (2026-11-25: 6 of 8 FF40
+    // keepers at 14:08, 7 of 8 MP5 keepers at 14:27; 3-4 keeper systems often escaped the race).
+    const now = Date.now();
+    this.systemQueue.release(system, now, why);
     for (const [ship, sys] of [...this.stagedParked]) {
       if (sys !== system) continue;
       try { if (this.parkedShips.has(ship)) await this.unparkShip(ship); unparked.push(ship); } catch (err) { this.freshNote(`${ship}: unpark on release failed: ${describeError(err)}`); }
       this.stagedParked.delete(ship);
     }
-    const now = Date.now();
-    this.systemQueue.release(system, now, why);
     if (wasScouted) {
       try { await this.addKeeperPriorityMarkets(q.markets); } catch (err) { this.freshNote(`keeper list add for ${system} failed: ${describeError(err)}`); }
     }
