@@ -134,3 +134,17 @@ hour, so after the first rounds the gate goes no faster, it just costs more (1,0
 Keep the ceiling near the producer's recovered price and buy at the refill rate (`recoverPct`, buy gap per market, rotate producers). To go
 faster, raise production: keep every input at HIGH with feeds that respect a loss limit (never `force`, issue #83), and use every producer.
 Do not offer "raise the ceiling" as a speed lever; offer it only for the last few loads when finishing beats the extra cost.
+
+## 2026-11-25: open fresh systems faster, sooner (provisional, confirm at week's end)
+
+**What happened.** From about 06:00 UTC on 11-25 matched profit fell from 6-8M an hour to 2-3M. About half of the top agents fell by the same share
+(ops `agent_curve`), so part of it was server-wide. Our own lever was fresh systems. Until 18:25 the queue released slowly: `freshFadeHours` 10 kept
+live systems counted as premium, so the engine saw no need to open more while staged systems sat ready. After `freshFadeHours` 4 and
+`freshMinGapMin` 15 (18:25), and `freshTarget` 12 / `freshStagedAhead` 10 earlier, releases ran every 15-16 minutes (five 19:17-20:12, four
+20:27-21:13). Matched profit by half hour climbed 1.17M, 1.49M, 1.53M, 1.58M, 1.66M, then about 2.1M and 3.2M (21:00-21:12 6.34M an hour without
+a one-off loss). Rivals had already started trading in our staged systems, so a staged system that waits loses its premium to them.
+
+**Rule (operator, 2026-11-25 21:20).** Release about every 15-20 minutes whenever a staged system is ready, and keep at least 3 staged systems
+fully keepered so a release never waits. Next week, set the fast pace earlier, from the first day the fleet has big hulls, not after a dip:
+`freshFadeHours` about 4, `freshMinGapMin` 15, `freshStagedAhead` deep (8-10), and stage the largest scouted systems first. The hourly report
+now checks release speed (gaps, releases an hour, ready systems). If the climb holds to the week's end, make this part of the reset playbook.
