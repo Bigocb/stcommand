@@ -87,7 +87,7 @@ import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
 import { pickFillBatch, type FillPlan } from "./keeperFill.js";
 import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
-import { advanceLoop, decodeLoops, DEFAULT_LOOP_POLICY, encodeLoops, planLoops, type LoopKeeper } from "./keeperLoop.js";
+import { advanceLoop, decodeLoops, DEFAULT_LOOP_POLICY, encodeLoops, planLoops, planLoopSeeds, type LoopKeeper } from "./keeperLoop.js";
 import { DEFAULT_KEEPER_PLAN_POLICY, decodeRouteSeen, encodeRouteSeen, fixedReason, noteRouteEnds, planKeepers, resumeTracking, type KeeperPlan, type KeeperPlanPolicy, type PlanMarket, type RouteSeenState } from "./keeperPlan.js";
 import { DEFAULT_DELIVERY_POLICY, MAX_DELIVERY_MS, deliveryArrived, deliveryExpired, deliveryNote, pickDeliveryYard, type DeliveryPick } from "./keeperDelivery.js";
 import { ChangeTracker } from "./changeTracker.js";
@@ -6362,6 +6362,25 @@ export class FleetManager {
   private topUpLast?: { at: number; reason: string; market?: string };
 
   /** The live systems with how many of their viable markets are covered, listed or still open, and the load figures top-up decides on. */
+  /**
+   * The systems keeper top-up and the tour plan cover: every live, unheld system of the fresh queue, plus any system we keep markets in
+   * that never went through the queue. 2026-11-25: the home system X1-AR36 was in neither list, so nothing added keepers there or toured
+   * it, and J61 (15 goods), K86 (10), E47 (8) and D39 (7) went 38 hours without a price.
+   */
+  private keeperCoverSystems(): string[] {
+    const out = new Set<string>();
+    const inQueue = new Set<string>();
+    for (const q of this.systemQueue.list()) {
+      inQueue.add(q.system);
+      if (q.state === "live" && !q.held) out.add(q.system);
+    }
+    for (const m of this.keeperMarkets.values()) {
+      const s = systemOf(m);
+      if (s && !inQueue.has(s)) out.add(s);
+    }
+    return [...out].sort();
+  }
+
   private async topUpFacts(now: number, ignoreTourPlan = false): Promise<{ systems: TopUpSystem[]; viable: Map<string, number>; pending: number; load: number; perKeeper: number; listedPending: number }> {
     const covered = this.coveredKeeperMarkets();
     const listed = new Set(await this.keeperPriorityMarkets());
@@ -6377,8 +6396,8 @@ export class FleetManager {
     // A shipyard is always viable, however few goods it trades: a keeper docked at it reads its stock and prices (operator, 2026-11-03).
     const yardMarkets = new Set(((await this.store?.shipyardDirectory()) ?? []).map((y) => y.waypointSymbol));
     const plan = !ignoreTourPlan && this.doctrine.isEnabledOr("keeperTourPlan", false) ? { policy: this.keeperPlanPolicy(), state: await this.keeperRouteSeen(now) } : undefined;
-    for (const q of this.systemQueue.list()) {
-      if (q.state !== "live" || q.held) continue;
+    for (const system of this.keeperCoverSystems()) {
+      const q = { system };
       const rows = dir.get(q.system) ?? [];
       const ranked = (summarizeDirectory(rows, new Set(), now, minGoods)[0]?.ranked ?? []).filter((m) => m.goods >= minGoods || yardMarkets.has(m.market));
       // A market already listed, or with a keeper on it (pinned by hand and never listed), is not a candidate.
@@ -6478,8 +6497,8 @@ export class FleetManager {
     for (const [ship, m] of this.keeperMarkets) if (!keeperOf.has(m) && !this.loopKeeperShips.has(ship)) keeperOf.set(m, ship);
     const covered = this.coveredKeeperMarkets();
     const markets: PlanMarket[] = [];
-    for (const q of this.systemQueue.list()) {
-      if (q.state !== "live" || q.held) continue;
+    for (const system of this.keeperCoverSystems()) {
+      const q = { system };
       for (const m of summarizeDirectory(dir.get(q.system) ?? [], new Set(), now, 1)[0]?.ranked ?? []) {
         markets.push({ market: m.market, system: q.system, goods: m.goods, yard: yards.has(m.market), keeper: keeperOf.get(m.market), listed: listed.has(m.market) || (covered.has(m.market) && !keeperOf.has(m.market)) });
       }
@@ -6553,7 +6572,17 @@ export class FleetManager {
     if (this.loopKeepersLoaded || !this.tenantId || !this.store) return;
     const raw = await this.store.getFleetFlag(this.tenantId, "keeperLoops");
     for (const l of decodeLoops(raw)) if (this.keeperMarkets.has(l.ship)) this.loopKeeperShips.set(l.ship, l);
+    this.loopSeeds = decodeLoopSeeds(await this.store.getFleetFlag(this.tenantId, "keeperLoopSeeds"));
     this.loopKeepersLoaded = true;
+  }
+  /**
+   * Loop seeds (keeperLoop.ts planLoopSeeds): market -> its system and when it was listed. A keeper that arrives on a seed market is
+   * turned into that system's loop keeper. A decision reads it, so it is saved in the fleet flag keeperLoopSeeds on every change.
+   */
+  private loopSeeds = new Map<string, { system: string; at: number }>();
+  private async saveLoopSeeds(): Promise<void> {
+    if (!this.tenantId || !this.store) return;
+    await this.store.setFleetFlag(this.tenantId, "keeperLoopSeeds", JSON.stringify(Object.fromEntries(this.loopSeeds)));
   }
   private async saveLoopKeepers(): Promise<void> {
     if (!this.tenantId || !this.store) return;
@@ -6567,12 +6596,14 @@ export class FleetManager {
     for (const ship of [...this.loopKeeperShips.keys()]) if (!this.keeperMarkets.has(ship)) this.loopKeeperShips.delete(ship);
     const moved = new Set(plan.moves.map((m) => m.ship));
     const lapMin = this.doctrine.isEnabledOr("keeperPlanLoopLapMin", true) ? this.doctrine.value("keeperPlanLoopLapMin", 30) : 30;
-    const d = planLoops({
-      nowMs: now,
-      tourMarkets: new Map(plan.systems.map((x) => [x.system, x.tourMarkets])),
-      free: plan.demote.filter((x) => !moved.has(x.ship) && !this.loopKeeperShips.has(x.ship)).map((x) => ({ ship: x.ship, system: x.system, market: x.market })),
-      loops: [...this.loopKeeperShips.values()],
-    }, { ...DEFAULT_LOOP_POLICY, lapTargetMs: lapMin * 60_000 });
+    // A keeper bought for a loop seed is a free hull for its system, ahead of the idle keepers (it was bought for this).
+    const seedHulls = [...this.keeperMarkets]
+      .filter(([ship, m]) => this.loopSeeds.has(m) && !this.loopKeeperShips.has(ship) && !moved.has(ship))
+      .map(([ship, m]) => ({ ship, system: this.loopSeeds.get(m)!.system, market: m }));
+    const seedShipSet = new Set(seedHulls.map((h) => h.ship));
+    const free = [...seedHulls, ...plan.demote.filter((x) => !moved.has(x.ship) && !this.loopKeeperShips.has(x.ship) && !seedShipSet.has(x.ship)).map((x) => ({ ship: x.ship, system: x.system, market: x.market }))];
+    const tourMarkets = new Map(plan.systems.map((x) => [x.system, x.tourMarkets] as const));
+    const d = planLoops({ nowMs: now, tourMarkets, free, loops: [...this.loopKeeperShips.values()] }, { ...DEFAULT_LOOP_POLICY, lapTargetMs: lapMin * 60_000 });
     const before = encodeLoops([...this.loopKeeperShips.values()]);
     for (const e of d.ended) { this.loopKeeperShips.delete(e.ship); acted.push(`loop ended ${e.ship} (${e.reason})`); this.log(`tour plan: ${e.ship} stops looping ${e.system} (${e.reason})`); }
     const createdShips = new Set(d.created.map((c) => c.ship));
@@ -6590,6 +6621,48 @@ export class FleetManager {
       }
     }
     if (encodeLoops([...this.loopKeeperShips.values()]) !== before) await this.saveLoopKeepers();
+    await this.planLoopSeedsPass(tourMarkets, free, now, acted);
+  }
+
+  /**
+   * Clause keeperPlanLoopBuy (value = seeds listed per pass): a system with tour-only markets, no loop keeper and no idle keeper to make
+   * one gets one of its unkept tour-only markets put on the keeper list; the probe bought for it becomes the loop keeper (above). A seed
+   * whose keeper became a loop is dropped; one never bought within 3 hours is dropped and taken off the keeper list, so it is tried again.
+   */
+  private async planLoopSeedsPass(tourMarkets: ReadonlyMap<string, readonly string[]>, free: readonly { ship: string; system: string }[], now: number, acted: string[]): Promise<void> {
+    const before = JSON.stringify(Object.fromEntries(this.loopSeeds));
+    const stationed = new Set(this.keeperMarkets.values());
+    const loopShipsMarkets = new Set([...this.loopKeeperShips.keys()].map((s) => this.keeperMarkets.get(s)));
+    for (const [market, seed] of [...this.loopSeeds]) {
+      const looped = [...this.loopKeeperShips.values()].some((l) => l.system === seed.system);
+      if (looped && (!stationed.has(market) || loopShipsMarkets.has(market))) { this.loopSeeds.delete(market); continue; }
+      if (!stationed.has(market) && now - seed.at > 3 * 3_600_000) {
+        this.loopSeeds.delete(market);
+        const list = await this.keeperPriorityMarkets();
+        if (list.includes(market)) await this.setKeeperPriorityMarkets(list.filter((m) => m !== market));
+        acted.push(`loop seed ${market} dropped (not bought in 3 h)`);
+      }
+    }
+    const on = this.doctrine.isEnabledOr("keeperPlanLoopBuy", false);
+    if (on) {
+      const listed = await this.keeperPriorityMarkets();
+      const picks = planLoopSeeds({
+        tourMarkets,
+        loops: [...this.loopKeeperShips.values()],
+        freeSystems: new Set(free.filter((f) => !this.loopKeeperShips.has(f.ship)).map((f) => f.system)),
+        seededSystems: new Set([...this.loopSeeds.values()].map((x) => x.system)),
+        taken: new Set([...this.coveredKeeperMarkets(), ...listed]),
+      }, this.doctrine.value("keeperPlanLoopBuy", 2));
+      if (picks.length) {
+        await this.addKeeperPriorityMarkets(picks.map((x) => x.market));
+        for (const x of picks) {
+          this.loopSeeds.set(x.market, { system: x.system, at: now });
+          acted.push(`loop seed ${x.market} listed (${x.reason})`);
+          this.log(`tour plan: ${x.market} listed as the loop keeper seed for ${x.system} (${x.reason})`);
+        }
+      }
+    }
+    if (JSON.stringify(Object.fromEntries(this.loopSeeds)) !== before) await this.saveLoopSeeds();
   }
 
   /** A loop keeper only while mode 3 is on; otherwise it behaves as an ordinary keeper on whatever market it is pinned to. */
@@ -13651,4 +13724,19 @@ export class FleetManager {
   stop(): void {
     this.running = false;
   }
+}
+
+
+/** Saved loop seeds (fleet flag keeperLoopSeeds): market -> { system, at }. Anything malformed is dropped. */
+export function decodeLoopSeeds(raw: string | null | undefined): Map<string, { system: string; at: number }> {
+  const out = new Map<string, { system: string; at: number }>();
+  if (!raw) return out;
+  try {
+    const j = JSON.parse(raw) as Record<string, unknown>;
+    for (const [m, v] of Object.entries(j ?? {})) {
+      const x = v as { system?: unknown; at?: unknown };
+      if (x && typeof x.system === "string" && typeof x.at === "number") out.set(m, { system: x.system, at: x.at });
+    }
+  } catch { /* empty */ }
+  return out;
 }

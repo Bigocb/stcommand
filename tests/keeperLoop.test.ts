@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { advanceLoop, decodeLoops, DEFAULT_LOOP_POLICY as P, encodeLoops, planLoops, shareOf, type LoopKeeper } from "../src/engine/keeperLoop.js";
+import { advanceLoop, decodeLoops, DEFAULT_LOOP_POLICY as P, encodeLoops, planLoops, planLoopSeeds, shareOf, type LoopKeeper } from "../src/engine/keeperLoop.js";
 
 const M = 60_000;
 const tour = (sys: string, n: number) => Array.from({ length: n }, (_, i) => `${sys}-M${i}`);
@@ -60,5 +60,28 @@ describe("loops survive a restart", () => {
     assert.deepEqual(decodeLoops(encodeLoops([l])), [l]);
     assert.deepEqual(decodeLoops("{nope"), []);
     assert.deepEqual(decodeLoops(undefined), []);
+  });
+});
+
+describe("planLoopSeeds (operator 2026-11-25: no unread tour-only markets)", () => {
+  const tour = new Map<string, string[]>([["X1-A", ["X1-A-1", "X1-A-2", "X1-A-3", "X1-A-4"]], ["X1-B", ["X1-B-1", "X1-B-2", "X1-B-3"]], ["X1-C", ["X1-C-1", "X1-C-2"]]]);
+  const base = { tourMarkets: tour, loops: [], freeSystems: new Set<string>(), seededSystems: new Set<string>(), taken: new Set<string>() };
+
+  it("seeds a system with enough tour-only markets and no loop, most markets first; never one under the minimum", () => {
+    const out = planLoopSeeds(base, 5);
+    assert.deepEqual(out.map((x) => [x.system, x.market]), [["X1-A", "X1-A-1"], ["X1-B", "X1-B-1"]]);
+  });
+
+  it("skips systems with a loop, a free hull or a pending seed, and markets already taken", () => {
+    const loop = { ship: "S1", system: "X1-A", markets: ["X1-A-1"], idx: 0, lapStartMs: 0 };
+    assert.deepEqual(planLoopSeeds({ ...base, loops: [loop] }, 5).map((x) => x.system), ["X1-B"]);
+    assert.deepEqual(planLoopSeeds({ ...base, freeSystems: new Set(["X1-B"]) }, 5).map((x) => x.system), ["X1-A"]);
+    assert.deepEqual(planLoopSeeds({ ...base, seededSystems: new Set(["X1-A", "X1-B"]) }, 5), []);
+    assert.equal(planLoopSeeds({ ...base, taken: new Set(["X1-A-1"]) }, 1)[0]!.market, "X1-A-2");
+  });
+
+  it("respects the per-pass limit; 0 picks nothing", () => {
+    assert.equal(planLoopSeeds(base, 1).length, 1);
+    assert.equal(planLoopSeeds(base, 0).length, 0);
   });
 });

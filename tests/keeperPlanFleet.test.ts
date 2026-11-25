@@ -37,7 +37,7 @@ function fake(opts: { planOn: boolean; mode?: number; flag?: string; keepers?: [
     recordAction: () => {},
     log: () => {},
   };
-  for (const k of ["keeperPlanPolicy", "keeperRouteSeen", "saveKeeperRouteSeen", "noteKeeperPlanRoutes", "keeperPlanInput", "maybeKeeperPlan", "repinKeeper", "coveredKeeperMarkets", "topUpFacts", "keeperPlanData", "loadLoopKeepers", "isLoopKeeper"]) {
+  for (const k of ["keeperPlanPolicy", "keeperRouteSeen", "saveKeeperRouteSeen", "noteKeeperPlanRoutes", "keeperPlanInput", "maybeKeeperPlan", "repinKeeper", "coveredKeeperMarkets", "topUpFacts", "keeperPlanData", "loadLoopKeepers", "isLoopKeeper", "keeperCoverSystems"]) {
     self[k] = (FleetManager.prototype as any)[k].bind(self);
   }
   self.lastKeeperPlanAt = 0;

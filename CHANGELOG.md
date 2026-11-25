@@ -6,6 +6,31 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-25 — tour-only markets no longer go unread: loop keeper seeds, and the home system is covered
+
+The operator's rule: no market we rely on should carry a price older than 90 minutes. A sweep of the 78 live systems found 42 markets
+with 6+ goods and no keeper that were 9-46 hours old (26) or had never been priced (16), in 20 systems. Two causes:
+
+- **The tour plan left them to tours that never came.** Mode 1 (on since 11-22) gives fixed keepers only to yards, good-route ends and
+  the goods rules; about 400 other markets were "left to touring", but tour ships only fly inside their own system and `queueTours`
+  only sends them to staged systems. The loop keepers built for this on 11-20 need `keeperTourPlan` 3 (set today), and they are made
+  only from idle keepers in the same system, so 9 systems with no idle keeper still got none.
+- **The home system was in no list.** Top-up, the coverage tool and the tour plan all walked the fresh-system queue; X1-AR36 never went
+  through it, so J61 (15 goods), K86 (10), E47 (8) and D39 (7) went 38 hours unpriced.
+
+Changes:
+- `FleetManager.keeperCoverSystems()`: the systems top-up and the tour plan cover are now the live, unheld queue systems plus any system
+  we keep markets in that is not in the queue at all. Used by `topUpFacts` (top-up, `ops keeper_coverage`, `fill_keeper_gaps`) and
+  `keeperPlanInput` (the tour plan and `ops keeper_plan`).
+- New clause `keeperPlanLoopBuy` (mode 3 only, off by default; value = systems seeded per pass, 2): a system with 3+ tour-only markets,
+  no loop keeper and no idle keeper gets one unkept tour-only market put on the keeper list (a "loop seed"); the probe bought for it
+  becomes that system's loop keeper on the next plan pass. A seed is dropped once its system has a loop, or after 3 hours unbought
+  (and taken off the keeper list so it can be tried again). Seeds are saved in fleet flag `keeperLoopSeeds` on every change and
+  restored with the loops at boot.
+- Pure picker `planLoopSeeds` in `src/engine/keeperLoop.ts`; tests in `tests/keeperLoop.test.ts` and the fleet seam in
+  `tests/keeperLoopFleet.test.ts` (seed listed and saved, clause off lists nothing, a seed keeper becomes the loop after a restart,
+  the home system is covered).
+
 ## 2026-11-25 - release for idle traders picks the system they can reach
 
 `decideReleases` (`src/engine/systemRelease.ts`) ranked ready staged systems by keepers in place and pricing only. When a release is for

@@ -127,3 +127,40 @@ export function decodeLoops(raw: string | undefined | null): LoopKeeper[] {
     return [];
   }
 }
+
+/**
+ * Loop seeds (operator, 2026-11-25: "we should never have keepers with prices older than 90 minutes"). A loop keeper is made from an
+ * idle keeper in its own system, so a system with tour-only markets but no idle keeper got no loop and its markets went unread for up
+ * to 46 hours (20 live systems, 42 markets with 6+ goods). This picks, for each such system, one of its unkept tour-only markets to put
+ * on the keeper list; the probe bought for it is turned into the system's loop keeper on arrival (the caller treats a keeper on a seed
+ * market as a free hull).
+ */
+export interface SeedInput {
+  /** Per system, its tour-only markets (from the plan). */
+  tourMarkets: ReadonlyMap<string, readonly string[]>;
+  /** The loops after this pass's planLoops. */
+  loops: readonly LoopKeeper[];
+  /** Systems that still have a free hull (an idle keeper, or a seed keeper waiting): no purchase there. */
+  freeSystems: ReadonlySet<string>;
+  /** Systems with a seed already listed and not yet turned into a loop. */
+  seededSystems: ReadonlySet<string>;
+  /** Markets that already have a keeper or are on the keeper list: never picked as a seed. */
+  taken: ReadonlySet<string>;
+}
+
+export function planLoopSeeds(input: SeedInput, maxPerPass: number, p: LoopPolicy = DEFAULT_LOOP_POLICY): { system: string; market: string; reason: string }[] {
+  const out: { system: string; market: string; reason: string }[] = [];
+  if (maxPerPass <= 0) return out;
+  const looped = new Set(input.loops.map((l) => l.system));
+  const candidates = [...input.tourMarkets.entries()]
+    .filter(([system, markets]) => markets.length >= p.minTourMarkets && !looped.has(system) && !input.freeSystems.has(system) && !input.seededSystems.has(system))
+    // The systems with the most tour-only markets first: one loop reads the most there.
+    .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  for (const [system, markets] of candidates) {
+    if (out.length >= maxPerPass) break;
+    const market = [...markets].sort().find((m) => !input.taken.has(m));
+    if (!market) continue;
+    out.push({ system, market, reason: `${markets.length} tour-only markets, no loop keeper and no idle keeper to make one` });
+  }
+  return out;
+}

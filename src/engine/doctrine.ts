@@ -934,6 +934,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "keeperPlanLoopBuy",
+    name: "Tour plan: buy a loop keeper where no idle keeper exists",
+    description: "Mode 3: a system with tour-only markets, no loop keeper and no idle keeper to make one gets one of its unkept tour-only markets put on the keeper list each pass (this many systems per pass at most); the probe bought for it becomes the system's loop keeper. Operator, 2026-11-25: no market should be priced more than 90 minutes ago; 20 live systems had no loop and no tour, with 6+ goods markets 9-46 h old. Off = loop keepers only from idle keepers, as before.",
+    value: 2, min: 1, max: 10, step: 1, unit: " systems a pass",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "keeperStagingReserve",
     name: "Keepers: slots kept for staging",
     description: "The last this-many slots under the keeper limit are only for staging fresh systems; top-up and other markets stop short of them.",
