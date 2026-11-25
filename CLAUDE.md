@@ -96,11 +96,16 @@ DONE 2026-11-24 12:12: the heavy THEO-161 (2,052,855, UT22-B10B) and the bulk TH
 **8,000-unit push: standing yes (operator, 2026-11-25 ~02:00, "I want to push to 8k units in the next few hours"; mode "Standing yes").** Buy ONE big hull at a
 time (bulk at X1-NM65-XZ5D, or a heavy at X1-VB83-EC8C, X1-KC13-EE2A or X1-UT22-B10B; spread yards to slow the ~1.7% a buy price creep) whenever the wallet
 holds at least the floor (`ops_economy_health` summary.floor, about 0.3-0.4M more per hull) + the hull price + about 2M cushion AND the previous big hull is
-about 45 minutes old. Never two in one round. Before each buy: preflight, a ship of ours docked at the yard, `get_approvals` empty, the ledger read, the route
+about 30 minutes old (changed from 45 by the operator, 2026-11-25 ~02:30, for the 10M/h goal below). Never two in one round. Before each buy: preflight, a ship of ours docked at the yard, `get_approvals` empty, the ledger read, the route
 check for the route it is meant for (CLAUDE.md "Checking a route"), then `buy_ship`, `set_ship_role trader`, a journal line and a report. The hourly report and
 a 30-minute check (send_later) run the test. Stops at 8,000 units of trader cargo (5,535 at 01:58), or if matched profit falls over 25% two hours running, or
 the wallet goes under the floor. Journal-only commits go to the feature branch only while the restart question is open (13 deploys in 7 hours, each after a push
 to main). `freshStagedAhead` was set to 5 now (operator, same message), earlier than the 7,500-unit step. Evidence: journal 2026-11-25.
+**10M/h goal and hull order (operator, 2026-11-25 ~02:30):** "last week late Friday/Sat we ran above 10M an hour for a while; I'm trying to get us to that level as quickly as
+possible." Matched profit last hour 6.60M (15 big hulls, about 440k each); last Saturday 11M/h came from 36-45 hulls at 280-310k each, so the target needs about 23-27
+big hulls (8-12 more). Alternate heavy and bulk (operator's choice): heavies earned about 0.21M/h per million credits against 0.11 for bulks (hour 61), bulks pay
+more on the 490 routes (MERITIUM GQ73 to KC13 about 1.0M a trip at 490 against 655k at 225). Spread yards. Model (rough, cash-bound): 10M/h about 07:15-10:30 UTC at one hull
+every 30 minutes, later at 45. The 8,000-unit push stops at 8,000 units; this goal runs on.
 
 **Swapping small hulls for heavies (operator, 2026-11-20):** as money grows, replace the 40-unit hulls first, then the 80s, with heavy
 freighters. One swap at a time: buy the heavy at the yard nearest the small hull's working area (or a route `ops unflown_routes` shows
