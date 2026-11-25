@@ -767,6 +767,18 @@ export class Store {
     });
   }
 
+  /** Newest price time (ms) per market across the given systems, from market_latest. For the ops `stale_markets` watch. */
+  async marketNewestBySystems(systems: readonly string[]): Promise<Map<string, number>> {
+    if (!systems.length) return new Map();
+    return withPool(this.pool, async (c) => {
+      const res = await c.query(
+        `SELECT waypoint_symbol, MAX(timestamp) AS newest FROM market_latest WHERE system_symbol = ANY($1) GROUP BY waypoint_symbol`,
+        [systems],
+      );
+      return new Map(res.rows.filter((r: any) => r.newest).map((r: any) => [r.waypoint_symbol as string, new Date(r.newest).getTime()]));
+    });
+  }
+
   /** Recent server instances (heartbeat rows, newest first), for the ops `instances` tool. */
   async opsInstances(withinHours: number): Promise<{ instanceId: string; startedAt: string; lastSeen: string; aliveNow: boolean }[]> {
     return withPool(this.pool, async (c) => {
