@@ -85,6 +85,7 @@ import { yardsFirst, unlockYardsFirst } from "./keeperOrder.js";
 import { rotateBySystem, rotationReason, shouldDisplaceCard, systemOf as keeperSystemOf } from "./keeperRotation.js";
 import { PersistedTimers } from "./persistedTimers.js";
 import { DEFAULT_TOPUP_POLICY, coverageRows, pendingForTopUp, pickTopUp, type CoverageRow, type TopUpSystem } from "./keeperTopUp.js";
+import { pickFillBatch, type FillPlan } from "./keeperFill.js";
 import { summarizeDirectory, type DirectoryRow } from "./marketDirectory.js";
 import { advanceLoop, decodeLoops, DEFAULT_LOOP_POLICY, encodeLoops, planLoops, type LoopKeeper } from "./keeperLoop.js";
 import { DEFAULT_KEEPER_PLAN_POLICY, decodeRouteSeen, encodeRouteSeen, fixedReason, noteRouteEnds, planKeepers, resumeTracking, type KeeperPlan, type KeeperPlanPolicy, type PlanMarket, type RouteSeenState } from "./keeperPlan.js";
@@ -6361,7 +6362,7 @@ export class FleetManager {
   private topUpLast?: { at: number; reason: string; market?: string };
 
   /** The live systems with how many of their viable markets are covered, listed or still open, and the load figures top-up decides on. */
-  private async topUpFacts(now: number): Promise<{ systems: TopUpSystem[]; viable: Map<string, number>; pending: number; load: number; perKeeper: number; listedPending: number }> {
+  private async topUpFacts(now: number, ignoreTourPlan = false): Promise<{ systems: TopUpSystem[]; viable: Map<string, number>; pending: number; load: number; perKeeper: number; listedPending: number }> {
     const covered = this.coveredKeeperMarkets();
     const listed = new Set(await this.keeperPriorityMarkets());
     const systems: TopUpSystem[] = [];
@@ -6375,7 +6376,7 @@ export class FleetManager {
     const priced = new Set(((await this.store?.latestMarketSnapshots()) ?? []).map((r) => r.waypointSymbol));
     // A shipyard is always viable, however few goods it trades: a keeper docked at it reads its stock and prices (operator, 2026-11-03).
     const yardMarkets = new Set(((await this.store?.shipyardDirectory()) ?? []).map((y) => y.waypointSymbol));
-    const plan = this.doctrine.isEnabledOr("keeperTourPlan", false) ? { policy: this.keeperPlanPolicy(), state: await this.keeperRouteSeen(now) } : undefined;
+    const plan = !ignoreTourPlan && this.doctrine.isEnabledOr("keeperTourPlan", false) ? { policy: this.keeperPlanPolicy(), state: await this.keeperRouteSeen(now) } : undefined;
     for (const q of this.systemQueue.list()) {
       if (q.state !== "live" || q.held) continue;
       const rows = dir.get(q.system) ?? [];
@@ -6773,6 +6774,36 @@ export class FleetManager {
     await timers?.save(now);
     this.topUpNoteAt = "";
     this.log(`keeper top-up: ${decision.market} added to the keeper list (${decision.reason})`);
+  }
+
+  /**
+   * Operator tool (stcommand_fill_keeper_gaps): list a batch of the live systems' uncovered worthwhile markets for keepers now, with the
+   * tour plan's "fixed keepers only where they earn" filter set aside (keeperFill.ts). Bounded by the call's limit, the keeper limit
+   * (less the staging reserve) and the polling ceiling, judged on measured reads when there are any. dryRun lists the picks and changes nothing.
+   */
+  async fillKeeperGaps(opts: { limit: number; system?: string; dryRun: boolean }): Promise<FillPlan & { applied: boolean; keepersNow: number; readsPerMin: number; ceiling: number; listedPending: number }> {
+    const now = Date.now();
+    const f = await this.topUpFacts(now, true);
+    const max = topUpLimit(this.doctrine.isEnabledOr("keeperMaxTotal", true) ? this.doctrine.value("keeperMaxTotal") : 0, this.keeperStagingReserve());
+    const keepers = this.keeperSlotsUsed();
+    const ceiling = this.doctrine.isEnabledOr("keeperTopUpMaxCalls", true) ? this.doctrine.value("keeperTopUpMaxCalls") : 90;
+    const measured = this.keeperReads?.perMin(now);
+    const useMeasured = this.doctrine.isEnabledOr("keeperTopUpMeasuredLoad", false) && measured !== undefined && measured > 0;
+    const load = useMeasured ? measured! : f.load;
+    const perKeeper = useMeasured ? measured! / Math.max(1, keepers) : f.perKeeper;
+    const plan = pickFillBatch(f.systems, {
+      limit: opts.limit,
+      system: opts.system,
+      slots: max > 0 ? Math.max(0, max - keepers) : undefined,
+      apiRoom: perKeeper > 0 ? Math.max(0, Math.floor((ceiling - load) / perKeeper)) : undefined,
+    });
+    let applied = false;
+    if (!opts.dryRun && plan.markets.length > 0) {
+      await this.addKeeperPriorityMarkets(plan.markets);
+      applied = true;
+      this.log(`keeper fill: ${plan.markets.length} market(s) added to the keeper list by the operator (${plan.reason})`);
+    }
+    return { ...plan, applied, keepersNow: keepers, readsPerMin: Math.round(load * 10) / 10, ceiling, listedPending: f.listedPending };
   }
 
   /** For the ops tool keeper_coverage: per live system, its viable markets, how many have a keeper and how many top-up still has to add, and why top-up is or is not adding. */

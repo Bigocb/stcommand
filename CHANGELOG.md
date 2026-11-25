@@ -6,6 +6,17 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-25 - stcommand_fill_keeper_gaps: cover uncovered worthwhile markets in one batch
+
+New MCP write tool (`src/engine/keeperFill.ts`, `FleetManager.fillKeeperGaps`, `src/mcp/tools.ts`). Top-up adds one market every 5 minutes
+(max 12 an hour) and, with the tour plan on (`keeperTourPlan`, issue #63), only markets that earn a fixed keeper. On 2026-11-25 that left
+135 of 833 viable markets in the 71 live systems without a keeper (`ops keeper_coverage` shows "uncovered 3" because it counts only what
+top-up may still add), and four 4-6 good markets in X1-GQ73 had not been read for 33 hours, so routes could not use them (routes ignore
+prices older than 90 minutes). The tool picks up to `limit` of them (default 30), least-covered system first and one market per system per
+round, stops at the keeper limit (less the staging reserve) and the polling ceiling (`keeperTopUpMaxCalls`, on measured reads when
+`keeperTopUpMeasuredLoad` is on), and lists them; the usual queue buys the probes. `dryRun` (default true) only shows the picks.
+`topUpFacts` takes an `ignoreTourPlan` flag for this. Tests: `tests/keeperFill.test.ts`.
+
 ## 2026-11-25 - releasing a system no longer re-parks its keepers
 
 `FleetManager.releaseSystem` (`src/engine/fleet.ts`) unparked a staged system's keepers one at a time (about 1.5 s each, awaited) and

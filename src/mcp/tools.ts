@@ -948,6 +948,29 @@ export function registerTools(server: McpServer, w: TenantWorker): void {
   );
 
   server.registerTool(
+    "stcommand_fill_keeper_gaps",
+    {
+      title: "Cover uncovered worthwhile markets in one batch",
+      description: "List a batch of the live systems' worthwhile markets that have no keeper (4+ goods or a shipyard, listed or not) for keepers now, with the tour plan's 'fixed keepers only where they earn' filter set aside. Least-covered system first, one market per system per round; stops at `limit`, the keeper limit (less the staging reserve) and the polling ceiling (keeperTopUpMaxCalls). Listed markets are bought like any keeper (auto-approve under its cap, else an approval card). dryRun (default true) shows the picks and changes nothing; set dryRun=false to list them. Added 2026-11-25 after four 4-6 good markets in X1-GQ73 had gone 33 hours unread under the tour plan.",
+      inputSchema: {
+        limit: z.number().int().min(1).max(200).default(30).describe("Most markets to add in this call"),
+        system: z.string().optional().describe("Only this system, e.g. X1-GQ73"),
+        dryRun: z.boolean().default(true).describe("true = show the picks only"),
+      },
+      annotations: { destructiveHint: false, idempotentHint: false },
+    },
+    async ({ limit, system, dryRun }) => {
+      try {
+        const r = await w.fleet.fillKeeperGaps({ limit, system, dryRun });
+        if (r.applied) await recordMcpAction(w, "fill_keeper_gaps", undefined, `${r.markets.length} uncovered market(s) listed for keepers`, { markets: r.markets, bySystem: r.bySystem });
+        return textResult({ ok: true, ...r });
+      } catch (err) {
+        return errorResult(err);
+      }
+    },
+  );
+
+  server.registerTool(
     "stcommand_approve_upcoming",
     {
       title: "Approve an upcoming keeper market",
