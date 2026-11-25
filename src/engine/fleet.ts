@@ -3502,7 +3502,7 @@ export class FleetManager {
           hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             keeperMarket: () => this.keeperMarkets.get(ship.symbol), keeperLooping: () => this.isLoopKeeper(ship.symbol),
             keeperPollMs: (wp) => this.keeperPollMs(wp), keeperReadWaitMs: (wp) => this.readTiers.waitMs(wp, Date.now()),
-            onKeeperRead: (m) => this.onKeeperRead(ship.symbol, m), keeperSkipRead: (wp) => this.keeperShipSkipsRead(wp),
+            onKeeperRead: (m) => this.onKeeperRead(ship.symbol, m), keeperSkipRead: (wp) => this.keeperShipSkipsRead(wp, ship.symbol),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -3854,7 +3854,7 @@ export class FleetManager {
           hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
             keeperMarket: () => this.keeperMarkets.get(shipSymbol), keeperLooping: () => this.isLoopKeeper(shipSymbol),
             keeperPollMs: (wp) => this.keeperPollMs(wp), keeperReadWaitMs: (wp) => this.readTiers.waitMs(wp, Date.now()),
-            onKeeperRead: (m) => this.onKeeperRead(shipSymbol, m), keeperSkipRead: (wp) => this.keeperShipSkipsRead(wp),
+            onKeeperRead: (m) => this.onKeeperRead(shipSymbol, m), keeperSkipRead: (wp) => this.keeperShipSkipsRead(wp, shipSymbol),
             getCredits: () => this.spendableCredits(),
             galaxy: this.galaxy,
             store: this.store,
@@ -6747,7 +6747,10 @@ export class FleetManager {
   }
 
   /** Whether a keeper ship skips its own read of `market` because the scheduler read it within its interval (with slack). */
-  private keeperShipSkipsRead(market: string): boolean {
+  private keeperShipSkipsRead(market: string, ship?: string): boolean {
+    // A loop keeper steps to its next market only after its own read (onKeeperRead), so it never skips one. 2026-11-25: with the
+    // read scheduler on, every loop keeper skipped its read (the scheduler had read the market) and stood still from the first stop.
+    if (ship && this.isLoopKeeper(ship)) return false;
     const policy = this.keeperReadPolicy();
     if (!policy.enabled) return false;
     const at = Date.parse(this.registry.market(market)?.fetchedAt ?? "");
@@ -12409,7 +12412,7 @@ export class FleetManager {
         hasPendingKeeperApproval: (wp) => this.hasPendingKeeperProbeApproval(wp),
         keeperMarket: () => this.keeperMarkets.get(sym), keeperLooping: () => this.isLoopKeeper(sym),
         keeperPollMs: (wp) => this.keeperPollMs(wp), keeperReadWaitMs: (wp) => this.readTiers.waitMs(wp, Date.now()),
-        onKeeperRead: (m) => this.onKeeperRead(sym, m), keeperSkipRead: (wp) => this.keeperShipSkipsRead(wp),
+        onKeeperRead: (m) => this.onKeeperRead(sym, m), keeperSkipRead: (wp) => this.keeperShipSkipsRead(wp, sym),
         getCredits: () => this.spendableCredits(),
         scrapHere: async (sym: string) => { await this.scrapShip(sym); },
         galaxy: this.galaxy,

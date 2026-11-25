@@ -107,3 +107,20 @@ describe("loop seeds at the fleet seam (operator 2026-11-25)", () => {
     assert.deepEqual(self.keeperCoverSystems(), ["X1-AA", "X1-ZZ"]);
   });
 });
+
+describe("loop keepers and the keeper read scheduler (2026-11-25)", () => {
+  it("a loop keeper never skips its own read, so it keeps stepping; an ordinary keeper still defers to the scheduler", async () => {
+    const { self } = fake({ mode: 3, flags: { keeperRouteSeen: old } });
+    await self.maybeKeeperPlan();
+    assert.ok(self.isLoopKeeper("S-1"));
+    Object.assign(self, {
+      keeperReadPolicy: () => ({ enabled: true, targetPassMin: 10 }),
+      keeperReadLaneCapacity: () => 100,
+      keeperReadInterval: () => undefined,
+      registry: { market: () => ({ fetchedAt: new Date().toISOString() }) },
+    });
+    const skips = (FleetManager.prototype as any).keeperShipSkipsRead.bind(self);
+    assert.equal(skips("X1-AA-K1", "S-1"), false, "loop keeper reads itself");
+    assert.equal(skips("X1-AA-K1", "S-2"), true, "a plain keeper skips a market the scheduler just read");
+  });
+});

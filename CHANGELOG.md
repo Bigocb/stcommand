@@ -6,6 +6,14 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-25 — loop keepers step again with the read scheduler on
+
+Found at the 19:12 hourly: CJ53's loop keeper (THEO-3F, made 16:58) had not moved off its first market in two hours, and its tracked
+markets stayed 46 h old. A keeper skips its own market read when the keeper read scheduler (`keeperReadScheduler`, on since 13:40 on
+11-25) has read that market recently, and a loop keeper steps to its next market only after its own read (`onKeeperRead`). So every
+loop keeper read nothing and stood still. `keeperShipSkipsRead` now takes the ship and never skips for a loop keeper. Test in
+`tests/keeperLoopFleet.test.ts`.
+
 ## 2026-11-25 — ops agent_curve and rival_activity bySystem
 
 Two read-only views the operator asked for on 2026-11-25 ("look at where the competition is", "I'm curious if the other traders are
