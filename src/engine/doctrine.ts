@@ -650,7 +650,7 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     key: "freshTarget",
     name: "Fresh systems: live target",
     description: "How many systems with a live premium (opened less than the fade age ago and still earning above the fade ratio) the engine keeps at once when Fresh systems is on auto. A system within the lead time of fading does not count, so the next one is opened in time. Takes effect on the next check.",
-    value: 3, min: 1, max: 12, step: 1, unit: " systems",
+    value: 3, min: 1, max: 40, step: 1, unit: " systems",
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
