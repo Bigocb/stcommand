@@ -791,3 +791,8 @@ table.mf .dim{color:var(--dim)}
 .apv-list .approval .kind{font-size:12px} .apv-list .approval .body{font-size:15px} .apv-list .approval .body code{font-size:14px} .apv-list .approval .meta{font-size:12px}
 .apv-list .btn{font-size:13px;min-height:44px;padding:10px 22px}
 .apv-empty{color:var(--dim);font:1rem var(--mono);padding:18px;background:var(--panel);border:1px solid var(--hair);border-radius:12px}
+
+/* Route length tag (operator, 2026-11-26): short = a light hauler may fly the loaded leg, long = heavies and bulks. */
+.len-tag{font-family:var(--mono);font-size:9px;margin-left:6px;padding:0 4px;border-radius:3px;text-transform:uppercase;letter-spacing:.04em;border:1px solid currentColor}
+.len-tag.short{color:var(--teal)}
+.len-tag.long{color:var(--amber)}

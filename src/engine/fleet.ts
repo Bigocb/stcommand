@@ -1575,6 +1575,18 @@ export class FleetManager {
     return this.doctrine.isEnabledOr("autoCrossSystemRoutes", false) && this.galaxy.jumpPath(from, to) !== undefined;
   }
 
+  /** Gate jumps between two systems over known paths (0 for the same system), or undefined when no path is known. */
+  routeGateHops(from: string, to: string): number | undefined {
+    if (from === to) return 0;
+    const path = this.galaxy.jumpPath(from, to);
+    return path ? path.length - 1 : undefined;
+  }
+
+  /** Most loaded-leg gate jumps a route may have and still count as short: the slow-hull hauled limit when it is on, else 1. */
+  shortRouteMaxHops(): number {
+    return this.doctrine.isEnabledOr("slowHullHauledHops", false) ? this.doctrine.value("slowHullHauledHops", 1) : 1;
+  }
+
   /** Read by every auto-buyer (traders, ships, feeds, missions) before it starts a purchase. */
   windDownBlocksBuys(): boolean {
     return this.windDownState().active;

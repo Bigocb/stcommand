@@ -44,7 +44,7 @@ import { initDeckMap, renderDeckMap, setDeckMapVisible, setDeckMapSystem, getDec
 import { keeperCoverage, chainHealthHtml, getRouteSort, setRouteSort, sortRoutes, routeSortBar, tripLabel, skipReasonHtml, runsLeftHtml } from "/shared/domain.js";
 import { cooldownHtml, startCooldownTicker, tickCooldowns, loadCollapsed, toggleCollapsed, roleRank } from "/shared/cooldown.js";
 import { jumpPlannerHtml } from "/shared/jump.js";
-import { routeScope, getRouteScope, setRouteScope, routeScopeBar } from "/shared/domain.js";
+import { routeScope, getRouteScope, setRouteScope, routeScopeBar, getRouteLength, setRouteLength, filterRouteLength, routeLengthBar, routeLengthTag } from "/shared/domain.js";
 import { jobKind, JOB_KINDS, fmt, signed, escapeHtml, fmtTime, shortWp, chainNote, roleMismatchReason, cargoValueText, cargoValueTitle, cargoProfit, walletPlusHolds, walletForHolds, paceSparkline, paceTrend, isNetworkError, DROPPED_REQUEST_NOTE } from "/shared/domain.js";
 
 const $ = (id) => document.getElementById(id);
@@ -694,6 +694,8 @@ $("mk-routes").addEventListener("click", (e) => {
   if (why) { const k = why.dataset.key; openWhy.has(k) ? openWhy.delete(k) : openWhy.add(k); return renderMarkets(); }
   const sc = e.target.closest("button[data-act='route-scope']");
   if (sc) { setRouteScope(sc.dataset.scope); return renderMarkets(); }
+  const ln = e.target.closest("button[data-act='route-length']");
+  if (ln) { setRouteLength(ln.dataset.length); return renderMarkets(); }
   const b = e.target.closest("button[data-act='route-sort']");
   if (!b) return;
   setRouteSort(b.dataset.mode);
@@ -1473,12 +1475,15 @@ function renderMarkets() {
     const sortMode = getRouteSort();
     // Local = buy and sell in one system (what a local-only ship can fly); cross-system = everything else.
     const scope = getRouteScope();
-    const scoped = scope === "all" ? marketRoutes : marketRoutes.filter((r) => routeScope(r) === scope);
+    const scopedAll = scope === "all" ? marketRoutes : marketRoutes.filter((r) => routeScope(r) === scope);
+    // Short or long against the light haulers' gate limit (routeLengthTag), on top of the local/cross scope.
+    const length = getRouteLength();
+    const scoped = filterRouteLength(scopedAll, length);
     const sorted = sortRoutes(scoped, sortMode);
     // Top 20, like Tower's Routes list (the panel scrolls).
     const topRoutes = sorted.slice(0, ROUTES_SHOWN);
-    const bars = `<div class="route-bars">${routeScopeBar(scope, marketRoutes)}${routeSortBar(sortMode)}</div>`;
-    if (!topRoutes.length) return bars + `<div class="empty">No ${scope === "local" ? "local" : "cross-system"} routes right now.</div>`;
+    const bars = `<div class="route-bars">${routeScopeBar(scope, marketRoutes)}${routeLengthBar(length, scopedAll)}${routeSortBar(sortMode)}</div>`;
+    if (!topRoutes.length) return bars + `<div class="empty">No ${length !== "all" ? `${length} ` : ""}${scope === "local" ? "local" : scope === "cross" ? "cross-system" : ""} routes right now.</div>`;
     return bars + topRoutes.map((r) => {
       const status = r.flownBy?.length
         ? `<div class="route route-flying">flying: ${r.flownBy.map(escapeHtml).join(", ")}</div>`
@@ -1488,7 +1493,7 @@ function renderMarkets() {
       return `
       <div class="goodrow${r.protectedGood ? " protected" : ""}"${r.protectedGood ? ' title="Protected good: reserved for a gate mission or contract. Auto trading skips it; a manual pin can still fly it."' : ""}>
         <div style="flex:1">
-          <div class="name">${escapeHtml(r.goodSymbol)}${r.protectedGood ? ' <span class="prot-tag">protected</span>' : ""}</div>
+          <div class="name">${escapeHtml(r.goodSymbol)}${routeLengthTag(r)}${r.protectedGood ? ' <span class="prot-tag">protected</span>' : ""}</div>
           <div class="route">${escapeHtml(r.buyAt)} → ${escapeHtml(r.sellAt)} · ${sub} · ${runsLeftHtml(r)}</div>
           ${status}
           ${holdLine(r)}

@@ -407,6 +407,33 @@ export function routeScopeBar(scope, routes) {
   const b = (m, label) => `<button class="${scope === m ? "on" : ""}" data-act="route-scope" data-scope="${m}">${label} ${n[m]}</button>`;
   return `<div class="route-sort"><span>Show</span>${b("all", "All")}${b("local", "Local")}${b("cross", "Cross-system")}</div>`;
 }
+// Short = the loaded leg crosses no more gates than the slow-hull limit, so a light hauler may fly it; long = heavies
+// and bulks only (operator, 2026-11-26). The server sets r.length and r.hops (src/engine/routeLength.ts).
+const ROUTE_LENGTH_KEY = "stcommand.routeLength";
+export function getRouteLength() {
+  try { const v = localStorage.getItem(ROUTE_LENGTH_KEY); return v === "short" || v === "long" ? v : "all"; } catch { return "all"; }
+}
+export function setRouteLength(length) {
+  try { localStorage.setItem(ROUTE_LENGTH_KEY, length); } catch { /* storage unavailable: the choice just won't persist */ }
+}
+/** Routes that pass the length filter ("all" keeps every route, including ones with no known gate path). */
+export function filterRouteLength(routes, length) {
+  return length === "all" ? routes : routes.filter((r) => r.length === length);
+}
+/** The length toggle's markup, with counts; clicks are handled by the caller on [data-act='route-length']. */
+export function routeLengthBar(length, routes) {
+  const n = { all: routes.length, short: routes.filter((r) => r.length === "short").length, long: routes.filter((r) => r.length === "long").length };
+  const b = (m, label) => `<button class="${length === m ? "on" : ""}" data-act="route-length" data-length="${m}">${label} ${n[m]}</button>`;
+  return `<div class="route-sort"><span>Length</span>${b("all", "All")}${b("short", "Short")}${b("long", "Long")}</div>`;
+}
+/** The card's "short · 1 jump" / "long · 3 jumps" tag, or "" when the gate path is unknown. */
+export function routeLengthTag(r) {
+  if (r.length !== "short" && r.length !== "long") return "";
+  const jumps = r.hops === 0 ? "same system" : `${r.hops} jump${r.hops === 1 ? "" : "s"}`;
+  const title = r.length === "short" ? "Short: a light hauler may fly this loaded leg" : "Long: past the light haulers' gate limit, heavies and bulks only";
+  return ` <span class="len-tag ${r.length}" title="${title}">${r.length} · ${jumps}</span>`;
+}
+
 /** "~35 min trip" / "" for the route's round-trip time. */
 export function tripLabel(r) {
   if (!r.tripSeconds) return "";

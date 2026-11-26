@@ -6,6 +6,17 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-26 - Route cards say short or long, with a filter
+
+Operator, 2026-11-26: after the slow-hull limit was turned on (light haulers, engine speed 15, may haul across at most
+`slowHullHauledHops` gates, 1 now), the route boards in Tower and Deck tag every route **short** (a light hauler may fly its
+loaded leg) or **long** (past that limit, so heavies and bulks only), with the gate count ("short · same system",
+"long · 3 jumps"). A new **Length** toggle (All / Short / Long, with counts) sits beside the Local / Cross-system one and is
+remembered per browser. The server adds `hops` and `length` to each `/api/markets` route (pure classifier in
+`src/engine/routeLength.ts`, `FleetManager.routeGateHops()` / `shortRouteMaxHops()`), and `shortRouteMaxHops` to the
+response; a route with no known gate path has no tag and shows only under All. Short means the loaded leg only: how far a
+ship must travel empty to reach the buy market depends on the ship, not the route. Tests: `tests/routeLength.test.ts`.
+
 ## 2026-11-26 - `freshTarget` can go to 40
 
 The fresh-system live target stopped at 12. With releases every 8 minutes (`freshMinGapMin` 8, operator 2026-11-26) and a 4-hour fade,

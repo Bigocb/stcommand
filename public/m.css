@@ -1146,3 +1146,8 @@ input, select, textarea { font-size: 16px; }
 .econ-confirm-notes { font-size: 15px; color: var(--ice); line-height: 1.45; }
 .econ-confirm-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 4px; }
 .econ-confirm-actions .btn { min-height: 52px; font-size: 17px; }
+
+/* Route length tag (operator, 2026-11-26): short = a light hauler may fly the loaded leg, long = heavies and bulks. */
+.route-row .len-tag { font-family: var(--mono); font-size: 13px; margin-left: 6px; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; letter-spacing: .04em; font-weight: 400; border: 1px solid currentColor; vertical-align: 2px; }
+.route-row .len-tag.short { color: var(--ice); }
+.route-row .len-tag.long { color: var(--amber); }

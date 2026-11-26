@@ -37,6 +37,7 @@ import { routeUnreachableReason } from "../engine/routeReach.js";
 import { buyPreflight } from "../ops/economy.js";
 import { rankAgent } from "../engine/agentRank.js";
 import { StateBodyCache, slimShip } from "./stateBody.js";
+import { classifyRouteLength } from "../engine/routeLength.js";
 
 /**
  * The command-center dashboard's JSON API — a tenant-scoped port of
@@ -826,6 +827,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       const systems = [...new Set(allSnapshots.map((s) => s.systemSymbol))].sort();
 
       const dispatchRoutes = await w.fleet.computeDispatchRoutesCached();
+      const shortMaxHops = w.fleet.shortRouteMaxHops();
       let allRoutes = dispatchRoutes.map((r) => ({
         goodSymbol: r.good,
         buyAt: r.buyAt,
@@ -850,6 +852,8 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         })(),
         profitByHold: r.profitByHold ?? null,
         crossSystem: r.buySystem !== r.sellSystem,
+        // Short (a light hauler may fly the loaded leg under the slow-hull limit) or long (heavies and bulks): src/engine/routeLength.ts.
+        ...classifyRouteLength(w.fleet.routeGateHops(r.buySystem, r.sellSystem), shortMaxHops),
         ageMinutes: r.ageMinutes,
       }));
       // Drop a cross-system route the fleet cannot actually fly today — no
@@ -945,7 +949,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       const intel = await w.fleet.getIntel();
       const shipyards = systemFilter ? intel.shipyards.filter((y) => y.systemSymbol === systemFilter) : intel.shipyards;
       const modules = systemFilter ? intel.modules.filter((m) => m.systemSymbol === systemFilter) : intel.modules;
-      res.json({ routes, snapshots, shipyards, modules, systems, traderExclusions });
+      res.json({ routes, snapshots, shipyards, modules, systems, traderExclusions, shortRouteMaxHops: shortMaxHops });
     } catch (err) {
       console.error("[dashboard] /markets error", err);
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
