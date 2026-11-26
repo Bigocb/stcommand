@@ -6,7 +6,8 @@ import { isOperator, operatorAgents } from "./operatorFlag.js";
 import { SNAPSHOT_KIND, fleetPoints } from "../engine/hourlySnapshot.js";
 import { checkpoints, drawnPoints, gateAligned, gateOpenToFirstJob, hoursReached, likeForLike, toPoints, weekTotals, type WeekSeries } from "../engine/weekCompare.js";
 import { GATE_OPEN_SUBJECT } from "../engine/actionEvents.js";
-import { forecastFrom, forecastPolicyFromDoctrine, forecastWeek, gateHourOf, joinForecast, type ForecastPoint } from "../engine/forecast.js";
+import { forecastFrom, forecastPolicyFromDoctrine, forecastWeek, gateHourOf, joinForecast, typicalHullPrice, type ForecastPoint } from "../engine/forecast.js";
+import { buyRulesFrom } from "../engine/buyAdvice.js";
 
 /**
  * Week over week (src/engine/weekCompare.ts), for the Season screen's Compare tab and Tower's card. Mounted in the dashboard router.
@@ -109,13 +110,24 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
       const reached = hoursReached(a);
       const last = pa[reached];
       let fc: ForecastPoint[] | null = null;
-      let anchored: { hour: number; gateOpenHour: number | null; baseRate: number | null } | null = null;
+      let anchored: { hour: number; gateOpenHour: number | null; baseRate: number | null; bigHulls?: number; hullShare?: number; hullPrice?: number } | null = null;
       if (sized && doctrine?.isEnabled("weekForecastAnchor") && last && last.wallet !== null) {
         const gateAt = a.gateOpenHour ?? null;
         const real: ForecastPoint[] = pa.slice(0, reached + 1).map((x) => ({ hour: x.hour, gateOpen: gateAt !== null && x.hour >= gateAt, cumPnl: x.cumPnl, pnl: x.pnl, rate: x.rate, units: x.units, wallet: x.wallet ?? last.wallet!, bigHulls: 0, note: "real" }));
-        const f = forecastFrom({ hour: reached, cumPnl: last.cumPnl, wallet: last.wallet, units: last.units, gateOpenHour: gateAt, pnlByHour: pa.slice(0, reached + 1).map((x) => x.pnl) }, sized);
+        // The live week only: the big hulls trading now and the yards' typical heavy price (2026-11-26: without them the line bought a
+        // whole new fleet on top of the real one).
+        const live = !!w.fleet && a.universeKey === tenantUniverse(w.tenantId);
+        let bigHulls = 0;
+        let hullPrice: number | undefined;
+        if (live && w.fleet) {
+          const bigCargo = buyRulesFrom(w.fleet.doctrine).bigHullCargo;
+          bigHulls = w.fleet.fleetStatusSummary().filter((s) => s.role === "trader" && s.cargoCap > bigCargo).length;
+          const inv = await w.store.shipyardInventory().catch(() => []);
+          hullPrice = typicalHullPrice(inv.filter((r) => r.shipType === "SHIP_HEAVY_FREIGHTER").map((r) => ({ price: r.purchasePrice, readAt: Date.parse(r.timestamp) })), Date.now()) ?? undefined;
+        }
+        const f = forecastFrom({ hour: reached, cumPnl: last.cumPnl, wallet: last.wallet, units: last.units, gateOpenHour: gateAt, pnlByHour: pa.slice(0, reached + 1).map((x) => x.pnl), bigHulls, hullPrice }, sized);
         fc = joinForecast(real, f.points);
-        anchored = { hour: reached, gateOpenHour: gateAt, baseRate: f.baseRate };
+        anchored = { hour: reached, gateOpenHour: gateAt, baseRate: f.baseRate, bigHulls, hullShare: f.hullShare, hullPrice: f.policy.hullPrice };
       } else if (sized) {
         fc = forecastWeek(sized);
       }

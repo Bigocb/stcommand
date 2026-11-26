@@ -6,6 +6,26 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-26 - Forecast counts the big hulls already trading; keeper top-up can go to 20 an hour
+
+The compare charts' anchored forecast (`forecastFrom`, `src/engine/forecast.ts`) took the last six real hours as its base rate and then
+bought a whole simulated fleet on top: it was told 0 big hulls were trading (`/api/compare` passed none), so at hour 86 it showed a
+plateau of about 22.8M/h and about 2.0B for the week while 31 big hulls were already earning the 10.5M/h it started from.
+
+Three changes:
+- `/api/compare` now passes, for the live week only, the big hulls trading now (traders over `buyAdviceBigHullCargo`) and the yards'
+  typical heavy price (`typicalHullPrice`: the median of SHIP_HEAVY_FREIGHTER listings read in the last 24 h).
+- `forecastFrom` lets those hulls trade from the anchor at the crowded yield for their number and takes that yield out of the base rate
+  (`hullShare`), so the base is what the rest of the fleet makes. New hulls are priced at the anchor's hull price.
+- The legend says how many big hulls were counted.
+
+With no hulls given, the output is unchanged (tested). Hour-86 numbers: plateau about 12.8M/h, peak about 14.6M/h, week end about
+1.28B (was 24.7M/h and 2.03B). Light haulers are not yet a hull type in the forecast: their profit is in the base rate once they trade.
+
+Also: `keeperTopUpPerHour`'s range now goes to 20 (it was 12; the operator asked for 15 on 2026-11-26).
+
+Tests: `tests/forecast.test.ts` (3 new).
+
 ## 2026-11-26 - A load already aboard is not stranded by a lower jump limit
 
 2026-11-25 THEO-25F bought 300 MERITIUM at X1-VQ16 for X1-MP5 at 19:22. At 19:35 `positioningHops` went from 7 to 5, MP5 was

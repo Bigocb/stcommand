@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { DEFAULT_FORECAST, firstHourAt, floorFor, forecastFrom, forecastPolicyFromDoctrine, forecastWeek, gateHourOf, hullYield, joinForecast, marginalYield } from "../src/engine/forecast.js";
+import { DEFAULT_FORECAST, firstHourAt, floorFor, forecastFrom, forecastPolicyFromDoctrine, forecastWeek, gateHourOf, hullYield, joinForecast, marginalYield, typicalHullPrice } from "../src/engine/forecast.js";
 
 test("forecast: one point per hour, cumulative profit never falls", () => {
   const pts = forecastWeek();
@@ -118,4 +118,35 @@ test("forecast: the plan-only line is unchanged by the anchor code (clause off r
   assert.deepEqual(a, b);
   assert.equal(a.length, 168);
   assert.equal(a[0]!.wallet > 0, true);
+});
+
+test("forecastFrom: big hulls already trading are taken out of the base rate, not bought a second time (2026-11-26)", () => {
+  // Six real hours at about 10.5M/h with 31 big hulls trading (the 2026-11-26 hour-86 case).
+  const pnl = [9_000_000, 10_000_000, 10_500_000, 11_000_000, 10_500_000, 12_000_000];
+  const anchor = { hour: 86, cumPnl: 238_000_000, wallet: 45_000_000, units: 300_000, gateOpenHour: 22, pnlByHour: pnl };
+  const without = forecastFrom(anchor);
+  const withHulls = forecastFrom({ ...anchor, bigHulls: 31 });
+  const share = Math.round(31 * hullYield(31, DEFAULT_FORECAST));
+  assert.equal(withHulls.hullShare, share);
+  assert.equal(withHulls.policy.postGateBase, withHulls.baseRate! - share, "base = recent rate less the hulls' share");
+  // The first forecast hour reproduces the recent rate instead of adding a new fleet on top of it.
+  assert.ok(Math.abs(withHulls.points[0]!.pnl - withHulls.baseRate!) < 0.05 * withHulls.baseRate!, `first hour ${withHulls.points[0]!.pnl} near ${withHulls.baseRate}`);
+  const peak = (r: ReturnType<typeof forecastFrom>) => Math.max(...r.points.map((p) => p.pnl));
+  assert.ok(peak(withHulls) < peak(without), "counting the real hulls lowers the plateau");
+  assert.equal(without.hullShare, 0, "no hulls given: unchanged behaviour");
+});
+
+test("forecastFrom: the anchor's hull price replaces the calibrated one", () => {
+  const a = forecastFrom({ hour: 86, cumPnl: 1, wallet: 45_000_000, units: 1, gateOpenHour: 22, pnlByHour: [1, 1, 1, 1, 1, 1], hullPrice: 1_850_000 });
+  assert.equal(a.policy.hullPrice, 1_850_000);
+  assert.equal(forecastFrom({ hour: 86, cumPnl: 1, wallet: 1, units: 1, gateOpenHour: 22, pnlByHour: [1, 1, 1] }).policy.hullPrice, DEFAULT_FORECAST.hullPrice);
+});
+
+test("typicalHullPrice: median of fresh listings, null when none", () => {
+  const now = 100 * 3_600_000;
+  const fresh = (price: number) => ({ price, readAt: now - 3_600_000 });
+  assert.equal(typicalHullPrice([fresh(1_800_000), fresh(1_900_000), fresh(2_900_000)], now), 1_900_000);
+  assert.equal(typicalHullPrice([fresh(1_800_000), fresh(2_000_000)], now), 1_900_000);
+  assert.equal(typicalHullPrice([{ price: 1_000_000, readAt: 0 }], now), null, "older than 24 h is ignored");
+  assert.equal(typicalHullPrice([], now), null);
 });

@@ -951,7 +951,7 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     key: "keeperTopUpPerHour",
     name: "Keepers: top up live systems",
     description: "Add this many more worthwhile markets an hour to the keeper list, from systems that are already live, least-covered system first (a fresh system starts with only its best few markets, see Fresh systems: keepers per system). Each one is then bought like any keeper (approval card, or auto-approve under its cap). It adds nothing while the keepers' polling load is at the ceiling below, the keeper limit is reached, or 3 listed markets still wait for a keeper. Off (the default) = live systems keep only the markets they started with. See src/engine/keeperTopUp.ts.",
-    value: 2, min: 1, max: 12, step: 1, unit: " per hour",
+    value: 2, min: 1, max: 20, step: 1, unit: " per hour",
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
