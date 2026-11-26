@@ -101,10 +101,10 @@ All are in `DEFAULT_CONFIG` in `rules.ts`.
 | `leaderWeight` | 1 | Pressure on the leader: hostile event rate (12% per tick per point) and bots' raid preference. |
 | `stripBurst`, `stripDecay` | 8, 0.2 | The size of a strip's payout and how much yield it destroys. |
 | `occupationUnrest`, `garrisonCalm` | 2, 0.6 | How fast conquered worlds riot, and how much a garrison unit calms them. |
-| `terraformCost`, `terraformStep`, `terraformCap` | 30, 0.6, 3 | Price, gain per action and ceiling of terraforming. |
+| `terraformCost`, `terraformStep`, `terraformCap` | 30, 0.4, 3 | Price, gain per action and ceiling of terraforming. |
 | `raidShare`, `raidBankShare`, `raidRange` | 0.5, 0.01, 2 | How much a raid takes, and how far raiders reach. |
 | `firstChartPremium`, `premiumHours` | 1.7, 36 | The first charter's premium and how long it lasts. |
-| `lateJoinGrant` | 0 | Extra resources for a late joiner per tick of lateness. Off by default; the report tests it. |
+| `lateJoinGrant` | 40 | Extra resources for a late joiner per tick of lateness (was 0 before 2026-11-26). |
 | `intelDelay` | 3 | Ticks of delay on what bots see of others. |
 
 ## How to read the report

@@ -201,7 +201,7 @@ const FIXES: Record<Strategy, { label: string; overrides: Partial<Config> }[]> =
     { label: 'occupationUnrest 2 -> 3.5', overrides: { occupationUnrest: 3.5 } },
   ],
   terraformer: [
-    { label: 'terraformStep 0.6 -> 0.4', overrides: { terraformStep: 0.4 } },
+    { label: 'terraformStep 0.4 -> 0.3', overrides: { terraformStep: 0.3 } },
     { label: 'terraformCost 30 -> 45', overrides: { terraformCost: 45 } },
     { label: 'terraformCap 3 -> 2', overrides: { terraformCap: 2 } },
   ],
@@ -242,13 +242,16 @@ function main(): void {
   const cfg = makeConfig();
   const results = runMany(N, cfg);
   const S = summarize(results);
+  // The defaults before 2026-11-26, on the same seeds, so the report shows what the change did.
+  const PREV: Partial<Config> = { terraformStep: 0.6, lateJoinGrant: 0 };
+  const prevS = summarize(runMany(N, makeConfig(PREV)));
 
   // ---- sensitivity sweep
   const sweeps: { knob: keyof Config; values: number[] }[] = [
     { knob: 'bandwidthExponent', values: [0.3, 0.5, 0.7, 1.0] },
     { knob: 'upkeepRes', values: [0.3, 0.6, 1.2, 2.0] },
     { knob: 'leaderWeight', values: [0, 1, 2, 4] },
-    { knob: 'lateJoinGrant', values: [0, 10, 20, 40] },
+    { knob: 'lateJoinGrant', values: [0, 20, 40, 60] },
   ];
   const sweepRows: SweepRow[] = [];
   for (const sw of sweeps) {
@@ -409,6 +412,12 @@ function main(): void {
       x.lateMeanRank === null ? '-' : f2(x.lateMeanRank), x.lateTop2 === null ? '-' : pct(x.lateTop2), f2(balanceScore(x)),
     ])), '');
   }
+  md.push('## Change from the previous defaults', '');
+  md.push(`The defaults changed on 2026-11-26: \`terraformStep 0.6 -> 0.4\` and \`lateJoinGrant 0 -> 40\` (the combined recommendation of the previous report). Full ${N} seasons on the main seeds:`, '');
+  md.push(table(['', ...STRATEGIES, 'entropy', 'leader@25% wins', 'leader@50% wins', 'late mean rank', 'late top two', 'balance'], [prevS, S].map((x, i) => [
+    i === 0 ? 'previous defaults' : 'new defaults', ...STRATEGIES.map((st) => pct(x.share[st])), f2(x.entropy), pct(x.snowball25), pct(x.snowball50),
+    x.lateMeanRank === null ? '-' : f2(x.lateMeanRank), x.lateTop2 === null ? '-' : pct(x.lateTop2), f2(balanceScore(x)),
+  ])), '');
   md.push('## Reading the results', '');
   for (const r of sweepRows.filter((x) => x.knob === 'bandwidthExponent' && x.s.maxShare >= 0.75)) {
     md.push(`- With \`bandwidthExponent\` = ${r.value} the ${r.s.dominant} wins ${pct(r.s.maxShare)} and the leader at 25% wins ${pct(r.s.snowball25)}: without the square-root curve, the biggest empire simply out-acts everyone. The sqrt rule is doing real work.`);

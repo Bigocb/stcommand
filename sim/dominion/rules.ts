@@ -12,7 +12,7 @@ export const DEFAULT_CONFIG = {
   // Season
   seasonLength: 168, // ticks per season (one tick = one hour, so 168 = one week)
   startBank: 60, // resources each player starts (or joins late) with
-  lateJoinGrant: 0, // extra resources a late joiner gets per tick of lateness (0 = none; a catch-up knob)
+  lateJoinGrant: 40, // extra resources a late joiner gets per tick of lateness (0 = none; a catch-up knob). 0 -> 40 on 2026-11-26 (report: late mean rank 3.65 -> about 2.6)
   rings: 4, // regions from core (0) to edge (rings - 1)
 
   // Command bandwidth: actions per tick = base + k * holdings^exponent - upkeepBw * holdings
@@ -64,7 +64,7 @@ export const DEFAULT_CONFIG = {
 
   // Terraforming
   terraformCost: 30, // resources per terraform action
-  terraformStep: 0.6, // yield added per action, kept for the rest of the season
+  terraformStep: 0.4, // yield added per action, kept for the rest of the season. 0.6 -> 0.4 on 2026-11-26 (report: terraformer wins 50% -> 33%)
   terraformCap: 3, // a world's yield can reach at most this multiple of its base yield
 
   // Garrison
