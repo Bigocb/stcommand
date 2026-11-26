@@ -6,6 +6,23 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-26 - Keepers, tour ships and explorers can use the ship proxies too (clause `shipLanes`)
+
+With every trader on its own proxy (`tradeLaneShips` 100), the box's IP still carried the moving keepers and tour ships. In the last
+5 minutes measured, keeper navigate/orbit calls were about 23 a minute and waited 2.7-4.7 s, and tour-ship calls about 20 a minute. The
+new clause `shipLanes` (off by default; group api / Second IP) enrols every keeper, tour ship, explorer and scout in the same lanes:
+
+- the calls a ship's own task makes go through a proxy pinned to that ship (rendezvous hashing over the trade slots, several ships
+  to a proxy);
+- a write that fails at the network level is not resent (unchanged rules, `tradeLanes.ts`);
+- fleet loops, the dispatcher, ship purchases and boot stay on the box.
+
+`laneShips` (pure, `src/engine/tradeLanes.ts`) builds the enrolled set; `FleetManager.laneRoleShipSymbols()` lists the ships, and
+`TenantRegistry.tradeLanePolicyFor` uses both when either clause is on. Off reproduces the trader-only set (tested). Capacity: 80 trade
+slots at 90 calls a minute; about 1,900 ships share them, most keepers making under one call a minute.
+
+Tests: `tests/shipLanes.test.ts` (4 new).
+
 ## 2026-11-26 - Forecast counts the big hulls already trading; keeper top-up can go to 20 an hour
 
 The compare charts' anchored forecast (`forecastFrom`, `src/engine/forecast.ts`) took the last six real hours as its base rate and then

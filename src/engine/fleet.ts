@@ -7631,6 +7631,11 @@ export class FleetManager {
     return [...this.traders.keys()];
   }
 
+  /** Ships other than traders that run their own task and move (clause shipLanes puts their calls on the ship proxies). */
+  laneRoleShipSymbols(): string[] {
+    return [...this.keepers.keys(), ...this.tours.keys(), ...this.explorers.keys(), ...this.scouts.keys()];
+  }
+
   apiRoleOf(shipSymbol: string): string {
     if (this.keepers.has(shipSymbol)) return "keeper";
     if (this.explorers.has(shipSymbol)) return "explorer";
