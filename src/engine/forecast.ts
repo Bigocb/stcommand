@@ -214,8 +214,21 @@ export interface ForecastAnchor {
   gateOpenHour: number | null;
   /** Matched profit of each real hour, oldest first: the recent ones set the base rate. */
   pnlByHour: readonly number[];
-  /** Big hulls already trading (0 when not known). */
+  /** Big hulls already trading (0 when not known). Their share of the base rate is taken out of it, so they are not counted twice. */
   bigHulls?: number;
+  /** What a big hull costs now (the yards' typical heavy price, `typicalHullPrice`); the policy's calibrated 2.2M when absent. */
+  hullPrice?: number;
+}
+
+/**
+ * A typical price for the next big hull from the yards' heavy-freighter listings: the median of the ones read in the last
+ * `maxAgeHours`, null when none. The median, not the cheapest: buys spread over yards and each buy raises a yard's price about 1.7%.
+ */
+export function typicalHullPrice(listings: readonly { price: number; readAt: number }[], now: number, maxAgeHours = 24): number | null {
+  const fresh = listings.filter((l) => l.price > 0 && now - l.readAt <= maxAgeHours * 3_600_000).map((l) => l.price).sort((a, b) => a - b);
+  if (fresh.length === 0) return null;
+  const mid = Math.floor(fresh.length / 2);
+  return fresh.length % 2 ? fresh[mid]! : Math.round((fresh[mid - 1]! + fresh[mid]!) / 2);
 }
 
 /** Real hours that set the base rate; fewer than `MIN_RATE_HOURS` of them and the calibrated default stays. */
@@ -228,27 +241,34 @@ export const MIN_RATE_HOURS = 3;
  * profit, with:
  *   - the gate: open from its real hour (its materials are already paid for), or, while closed, not before the next hour;
  *   - the base rate: the mean of the last `ANCHOR_RATE_HOURS` real hours, in place of the calibrated 210k / 650k;
- *   - the first heavy: allowed from the next hour (the standing yes), not at the planned hour.
+ *   - the first heavy: allowed from the next hour (the standing yes), not at the planned hour;
+ *   - the big hulls already trading (`anchor.bigHulls`): they trade from the anchor on at the crowded yield for their number, and
+ *     that yield is taken out of the base rate (the recent real hours already include them), so the base is what the rest of the
+ *     fleet makes. Without this the simulation bought a whole new fleet on top of the real one (2026-11-26: 22.8M/h plateau).
+ *   - the hull price: `anchor.hullPrice` (the yards' typical heavy price) in place of the calibrated 2.2M.
  * Returns only the hours after the anchor; the caller joins them to the real points. Pure.
  */
-export function forecastFrom(anchor: ForecastAnchor, p: ForecastPolicy = DEFAULT_FORECAST): { points: ForecastPoint[]; policy: ForecastPolicy; baseRate: number | null } {
+export function forecastFrom(anchor: ForecastAnchor, p: ForecastPolicy = DEFAULT_FORECAST): { points: ForecastPoint[]; policy: ForecastPolicy; baseRate: number | null; hullShare: number } {
   const next = anchor.hour + 1;
   const recent = anchor.pnlByHour.slice(-ANCHOR_RATE_HOURS);
   const baseRate = recent.length >= MIN_RATE_HOURS ? Math.round(recent.reduce((a, b) => a + b, 0) / recent.length) : null;
   const gateOpen = anchor.gateOpenHour !== null && anchor.gateOpenHour <= anchor.hour;
+  const hulls = Math.max(0, Math.floor(anchor.bigHulls ?? 0));
+  const hullShare = gateOpen && baseRate !== null && hulls > 0 ? Math.round(hulls * hullYield(hulls, p)) : 0;
   const policy: ForecastPolicy = {
     ...p,
     hours: Math.max(p.hours, next),
     gateHour: gateOpen ? anchor.gateOpenHour! : Math.max(p.gateHour, next),
     firstHeavyHour: next,
-    ...(baseRate !== null ? (gateOpen ? { postGateBase: Math.max(0, baseRate) } : { preGateRate: Math.max(0, baseRate) }) : {}),
+    ...(anchor.hullPrice && anchor.hullPrice > 0 ? { hullPrice: anchor.hullPrice } : {}),
+    ...(baseRate !== null ? (gateOpen ? { postGateBase: Math.max(0, baseRate - hullShare) } : { preGateRate: Math.max(0, baseRate) }) : {}),
   };
   const points = simulate(policy, {
     fromHour: next, wallet: anchor.wallet, cumPnl: anchor.cumPnl, units: anchor.units,
     gateOpenAt: gateOpen ? anchor.gateOpenHour! : null,
-    trading: Array.from({ length: Math.max(0, anchor.bigHulls ?? 0) }, () => anchor.hour),
+    trading: Array.from({ length: hulls }, () => anchor.hour),
   });
-  return { points, policy, baseRate };
+  return { points, policy, baseRate, hullShare };
 }
 
 /** Real hours first, then the anchored forecast, as one series with rates over the join. `real` carries the actual points as ForecastPoints. */
