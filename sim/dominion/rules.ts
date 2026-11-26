@@ -27,6 +27,11 @@ export const DEFAULT_CONFIG = {
   laneUpkeepRes: 0.1, // resources each held lane costs (a lane is held when you own both ends)
   garrisonUpkeep: 0.08, // resources per garrison unit per tick
   contestedMult: 1.8, // upkeep multiplier on a world next to another player's world
+  // Comeback knobs (added 2026-11-26; 0 = off, the behaviour before)
+  upkeepScaleRef: 6, // progressive upkeep: holdings above this many worlds ...
+  upkeepScaleExp: 0, // ... raise every world's upkeep by (holdings / ref)^this (0 = flat upkeep)
+  leaderUpkeepMult: 0, // the leader (most "power") pays this much extra upkeep, as a share (0.5 = +50%)
+  edgeLateYield: 0, // edge-ring output rises linearly to (1 + this) by season end: a late frontier boom
   debtUnrest: 4, // unrest added to every world per tick while the bank is below zero (debt is kept and repaid from income)
 
   // Costs of actions (bandwidth per action)
@@ -570,19 +575,25 @@ export function step(prev: State, actions: Action[]): State {
     }
     const laneMult = 1 + Math.min(cfg.laneBonusCap, cfg.laneBonus * intact);
     const unrestMult = 1 - cfg.unrestOutputCut * (w.unrest / 100);
-    const out = w.yield * laneMult * unrestMult * chartPremium(s, w, holdersBySector);
+    const edgeMult = w.ring === cfg.rings - 1 ? 1 + cfg.edgeLateYield * (t / cfg.seasonLength) : 1;
+    const out = w.yield * laneMult * unrestMult * edgeMult * chartPremium(s, w, holdersBySector);
     w.lastOutput = out;
     p.bank += out;
   }
 
   // 4. Upkeep.
+  const upkeepLeader = cfg.leaderUpkeepMult > 0 ? leaderOf(cfg, s.worlds, s.players) : null;
   for (const p of s.players) {
     if (!p.joined) continue;
     let cost = 0;
+    let held = 0;
+    for (const w of s.worlds) if (w.owner === p.id) held++;
+    const scale = cfg.upkeepScaleExp > 0 ? Math.pow(Math.max(1, held / cfg.upkeepScaleRef), cfg.upkeepScaleExp) : 1;
+    const leaderMult = upkeepLeader === p.id ? 1 + cfg.leaderUpkeepMult : 1;
     for (const w of s.worlds) {
       if (w.owner !== p.id) continue;
       const mult = isContested(s.worlds, s.adj, w) ? cfg.contestedMult : 1;
-      cost += cfg.upkeepRes * mult + cfg.garrisonUpkeep * w.garrison;
+      cost += cfg.upkeepRes * mult * scale * leaderMult + cfg.garrisonUpkeep * w.garrison;
     }
     for (const l of s.lanes) {
       if (s.worlds[l.a]!.owner === p.id && s.worlds[l.b]!.owner === p.id) cost += cfg.laneUpkeepRes;

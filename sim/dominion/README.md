@@ -25,6 +25,7 @@ Options: `--seasons N` (main run, default 200), `--sweep N` (seasons per swept v
 - `run.ts`: the season runner, the statistics and the report.
 - `rules.test.ts`: determinism, upkeep, the square-root bandwidth curve, stripping decay.
 - `report.md`: the last generated report.
+- `comeback.ts`, `comeback.md`: the comeback-mechanic and scorcher-buff sweep (`node --import tsx sim/dominion/comeback.ts`, about 4 minutes).
 
 ## The model in plain words
 
@@ -106,6 +107,9 @@ All are in `DEFAULT_CONFIG` in `rules.ts`.
 | `firstChartPremium`, `premiumHours` | 1.7, 36 | The first charter's premium and how long it lasts. |
 | `lateJoinGrant` | 40 | Extra resources for a late joiner per tick of lateness (was 0 before 2026-11-26). |
 | `intelDelay` | 3 | Ticks of delay on what bots see of others. |
+| `upkeepScaleExp`, `upkeepScaleRef` | 0, 6 | Progressive upkeep: above `ref` worlds, each world costs (worlds / ref)^exp times more. Off by default. |
+| `leaderUpkeepMult` | 0 | Extra upkeep share the current leader pays (a comeback knob). Off by default. |
+| `edgeLateYield` | 0 | Edge output rises linearly to (1 + this) by season end. Off by default. |
 
 ## How to read the report
 
