@@ -6,6 +6,12 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-26 - `freshTarget` can go to 40
+
+The fresh-system live target stopped at 12. With releases every 8 minutes (`freshMinGapMin` 8, operator 2026-11-26) and a 4-hour fade,
+about 30 systems can be in their premium window at once, and a target of 12 would hold releases back. Range now 1-40; the operator
+asked for 18 to catch up from about 127 live systems toward last week's about 200.
+
 ## 2026-11-26 - Keepers, tour ships and explorers can use the ship proxies too (clause `shipLanes`)
 
 With every trader on its own proxy (`tradeLaneShips` 100), the box's IP still carried the moving keepers and tour ships. In the last
