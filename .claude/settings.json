@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npm run migrate:test)",
-      "Bash(node --test:*)"
+      "Bash(node --test:*)",
+      "mcp__Tailwinds__stcommand_buy_ship"
     ]
   }
 }
