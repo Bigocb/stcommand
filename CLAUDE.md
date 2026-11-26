@@ -37,6 +37,9 @@ Goals for the 2026-11-22 week (operator, 2026-11-22): gate open by hour 40 (stre
 Contract ship stays on contracts (operator, 2026-11-23): "Do not take that off of the contract duty. We need those contracts going
 until we get to like 10-15 million." Never dispatch, re-role, feed or tour the contract-duty ship (THEO-5 this week) while the wallet is
 under about 10-15M; pick another hull, or wait.
+Buying rule and score (operator, 2026-11-26): the leaderboard counts credits, so lead reports with net trading per hour (matched - jumps - fuel)
+and wallet + cargo; matched profit is an engine-health number. Trader hulls stop once net trading per hour holds at the operator's target (in the
+week's journal) or in the last 24 h before reset (no trader pays back then). Keeper probes and system expansion continue to the end.
 Update this section when the operator states a layout for a following week.
 
 ## Buying a ship: nearest yard to the destination, not the cheapest
