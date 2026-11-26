@@ -30,7 +30,7 @@ export const DEFAULT_CONFIG = {
   // Comeback knobs (added 2026-11-26; 0 = off, the behaviour before)
   upkeepScaleRef: 6, // progressive upkeep: holdings above this many worlds ...
   upkeepScaleExp: 0, // ... raise every world's upkeep by (holdings / ref)^this (0 = flat upkeep)
-  leaderUpkeepMult: 0, // the leader (most "power") pays this much extra upkeep, as a share (0.5 = +50%)
+  leaderUpkeepMult: 0.5, // the leader (most "power") pays this much extra upkeep, as a share (0.5 = +50%). 0 -> 0.5 on 2026-11-26 (comeback.md: leader@25% wins 48% -> 34%)
   edgeLateYield: 0, // edge-ring output rises linearly to (1 + this) by season end: a late frontier boom
   debtUnrest: 4, // unrest added to every world per tick while the bank is below zero (debt is kept and repaid from income)
 
@@ -53,7 +53,7 @@ export const DEFAULT_CONFIG = {
 
   // Stripping (scorcher)
   stripBurst: 8, // a strip pays this many ticks of the world's current yield at once
-  stripDecay: 0.2, // and cuts the world's yield by this share, for the rest of the season
+  stripDecay: 0.12, // and cuts the world's yield by this share, for the rest of the season. 0.2 -> 0.12 on 2026-11-26 (a scorcher buff)
   stripUnrest: 14, // unrest added by a strip ...
   thinGarrisonUnrest: 1.0, // ... times (1 + this / (1 + garrison)): thin garrisons riot more
   scorchedEarth: true, // a defender losing a world strips it on the way out

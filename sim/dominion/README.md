@@ -100,7 +100,7 @@ All are in `DEFAULT_CONFIG` in `rules.ts`.
 | `contestedMult` | 1.8 | Upkeep multiplier on a world bordering another player. |
 | `sparseDiscount` | 0.4 | How much cheaper claims and charting are in empty sectors (the edge advantage). |
 | `leaderWeight` | 1 | Pressure on the leader: hostile event rate (12% per tick per point) and bots' raid preference. |
-| `stripBurst`, `stripDecay` | 8, 0.2 | The size of a strip's payout and how much yield it destroys. |
+| `stripBurst`, `stripDecay` | 8, 0.12 | The size of a strip's payout and how much yield it destroys. |
 | `occupationUnrest`, `garrisonCalm` | 2, 0.6 | How fast conquered worlds riot, and how much a garrison unit calms them. |
 | `terraformCost`, `terraformStep`, `terraformCap` | 30, 0.4, 3 | Price, gain per action and ceiling of terraforming. |
 | `raidShare`, `raidBankShare`, `raidRange` | 0.5, 0.01, 2 | How much a raid takes, and how far raiders reach. |
@@ -108,7 +108,7 @@ All are in `DEFAULT_CONFIG` in `rules.ts`.
 | `lateJoinGrant` | 40 | Extra resources for a late joiner per tick of lateness (was 0 before 2026-11-26). |
 | `intelDelay` | 3 | Ticks of delay on what bots see of others. |
 | `upkeepScaleExp`, `upkeepScaleRef` | 0, 6 | Progressive upkeep: above `ref` worlds, each world costs (worlds / ref)^exp times more. Off by default. |
-| `leaderUpkeepMult` | 0 | Extra upkeep share the current leader pays (a comeback knob). Off by default. |
+| `leaderUpkeepMult` | 0.5 | Extra upkeep share the current leader pays (the comeback mechanic; 0 before 2026-11-26). |
 | `edgeLateYield` | 0 | Edge output rises linearly to (1 + this) by season end. Off by default. |
 
 ## How to read the report

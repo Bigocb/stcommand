@@ -22,6 +22,9 @@ const balance = (s: Summary) =>
   s.entropy - 0.5 * Math.max(0, s.snowball25 - 0.25) - 0.5 * Math.max(0, s.maxShare - 0.4) - 0.2 * Math.max(0, (s.lateMeanRank ?? 2.5) - 2.5);
 
 type Exp = { group: string; label: string; overrides: Partial<Config> };
+// comeback.md was generated on the defaults before leaderUpkeepMult 0.5 and stripDecay 0.12 were adopted, so every
+// experiment starts from that baseline; the labels read against it.
+const BASE: Partial<Config> = { leaderUpkeepMult: 0, stripDecay: 0.2 };
 const EXPERIMENTS: Exp[] = [
   { group: 'baseline', label: 'defaults', overrides: {} },
   // Comeback candidates
@@ -55,7 +58,7 @@ function main(): void {
   const SWEEP_SEED = 99; // a separate seed set from the main run (baseSeed 7), shared by every row
 
   const rows = EXPERIMENTS.map((e) => {
-    const s = summarize(runMany(SWEEP_N, makeConfig(e.overrides), SWEEP_SEED));
+    const s = summarize(runMany(SWEEP_N, makeConfig({ ...BASE, ...e.overrides }), SWEEP_SEED));
     console.log(`${e.label}: ${STRATEGIES.map((x) => `${x} ${pct(s.share[x])}`).join(', ')}; leader@25% ${pct(s.snowball25)}; balance ${f2(balance(s))}`);
     return { ...e, s };
   });
@@ -73,7 +76,7 @@ function main(): void {
   if (bestBuff) finals.push({ label: bestBuff.label, overrides: bestBuff.overrides });
   if (bestComeback && bestBuff) finals.push({ label: `${bestComeback.label} + ${bestBuff.label}`, overrides: { ...bestComeback.overrides, ...bestBuff.overrides } });
   const finalRows = finals.map((f) => {
-    const s = summarize(runMany(N, makeConfig(f.overrides)));
+    const s = summarize(runMany(N, makeConfig({ ...BASE, ...f.overrides })));
     console.log(`FULL ${f.label}: ${STRATEGIES.map((x) => `${x} ${pct(s.share[x])}`).join(', ')}; leader@25% ${pct(s.snowball25)}; late ${s.lateMeanRank === null ? '-' : f2(s.lateMeanRank)}`);
     return { ...f, s };
   });
@@ -89,7 +92,7 @@ function main(): void {
     { label: 'leaderUpkeepMult 0.3 + stripDecay 0.12 + terraformCost 45', overrides: { leaderUpkeepMult: 0.3, stripDecay: 0.12, terraformCost: 45 } },
   ];
   const comboRows = COMBOS.map((c) => {
-    const s = summarize(runMany(N, makeConfig(c.overrides)));
+    const s = summarize(runMany(N, makeConfig({ ...BASE, ...c.overrides })));
     console.log(`COMBO ${c.label}: ${STRATEGIES.map((x) => `${x} ${pct(s.share[x])}`).join(', ')}; leader@25% ${pct(s.snowball25)}; late ${s.lateMeanRank === null ? '-' : f2(s.lateMeanRank)}; balance ${f2(balance(s))}`);
     return { ...c, s };
   });

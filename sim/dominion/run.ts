@@ -196,7 +196,7 @@ interface SweepRow {
 
 const FIXES: Record<Strategy, { label: string; overrides: Partial<Config> }[]> = {
   scorcher: [
-    { label: 'stripDecay 0.2 -> 0.35', overrides: { stripDecay: 0.35 } },
+    { label: 'stripDecay 0.12 -> 0.2', overrides: { stripDecay: 0.2 } },
     { label: 'stripBurst 8 -> 5', overrides: { stripBurst: 5 } },
     { label: 'occupationUnrest 2 -> 3.5', overrides: { occupationUnrest: 3.5 } },
   ],
@@ -243,7 +243,9 @@ function main(): void {
   const results = runMany(N, cfg);
   const S = summarize(results);
   // The defaults before 2026-11-26, on the same seeds, so the report shows what the change did.
-  const PREV: Partial<Config> = { terraformStep: 0.6, lateJoinGrant: 0 };
+  const ORIG: Partial<Config> = { terraformStep: 0.6, lateJoinGrant: 0, leaderUpkeepMult: 0, stripDecay: 0.2 };
+  const PREV: Partial<Config> = { leaderUpkeepMult: 0, stripDecay: 0.2 };
+  const origS = summarize(runMany(N, makeConfig(ORIG)));
   const prevS = summarize(runMany(N, makeConfig(PREV)));
 
   // ---- sensitivity sweep
@@ -413,9 +415,9 @@ function main(): void {
     ])), '');
   }
   md.push('## Change from the previous defaults', '');
-  md.push(`The defaults changed on 2026-11-26: \`terraformStep 0.6 -> 0.4\` and \`lateJoinGrant 0 -> 40\` (the combined recommendation of the previous report). Full ${N} seasons on the main seeds:`, '');
-  md.push(table(['', ...STRATEGIES, 'entropy', 'leader@25% wins', 'leader@50% wins', 'late mean rank', 'late top two', 'balance'], [prevS, S].map((x, i) => [
-    i === 0 ? 'previous defaults' : 'new defaults', ...STRATEGIES.map((st) => pct(x.share[st])), f2(x.entropy), pct(x.snowball25), pct(x.snowball50),
+  md.push(`The defaults changed twice on 2026-11-26: first \`terraformStep 0.6 -> 0.4\` and \`lateJoinGrant 0 -> 40\` (this report's earlier recommendation), then \`leaderUpkeepMult 0 -> 0.5\` and \`stripDecay 0.2 -> 0.12\` (the comeback sweep, comeback.md). Full ${N} seasons on the main seeds:`, '');
+  md.push(table(['', ...STRATEGIES, 'entropy', 'leader@25% wins', 'leader@50% wins', 'late mean rank', 'late top two', 'balance'], [origS, prevS, S].map((x, i) => [
+    ['original defaults', 'after the first change', 'current defaults'][i]!, ...STRATEGIES.map((st) => pct(x.share[st])), f2(x.entropy), pct(x.snowball25), pct(x.snowball50),
     x.lateMeanRank === null ? '-' : f2(x.lateMeanRank), x.lateTop2 === null ? '-' : pct(x.lateTop2), f2(balanceScore(x)),
   ])), '');
   md.push('## Reading the results', '');
