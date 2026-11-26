@@ -6,6 +6,16 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-26 - A load already aboard is not stranded by a lower jump limit
+
+2026-11-25 THEO-25F bought 300 MERITIUM at X1-VQ16 for X1-MP5 at 19:22. At 19:35 `positioningHops` went from 7 to 5, MP5 was
+more than 5 jumps from VQ16, the trader's `navigateTo` found no path, retired the route and raised a sell-below-floor card, and
+the load was sold back at VQ16 for -1,657,940. Now a ship with cargo in its hold plans its trip with `cargoPath()`
+(`src/engine/trader.ts`): the positioning path when there is one, else the same search up to the jump ceiling (10) through
+`GalaxyAtlas.jumpPathWithin()` (`src/engine/galaxy.ts`). The setting still limits where new trips go; it no longer strands a
+trip already paid for. The floor-redirect search for held cargo uses the same rule. An empty ship is unchanged. Test:
+`tests/cargoJumpLimit.test.ts`. Operator yes, 2026-11-26.
+
 ## 2026-11-25 - ops `stale_markets`: uncovered markets with old prices, in one call
 
 The operator asked for a watch on "uncovered markets with 5 or more products with prices older than 55 min". Checking that took a

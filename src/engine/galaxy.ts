@@ -503,6 +503,21 @@ export class GalaxyAtlas {
     this.pathCache.set(key, path);
     return path?.slice();
   }
+  /**
+   * jumpPath() with its own jump limit instead of the positioning setting, for a ship that already holds cargo: lowering
+   * "Positioning jumps" must not strand a load bought for a market the new limit no longer reaches (THEO-25F, 2026-11-25:
+   * 300 MERITIUM bought at X1-VQ16 for X1-MP5, positioningHops 7 -> 5 thirteen minutes later, sold back for -1.66M).
+   * Clamped to the ceiling. Cached per limit like jumpPath().
+   */
+  jumpPathWithin(from: string, to: string, maxHops: number): string[] | undefined {
+    const hops = Math.min(MAX_POSITIONING_HOPS_CEILING, Math.max(1, Math.floor(maxHops)));
+    if (hops === this.positioningHops) return this.jumpPath(from, to);
+    const key = `${from}>${to}@${hops}`;
+    if (this.pathCache.has(key)) return this.pathCache.get(key)?.slice();
+    const path = findJumpPath(from, to, (s) => this.usableNeighbors(s), hops);
+    this.pathCache.set(key, path);
+    return path?.slice();
+  }
   private readonly pathCache = new Map<string, string[] | undefined>();
   /** usableNeighbors() per system, dropped with the path cache. A path search asks for the same system's neighbours at
    *  every step of every search, and working them out (gate connections, proven jumps, both gates' construction) was most
