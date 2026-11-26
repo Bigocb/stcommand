@@ -28,6 +28,7 @@ import { withinHaulLimit } from "./haulLimit.js";
 import { CONTRACT_DELIVERY_BACKOFF_MS, isNoGatePathError } from "./contractReach.js";
 import { pickFloorRedirect } from "./floorRedirect.js";
 import { effectiveLotSize } from "./shipLotPolicy.js";
+import { MAX_POSITIONING_HOPS_CEILING } from "./jumpGraph.js";
 import { lotAfterRefusal } from "./transactionLimit.js";
 import { routeOutsideReach, type ShipReach } from "./shipReach.js";
 
@@ -719,6 +720,18 @@ export class TraderAgent {
     return this.atlas?.jumpPath?.(fromSystem, toSystem);
   }
 
+  /**
+   * A path for carrying cargo already in the hold: the positioning path when there is one, else the same search up to the
+   * jump ceiling. A load bought for a market must still reach it after the positioning-jumps setting is lowered; the
+   * setting limits where new trips go, not trips already paid for (THEO-25F, 2026-11-25, -1.66M). Empty hold = the
+   * positioning path only, as before.
+   */
+  private cargoPath(fromSystem: string, toSystem: string): string[] | undefined {
+    const path = this.positioningPath(fromSystem, toSystem);
+    if (path || (this.ship.cargo?.units ?? 0) <= 0) return path;
+    return this.atlas?.jumpPathWithin?.(fromSystem, toSystem, MAX_POSITIONING_HOPS_CEILING);
+  }
+
   /** Cost of ONE jump from `a` to adjacent `b`: the learned per-gate average
    *  where a real jump was ever paid for, else the flat placeholder. */
   private hopCost(a: string, b: string): number {
@@ -870,12 +883,12 @@ export class TraderAgent {
         await this.jumpToSystem(targetSystem, waypoint);
         return;
       }
-      let path = this.positioningPath(from, targetSystem);
+      let path = this.cargoPath(from, targetSystem);
       if (!path || path.length < 2) {
         // The answer above is cache-only: a system this process has not loaded reads as "no gate". Load and check the
         // neighbourhood once (rate-limited per pair) before declaring the destination unreachable and retiring the route.
         await this.warmPositioning(targetSystem, from);
-        path = this.positioningPath(from, targetSystem);
+        path = this.cargoPath(from, targetSystem);
       }
       if (!path || path.length < 2) {
         this.markRouteUnreachable(targetSystem);
@@ -1102,7 +1115,7 @@ export class TraderAgent {
     }
     const here = this.ship.nav.systemSymbol;
     const cost = (await this.costBasis(good)) ?? 0;
-    const input = { good, here: leg.sellAt, prices, tried, systemOf: (w: string) => this.systemOf(w), reachable: (sys: string) => this.positioningPath(here, sys) !== undefined };
+    const input = { good, here: leg.sellAt, prices, tried, systemOf: (w: string) => this.systemOf(w), reachable: (sys: string) => this.cargoPath(here, sys) !== undefined };
     const pickFrom = (i: typeof input) => (cost > 0 ? pickFloorRedirect({ ...i, cost, maxLossPct: this.maxLossPct }) : undefined)
       ?? pickFloorRedirect({ ...i, cost: 0, maxLossPct: 100 });
     // With the redirect-jumps preference set, look near first: a lot turned back should not become a second long trek. When no
@@ -1345,7 +1358,7 @@ export class TraderAgent {
       good, here: leg.sellAt, cost, maxLossPct: this.maxLossPct, prices, tried,
       // Any market within the jump limit, not just one gate away: THEOREM-D held 80 DRUGS below its floor in X1-HR84 for
       // nine hours on 2026-10-15 while X1-CM13-H57, two gates off, paid above cost.
-      systemOf: (w) => this.systemOf(w), reachable: (sys) => this.positioningPath(here, sys) !== undefined,
+      systemOf: (w) => this.systemOf(w), reachable: (sys) => this.cargoPath(here, sys) !== undefined,
     });
     if (!pick) return false;
     const redirected = { ...leg, sellAt: pick.waypoint, sellPrice: pick.price };
