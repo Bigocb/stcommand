@@ -162,6 +162,7 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   apiLaneProxy: ["api", "Second IP"],
   apiLaneCount: ["api", "Second IP"],
   tradeLaneShips: ["api", "Second IP"],
+  shipLanes: ["api", "Second IP"],
   stateResponseSlim: ["api", "Dispatcher cost"],
   fleetListOnCountChange: ["api", "Dispatcher cost"],
   tradeLegsPrefilter: ["api", "Dispatcher cost"],

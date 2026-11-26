@@ -8,7 +8,7 @@ import { LaneBreaker, LANES_OFF, type LanePolicy } from "./apiLanes.js";
 import { poolFromEnv, ByteMeter } from "./lanePool.js";
 import type { LaneSlot } from "../core/client.js";
 import { Client, RateLimiter, apiBurstFromEnv, apiRateFromEnv, SpaceTradersAPI, runWithApiPriority, runWithApiRole, runWithApiShip, tradeLaneDecisionStats, taskToApiPriority, API_PRIORITY } from "../core/client.js";
-import { enrolledShips, TRADE_LANES_OFF, type TradeLanePolicy } from "./tradeLanes.js";
+import { laneShips, TRADE_LANES_OFF, type TradeLanePolicy } from "./tradeLanes.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
 import { LiveFeed } from "./liveFeed.js";
@@ -167,10 +167,13 @@ export class TenantRegistry {
     const d = fleet?.doctrine;
     if (fleet && d) {
       try {
-        if (d.isEnabledOr("tradeLaneShips", false)) {
+        const tradersOn = d.isEnabledOr("tradeLaneShips", false);
+        const othersOn = d.isEnabledOr("shipLanes", false);
+        if (tradersOn || othersOn) {
           const reads = this.lanePolicyFor(agentSymbol);
           const firstSlot = reads.enabled ? Math.min(this.laneSlots.length, Math.max(1, Math.floor(reads.active ?? this.laneSlots.length))) : 0;
-          const ships = enrolledShips(fleet.traderSymbols(), d.value("tradeLaneShips", 5));
+          // Clause shipLanes (2026-11-26): keepers, tour ships, explorers and scouts join the traders on the ship proxies.
+          const ships = laneShips(fleet.traderSymbols(), tradersOn ? d.value("tradeLaneShips", 5) : 0, fleet.laneRoleShipSymbols(), othersOn);
           // Operator escape hatch for a ship stuck on a flaky proxy: a write
           // that times out through a trade lane is not retried, so one bad
           // lane can keep failing the same ship. TRADE_LANE_AVOID (comma or

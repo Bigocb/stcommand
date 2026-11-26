@@ -38,6 +38,16 @@ export function enrolledShips(traders: Iterable<string>, count: number): Set<str
   return new Set([...traders].sort().slice(0, n));
 }
 
+/**
+ * The ships whose own calls use the ship proxies: the first `traderCount` traders by symbol (clause tradeLaneShips) and, with the
+ * clause shipLanes on, every other ship that runs its own task (keepers, tour ships, explorers, scouts). Pure.
+ */
+export function laneShips(traders: Iterable<string>, traderCount: number, others: Iterable<string>, othersOn: boolean): Set<string> {
+  const ships = enrolledShips(traders, traderCount);
+  if (othersOn) for (const s of others) ships.add(s);
+  return ships;
+}
+
 export interface TradeLaneRequest {
   /** The ship whose task made the call; undefined for fleet loops, the dispatcher and boot. */
   ship: string | undefined;

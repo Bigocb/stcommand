@@ -836,6 +836,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "shipLanes",
+    name: "API: keepers, tour ships and explorers also use the ship proxies",
+    description: "On = every keeper, tour ship, explorer and scout sends the calls its own task makes (navigate, orbit, dock, jump, refuel, market and ship reads) through a proxy pinned to the ship, the same way trade lanes do for traders (tradeLanes.ts): one proxy per ship by hashing its symbol over the trade slots, several ships to a proxy, the next proxy only while that one's breaker is open, and a write that fails at the network level is not sent again. Added 2026-11-26: with every trader on a proxy, the box's own IP still carried about 34 keeper movement calls a minute waiting 3-6 s each and about 20 tour-ship calls. Fleet loops, the dispatcher, ship purchases and boot stay on the box. Needs proxies in API_LANE_PROXY_URLS. Off (the default) = only traders use ship proxies, as before. Takes effect within 15 s.",
+    value: 1, min: 1, max: 1, step: 1, unit: "",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "apiLaneCount",
     name: "API: how many of the configured proxies are active",
     description: "With several proxies in API_LANE_PROXY_URLS (the box's environment), this many of them, counted from the first one written, carry the proxy lane's reads; the rest are spares to switch in when one is slow or blocked. Each system's market reads keep to one proxy (chosen by the system, so adding or dropping a proxy moves only a few systems), the next proxy takes over when one fails, and the box's IP is used only when every active proxy is out. More than are configured = all of them. The proxy plan is billed in bytes, not by the number of proxies: watch the projected GB a month per proxy in ops api_budget (proxyLane). No effect unless the clause apiLaneProxy is on. Takes effect on the next request.",
