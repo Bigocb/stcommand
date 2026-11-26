@@ -9,6 +9,39 @@ Newest first. Where a lesson became a rule, say where the rule lives (CLAUDE.md,
 
 ---
 
+## 2026-11-26: scale the trading fleet much faster; the top agents run 100-400 trading hulls
+
+**What happened.** At hour 86 of the 2026-11-22 week we had 51 traders (26 until 03:00 that day). Unique ships seen trading at markets
+we read, this week only (ops `rival_activity`), are a floor on the rivals' trading fleets:
+- JEANLUC 137, HERMES-BRAVO 185, TIPTAP 113, VEPRINE-D 98.
+- SPACELORD 390, many of them small: its largest single stop is 80 units, and drones count as trading ships too.
+
+Their burst came in the first 3 h after the gates opened (about hour 23-26). JEANLUC +58 ships, GOBBLICIDE +100, HERMES-BRAVO +147,
+then dozens more each 3 h for about a day. These leaderboard counts include probes. We added 5, 15, 36 and 43 a bucket over the same
+hours. JEANLUC peaked near 41M/h. Our best hour so far is 12.35M (hour 86). Per hull we earn as much or more, about 370k/h against
+about 230k/h, so the gap is hull count and timing.
+
+**Why.**
+- Every hull waits for the operator's yes, one or two at a time. The buy prompts close when nobody is there (three times on 11-24).
+- The cash rules hold the wallet back on purpose: 3M before any hull, 5M for keepers, and no second big hull until the first pays back
+  in 6 h.
+- The engine cannot buy hulls itself. `hullAutoBuy` from plan-week-2026-11-22 §4 was never built.
+- We bought almost only big hulls (1.8-4M), so each buy was a large share of a small wallet. Light haulers (about 300k) were not tried
+  until 11-26.
+
+**Cost.** Not measured exactly. At about 300k/h a hull, each hull a day late costs about 7M. 50 hulls a day late at the gate is
+about 350M, roughly half the week's 800M target.
+
+**Counterweight.** More hulls only pay while there are fresh markets to spread them over. The 11-08 week ended with 33 traders and
+420M; the 11-15 week ended with 51 and 340M. Profit per unit is the saturation signal: watch it with every wave.
+
+**Rule (provisional, confirm at week's end with the 11-26 light-hauler test).**
+1. Plan the scale-up before the reset: cash ready at the gate, then buy in waves, not one at a time.
+2. Waves are pre-approved by the operator, sized to the fresh markets open, with cheap hulls first while cash is small.
+3. Keep buying while profit per unit holds.
+4. Build engine hull buying so waves do not wait for a person, and plan the API for hundreds of traders: trade lanes
+   (`tradeLaneShips`) and proxies.
+
 ## 2026-11-19: wrong route numbers, three or four times in two days
 
 **What happened.** Route advice was given from the work list's `profitPerTrip` without checking it against the ship that would fly
