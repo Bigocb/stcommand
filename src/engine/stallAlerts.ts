@@ -11,3 +11,6 @@ export interface StallAlert {
 }
 
 export const stallAlerts = new Map<string, StallAlert>();
+
+/** The box-CPU alerts (cpuHealth.ts), by tenant id, held while the hot spell lasts. Same shape as a stall alert. */
+export const cpuAlerts = new Map<string, StallAlert>();

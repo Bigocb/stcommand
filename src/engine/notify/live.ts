@@ -3,7 +3,7 @@ import type { FleetManager } from "../fleet.js";
 import { paceFromBuckets } from "../pace.js";
 import { resetWatcherStatus } from "../resetWatcher.js";
 import type { NotifySnapshot } from "./types.js";
-import { stallAlerts } from "../stallAlerts.js";
+import { cpuAlerts, stallAlerts } from "../stallAlerts.js";
 import { economyFindings } from "../../ops/economy.js";
 
 /**
@@ -52,6 +52,7 @@ export function liveSnapshotProvider(deps: { tenantId: string; store: Store; fle
       rate,
       status: { ships: deps.fleet.getShipStatuses().length, credits: deps.fleet.walletCredits() },
       health: stallAlerts.get(deps.tenantId),
+      cpu: cpuAlerts.get(deps.tenantId),
       economy,
     };
   };

@@ -12,6 +12,7 @@ export const CATEGORIES: readonly CategoryDef[] = [
   { id: "attention", label: "Needs a look", description: "A ship the attention feed rates critical (stuck, looping, wasting).", defaultOn: true, cooldownMin: 180 },
   { id: "reset", label: "Server reset", description: "The weekly universe reset is close.", defaultOn: true, cooldownMin: 0 },
   { id: "health", label: "Engine stalled", description: "The server's engine has stopped trading or an engine loop has hung (the admin health board reads STALLED).", defaultOn: true, cooldownMin: 0 },
+  { id: "cpu", label: "Box CPU high", description: "The server process has used about a full core for 10 minutes or more (the admin health board's CPU tile reads HOT); a restart in a quiet moment usually clears it.", defaultOn: true, cooldownMin: 60 },
   { id: "economy", label: "Economy warning", description: "The fleet's economy has gone wrong: jump fees over profit, losing money after jumps and fuel, no fresh system opening, falling margins, small hulls jumping, the wallet under the floor (the Economy card).", defaultOn: true, cooldownMin: 60 },
   { id: "rate", label: "Earning rate", description: "The hourly rate has fallen well below its recent average.", defaultOn: false, cooldownMin: 180 },
 ];

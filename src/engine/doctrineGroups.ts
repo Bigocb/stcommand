@@ -219,6 +219,7 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   economySmallHullJumps: ["alerts", "Economy alerts"],
   economyCashStarvedMin: ["alerts", "Economy alerts"],
   healthStallAlert: ["alerts", "Engine health"],
+  healthCpuAlert: ["alerts", "Engine health"],
 };
 
 /** Clauses that do nothing, or little, while the named clause is off (docs/doctrine-organization.md 6.1). */

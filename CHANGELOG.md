@@ -6,6 +6,22 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Box CPU on the health board, with an alert when a restart may be due
+
+Operator, 2026-11-27: "maybe we need an alert for when the CPU gets to a certain percentage indicating that we might need to restart".
+That morning, the process that had been up 12 h sat at about 106% CPU, and its replacement after the 05:10 deploy ran at about 56%.
+
+- **New Box CPU tile** on the admin health board (`src/engine/cpuHealth.ts`, pure).
+  - It shows the process's CPU over the last 10 minutes; 100% means one core. It also shows the event-loop delay p99.
+  - BUSY at 85%, HOT at 95%, or HOT when the event-loop delay reaches 2 s.
+  - While a new process fills its window, the tile says MEASURING.
+- **New alert, clause `healthCpuAlert`** (on, 10 min).
+  - When the tile reads HOT for that long, the box writes one `HEALTH ALERT` log line.
+  - It also sends a Tower push of the new kind "Box CPU high", which is on by default: "restart may be due", with the uptime.
+  - One alert per hot spell, never twice within an hour. Nothing is restarted.
+- **CPU is now stored.** Each minute's stored health reading keeps the CPU share and event-loop delay (migrations/071), so CPU can be charted against uptime before anyone decides on periodic restarts.
+- **Tests:** `tests/cpuHealth.test.ts`.
+
 ## 2026-11-27 — Shorter recompute log line; a heap limit for the dispatch worker (#70)
 
 At 3,972 ships the dispatcher recompute took 2.3-3.0 s (p50-p95, rising about 100 ms an hour) on the main thread, and its

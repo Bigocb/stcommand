@@ -347,6 +347,6 @@ describe("serverHealth: memory and last restart tiles", () => {
   });
   it("the board carries the new tiles with the existing process tiles", () => {
     const keys = assessProcess(proc({ memory: mem, lastRestart: { endedAt: "2026-11-21T20:40:30Z", kind: "deploy", reason: "x" } }), true).map((t) => t.key);
-    assert.deepEqual(keys, ["uptime", "memory", "restart", "api", "ratelimit", "queue"]);
+    assert.deepEqual(keys, ["uptime", "cpu", "memory", "restart", "api", "ratelimit", "queue"]);
   });
 });

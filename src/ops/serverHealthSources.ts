@@ -10,6 +10,8 @@ import { INSTANCE_ID, rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { OPS_BY_NAME } from "./catalog.js";
 import { processHistory } from "./containerStats.js";
 import { processMemorySample, readCgroupMemory } from "./containerRead.js";
+import { monitorEventLoopDelay, type IntervalHistogram } from "node:perf_hooks";
+import { DEFAULT_CPU_POLICY, cpuShare, trimCpuSamples, type CpuInput, type CpuSample } from "../engine/cpuHealth.js";
 import { DEFAULT_HEALTH_POLICY, assessServerHealth, type HealthPolicy, type HealthReport, type ProcessInput, type TenantHealthInput } from "../engine/serverHealth.js";
 
 export interface HealthSources {
@@ -62,6 +64,28 @@ export async function tenantHealthInput(agent: string, w: TenantWorker | undefin
   };
 }
 
+/**
+ * Box CPU for the health board (cpuHealth.ts). A pure cache of this process's own CPU readings: it starts empty at boot on
+ * purpose (a new process's CPU is what is measured), so it is not saved. The event-loop histogram is read and reset at
+ * most once every 50 s, so a page view between the recorder's minute readings does not shorten its window.
+ */
+let cpuSamples: CpuSample[] = [];
+let loopHistogram: IntervalHistogram | undefined;
+let loopReadAt = 0;
+let loopP99Ms: number | null = null;
+export function sampleCpu(now: number = Date.now()): CpuInput {
+  const u = process.cpuUsage();
+  cpuSamples = trimCpuSamples([...cpuSamples, { at: now, cpuUs: u.user + u.system }], now, DEFAULT_CPU_POLICY.windowMs);
+  if (!loopHistogram) { loopHistogram = monitorEventLoopDelay({ resolution: 20 }); loopHistogram.enable(); loopReadAt = now; }
+  else if (now - loopReadAt >= 50_000) {
+    loopP99Ms = loopHistogram.count > 0 ? Math.round(loopHistogram.percentile(99) / 1e5) / 10 : null;
+    loopHistogram.reset();
+    loopReadAt = now;
+  }
+  const c = cpuShare(cpuSamples, now, DEFAULT_CPU_POLICY.windowMs);
+  return { share: c?.share ?? null, spanMs: c?.spanMs ?? null, loopP99Ms };
+}
+
 export async function processHealthInput(store: Pick<Store, "opsInstances"> & Partial<Pick<Store, "instanceHistory">>, uptimeMs: number): Promise<ProcessInput & { errors?: string[] }> {
   const errors: string[] = [];
   let instances: ProcessInput["instances"] = [];
@@ -82,6 +106,8 @@ export async function processHealthInput(store: Pick<Store, "opsInstances"> & Pa
       if (prev) lastRestart = { endedAt: prev.lastSeen, kind: prev.end.kind, reason: prev.end.reason, ...(prev.end.gapSec !== undefined ? { gapSec: prev.end.gapSec } : {}) };
     } catch (err) { errors.push(`restart history: ${errText(err)}`); }
   }
+  let cpu: CpuInput | null = null;
+  try { cpu = sampleCpu(); } catch (err) { errors.push(`cpu: ${errText(err)}`); }
   const snap = rateLimitMonitor.snapshot();
   const st = snap.limiter;
   return {
@@ -94,6 +120,7 @@ export async function processHealthInput(store: Pick<Store, "opsInstances"> & Pa
     } : null,
     memory,
     lastRestart,
+    cpu,
     ...(errors.length ? { errors } : {}),
   };
 }

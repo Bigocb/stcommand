@@ -821,6 +821,7 @@ export class Store {
     ["idle_traders", "idleTraders", "integer"], ["traders", "traders", "integer"], ["longest_pass_ms", "longestPassMs", "bigint"],
     ["profit_last_hour", "profitLastHour", "bigint"], ["wallet", "wallet", "bigint"], ["uptime_ms", "uptimeMs", "bigint"],
     ["calls_per_min", "callsPerMin", "real"], ["cap", "cap", "integer"], ["hits_429", "hits429", "integer"], ["oldest_wait_ms", "oldestWaitMs", "bigint"],
+    ["cpu_pct", "cpuPct", "real"], ["loop_p99_ms", "loopP99Ms", "real"],
   ] as const;
 
   /** Store one health reading (a server row and one per tenant). Not tenant data. */

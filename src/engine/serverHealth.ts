@@ -7,6 +7,7 @@
  * Pure: no I/O and no clock. The caller (src/ops/serverHealthSources.ts) gathers the inputs and passes `now`.
  * Thresholds are a policy object; DEFAULT_HEALTH_POLICY holds the values in use.
  */
+import { cpuTile, type CpuInput } from "./cpuHealth.js";
 
 export type HealthLevel = "ok" | "warn" | "bad";
 
@@ -124,6 +125,8 @@ export interface ProcessInput {
   memory?: MemoryInput | null;
   /** How the process before this one ended (src/ops/containerStats.ts classifyEnd); absent when there was none in the window. */
   lastRestart?: LastRestartInput | null;
+  /** Process CPU share over the last window and the event-loop delay (cpuHealth.ts); absent when not measured. */
+  cpu?: CpuInput | null;
 }
 
 export interface MemoryInput {
@@ -185,6 +188,9 @@ export interface ServerMetrics {
   cap: number | null;
   hits429: number | null;
   oldestWaitMs: number | null;
+  /** Process CPU share in percent (100 = one core) and event-loop delay p99, ms. */
+  cpuPct: number | null;
+  loopP99Ms: number | null;
 }
 
 export interface HealthReport {
@@ -347,6 +353,7 @@ export function assessProcess(pr: ProcessInput, anyTraders: boolean, p: HealthPo
     detail: `${alive} instance${alive === 1 ? "" : "s"} alive now${alive > 1 ? " (deploy overlap: two share one rate limit)" : ""}; ${restarts} restart${restarts === 1 ? "" : "s"} in the last 6 h.` +
       (pr.uptimeMs >= p.uptimeWarnMs ? ` Both known stalls came at ~30-31 h; plan a restart in a quiet hour.` : "") });
 
+  tiles.push(cpuTile(pr.cpu));
   tiles.push(...memoryTiles(pr, p));
 
   const a = pr.api;
@@ -430,6 +437,7 @@ export function assessServerHealth(pr: ProcessInput, tenants: TenantHealthInput[
   const server: ServerMetrics = {
     uptimeMs: pr.uptimeMs, callsPerMin: pr.api?.callsPerMin ?? null, cap: pr.api?.cap ?? null,
     hits429: pr.api?.hits429Last60s ?? null, oldestWaitMs: pr.api?.oldestWaitMs ?? null,
+    cpuPct: pr.cpu?.share != null ? Math.round(pr.cpu.share * 1000) / 10 : null, loopP99Ms: pr.cpu?.loopP99Ms ?? null,
   };
   return { asOf: new Date(now).toISOString(), level: stalled.length ? "bad" : level, word, reasons, process: processTiles, tenants: th, server, policy: p };
 }
@@ -455,13 +463,15 @@ export interface HealthSampleRow {
   cap: number | null;
   hits429: number | null;
   oldestWaitMs: number | null;
+  cpuPct: number | null;
+  loopP99Ms: number | null;
 }
 
 export const SERVER_SCOPE = "server";
 
 const EMPTY_SAMPLE = {
   gapMs: null, normalGapMs: null, stallLineMs: null, idleTraders: null, traders: null, longestPassMs: null, profitLastHour: null,
-  wallet: null, uptimeMs: null, callsPerMin: null, cap: null, hits429: null, oldestWaitMs: null,
+  wallet: null, uptimeMs: null, callsPerMin: null, cap: null, hits429: null, oldestWaitMs: null, cpuPct: null, loopP99Ms: null,
 };
 
 /** The rows to store for one reading: one for the server (the overall word and the process numbers), one per running tenant. */
@@ -471,6 +481,7 @@ export function healthSampleRows(report: HealthReport, now: number): HealthSampl
   const rows: HealthSampleRow[] = [{
     ...EMPTY_SAMPLE, sampledAt, scope: SERVER_SCOPE, word: report.word, level: report.level,
     uptimeMs: r(report.server.uptimeMs), callsPerMin: report.server.callsPerMin, cap: r(report.server.cap), hits429: r(report.server.hits429), oldestWaitMs: r(report.server.oldestWaitMs),
+    cpuPct: report.server.cpuPct ?? null, loopP99Ms: report.server.loopP99Ms ?? null,
   }];
   for (const t of report.tenants) {
     if (t.word === "NOT BOOTED") continue;

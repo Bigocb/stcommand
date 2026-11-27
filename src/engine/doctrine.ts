@@ -1218,6 +1218,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     value: 15, min: 5, max: 120, step: 5, unit: " min",
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
+  {
+    key: "healthCpuAlert",
+    name: "Health: alert when the box CPU runs hot",
+    description: "When the admin health board's Box CPU tile reads HOT (the server process has used 95% or more of a core over the last 10 minutes, or the event-loop delay p99 is 2 s or more) for this many minutes running, write one loud HEALTH ALERT log line and send a Tower push saying a restart may be due: once per hot spell, never twice within an hour. Asked for by the operator on 2026-11-27, after the process that had run 12 h sat at about 106% CPU and its replacement ran at about 56%. The push reaches only devices that turned Tower notifications on and left the \"Box CPU high\" kind on. Advisory only: nothing is restarted. Off = no log line and no push; the tile still shows. Takes effect on the next reading (once a minute).",
+    value: 10, min: 5, max: 120, step: 5, unit: " min",
+    enabled: true, enforced: true, category: "ops", defaultAdopted: true,
+  },
   // Economy alerts and the buy-ship warning (docs/economy-alerts-plan.md, src/engine/economyHealth.ts, src/engine/buyAdvice.ts).
   // Advisory only: they show findings and warnings, and never change what the engine does.
   {

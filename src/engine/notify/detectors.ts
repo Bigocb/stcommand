@@ -129,6 +129,13 @@ export const healthDetector: Detector = {
   detect: (s) => (s.health ? [{ key: s.health.key, category: "health", severity: "critical", title: s.health.title, body: s.health.body, url: "/m#home" }] : []),
 };
 
+/** The box-CPU alert, when the health recorder has raised one (cpuHealth.ts decideCpuAlert); this only carries it. */
+export const cpuDetector: Detector = {
+  id: "cpu",
+  category: "cpu",
+  detect: (s) => (s.cpu ? [{ key: s.cpu.key, category: "cpu", severity: "warning", title: s.cpu.title, body: s.cpu.body, url: "/m#home" }] : []),
+};
+
 /** Push text for each economy finding: what is wrong in words, no credit figures (the Economy card shows those). */
 const ECONOMY_TEXT: Record<string, (ship?: string) => { title: string; body: string }> = {
   jumpsOverProfit: () => ({ title: "Economy: jump fees over profit", body: "Gate jump fees are higher than trading profit over the last hour." }),
@@ -154,7 +161,7 @@ export const economyDetector: Detector = {
     })),
 };
 
-export const DETECTORS: readonly Detector[] = [approvalsDetector, strandedDetector, idleDetector, statusDetector, attentionDetector, resetDetector, rateDetector, healthDetector, economyDetector];
+export const DETECTORS: readonly Detector[] = [approvalsDetector, strandedDetector, idleDetector, statusDetector, attentionDetector, resetDetector, rateDetector, healthDetector, cpuDetector, economyDetector];
 
 /** Run every detector. One that throws is skipped, so a bad detector never silences the others. */
 export function detectAll(snapshot: NotifySnapshot, detectors: readonly Detector[] = DETECTORS): NotifyEvent[] {
