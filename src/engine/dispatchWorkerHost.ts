@@ -35,6 +35,16 @@ export interface HostOptions {
   maxMisses?: number;
   /** Override the worker script (tests). */
   workerUrl?: URL;
+  /** The worker's old-generation heap limit in MB (issue #70 follow-up: the first live job ran out of heap, 2026-11-21).
+   *  Defaults to DISPATCH_WORKER_HEAP_MB, else 3072. */
+  heapMb?: number;
+}
+
+/** The worker's heap limit: an explicit option, else DISPATCH_WORKER_HEAP_MB, else 3072 MB. Pure but for the env read. */
+export function workerHeapMb(explicit?: number, env: string | undefined = process.env.DISPATCH_WORKER_HEAP_MB): number {
+  if (explicit !== undefined && Number.isFinite(explicit) && explicit > 0) return Math.floor(explicit);
+  const n = env === undefined ? NaN : Number(env);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 3072;
 }
 
 const defaultWorkerUrl = (): URL => new URL(import.meta.url.endsWith(".ts") ? "./dispatchWorkerMain.ts" : "./dispatchWorkerMain.js", import.meta.url);
@@ -48,26 +58,38 @@ export class DispatchWorkerHost {
   private readonly timeoutMs: number;
   private readonly maxMisses: number;
   private readonly workerUrl: URL;
+  private readonly heapMb: number;
 
   constructor(opts: HostOptions = {}) {
     this.timeoutMs = opts.timeoutMs ?? 120_000;
     this.maxMisses = opts.maxMisses ?? 3;
     this.workerUrl = opts.workerUrl ?? defaultWorkerUrl();
+    this.heapMb = workerHeapMb(opts.heapMb);
   }
+
+  /** The heap limit the worker is started with, in MB. */
+  heapLimitMb(): number { return this.heapMb; }
 
   /** Is a recompute running in the worker right now? */
   busy(): boolean { return this.inFlight; }
 
   private spawn(): Worker {
     if (this.worker) return this.worker;
-    const w = new Worker(this.workerUrl, { execArgv: process.execArgv.filter((a) => !a.startsWith("--inspect")) });
+    const w = new Worker(this.workerUrl, {
+      execArgv: process.execArgv.filter((a) => !a.startsWith("--inspect") && !a.startsWith("--max-old-space-size")),
+      resourceLimits: { maxOldGenerationSizeMb: this.heapMb },
+    });
     w.on("message", (r: DispatchJobResult) => { this.pending.get(r.id)?.(r); this.pending.delete(r.id); });
     const fail = (why: string): void => {
       for (const [id, resolve] of this.pending) resolve({ id, ok: false, error: why, logs: [], memoryChanged: false, ms: 0 });
       this.pending.clear();
       if (this.worker === w) this.worker = undefined;
     };
-    w.on("error", (err) => fail(`worker error: ${err instanceof Error ? err.message : String(err)}`));
+    w.on("error", (err) => {
+      const code = (err as { code?: string }).code;
+      const msg = err instanceof Error ? err.message : String(err);
+      fail(code === "ERR_WORKER_OUT_OF_MEMORY" ? `worker out of memory at the ${this.heapMb} MB heap limit (DISPATCH_WORKER_HEAP_MB): ${msg}` : `worker error: ${msg}`);
+    });
     w.on("exit", (code) => fail(`worker exited (${code})`));
     w.unref();
     this.worker = w;

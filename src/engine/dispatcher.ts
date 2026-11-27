@@ -2225,9 +2225,22 @@ export class RouteDispatcher {
 
     if (log) {
       const states = formatTraderStates(traders.length, summarizeTraderStates(traders, new Set(next.keys()), new Set(this.manual.keys())));
-      const workSummary = work.map((w) => `${w.key}=${Math.round(w.profitPerTrip)}`).join(", ") || "(none)";
-      const assignedSummary = [...next.entries()].map(([ship, a]) => `${ship}:${a.good}(${a.role})`).join(", ") || "(none)";
-      log(`dispatch recompute: ${states} | work: ${workSummary} | assigned: ${assignedSummary}`);
+      // Capped (2026-11-27): the full lists ran to ~167 KB a line at 3,972 ships and ~200k routes, built and printed on
+      // the main thread every minute. The top entries and a count keep the line readable; dispatch_explain has the rest.
+      const workSummary = summarizeCapped(work.map((w) => `${w.key}=${Math.round(w.profitPerTrip)}`), RECOMPUTE_LOG_MAX_ITEMS);
+      const assignedSummary = summarizeCapped([...next.entries()].map(([ship, a]) => `${ship}:${a.good}(${a.role})`), RECOMPUTE_LOG_MAX_ITEMS);
+      log(`dispatch recompute: ${states} | work (${work.length}): ${workSummary} | assigned (${next.size}): ${assignedSummary}`);
     }
   }
+}
+
+/** Most entries the recompute log line lists per section (work, assigned); the rest are counted. */
+export const RECOMPUTE_LOG_MAX_ITEMS = 20;
+
+/** First `max` items joined, then "(+N more)"; "(none)" for an empty list. Pure. */
+export function summarizeCapped(items: readonly string[], max: number): string {
+  if (items.length === 0) return "(none)";
+  const shown = items.slice(0, Math.max(0, max)).join(", ");
+  const rest = items.length - Math.min(items.length, Math.max(0, max));
+  return rest > 0 ? `${shown}, (+${rest} more)` : shown;
 }

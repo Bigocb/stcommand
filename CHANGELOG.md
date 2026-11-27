@@ -6,6 +6,19 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Shorter recompute log line; a heap limit for the dispatch worker (#70)
+
+At 3,972 ships the dispatcher recompute took 2.3-3.0 s (p50-p95, rising about 100 ms an hour) on the main thread, and its
+log line listed the whole work list and every assignment: about 167 KB a run, built and printed every minute (about 100 MB
+a day of Docker logs). Two changes:
+- The `dispatch recompute:` line now shows the first 20 work entries and the first 20 assignments, each with a count
+  (`work (1234): ..., (+1214 more)`). The trader-state head is unchanged; `dispatch_explain` still has the full picture.
+- The worker thread behind `dispatcherWorker` now starts with an explicit heap limit (`resourceLimits.maxOldGenerationSizeMb`),
+  from `DISPATCH_WORKER_HEAP_MB` or 3072 MB by default, and an out-of-memory exit is logged as such. The first live job on
+  2026-11-21 ran out of heap after 40.9 s with no limit set. The clause stays off; turn it on in a quiet moment and watch
+  the first few runs (`dispatch worker` lines in ops logs), falling back if a job runs past ~30 s or reports out of memory.
+Tests: `tests/recomputeLogCap.test.ts`.
+
 ## 2026-11-26 - Route cards say short or long, with a filter
 
 Operator, 2026-11-26: after the slow-hull limit was turned on (light haulers, engine speed 15, may haul across at most
