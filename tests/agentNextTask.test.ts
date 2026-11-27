@@ -222,6 +222,14 @@ describe("ShipAgent.nextKeeperTask", () => {
     assert.equal(held.nextKeeperTask().priority, KEEPER_DRIVEN_PRIORITY);
   });
 
+  it("a keeper whose market the read scheduler read checks in every 15 min, not 5 (2026-11-27, 103% CPU)", async () => {
+    const agent = new ShipAgent(makeShip("KEEPER-7"), { api: { getCallCount: () => 0 } as any });
+    (agent as any).keeperPoll = async () => { (agent as any).keeperReadSkipped = true; return true; };
+    agent.running = true;
+    const delay = (await agent.nextKeeperTask().run()).next!.earliestRunAt - Date.now();
+    assert.ok(delay > 14.5 * 60_000 && delay <= 15 * 60_000, `expected ~15 min, got ${delay}ms`);
+  });
+
   it("no assigned market backs off ~30s", async () => {
     const agent = new ShipAgent(makeShip(), { api: { getCallCount: () => 0 } as any });
     (agent as any).keeperPoll = async () => false;

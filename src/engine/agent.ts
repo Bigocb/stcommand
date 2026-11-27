@@ -26,6 +26,8 @@ const HALT_POLL_MS = 1_000;
  * systems were found for 7 hours (2026-10-25). Within a tier, oldest-due runs first.
  */
 export const EXPLORE_PRIORITY = 2;
+/** A keeper at its market whose reads the fleet's read scheduler makes: how often its own task wakes (see keeperDelayMs()). */
+const KEEPER_SCHEDULED_IDLE_MS = 15 * 60_000;
 /** A keeper on its way to its market (a delivered probe) runs in the trader tier too: see keeperDriven(). */
 export const KEEPER_DRIVEN_PRIORITY = 2;
 
@@ -2194,7 +2196,9 @@ export class ShipAgent {
     // A loop keeper only reads the market (a ship in orbit at the waypoint sees it) and leaves: docking would cost two calls a stop.
     const looping = this.keeperLooping?.() ?? false;
     if (!looping) await this.ensureDocked();
-    if (this.recordMarket && !this.keeperSkipRead?.(market)) { await this.recordMarket(market); this.onKeeperRead?.(market); }
+    const skipRead = this.keeperSkipRead?.(market) ?? false;
+    this.keeperReadSkipped = skipRead;
+    if (this.recordMarket && !skipRead) { await this.recordMarket(market); this.onKeeperRead?.(market); }
     // Shipyard-markets (A2/C43/H56) also need their ship stock kept fresh —
     // shipyard inventory is only visible when a ship is docked there.
     if (this.recordShipyard) await this.recordShipyard(market);
@@ -2455,10 +2459,17 @@ export class ShipAgent {
   }
 
   /** Delay after a successful keeper poll: 5 minutes, longer for a market whose prices have not moved. */
+  /** Set by keeperPoll(): this poll left the read to the fleet's keeper read scheduler (keeperReadScheduler.ts). */
+  private keeperReadSkipped = false;
+
   private keeperDelayMs(): number {
     if (this.keeperLooping?.()) return 5_000;
     const market = this.keeperMarket?.();
     const wanted = market ? this.keeperPollMs?.(market) : undefined;
+    // A keeper whose market the read scheduler is reading has nothing to do but notice a fleet goal, so it checks in every 15 min.
+    // 2026-11-27: once the scheduler stopped starving, about 4,000 keepers each woke every 5 min (13 tasks a second, 80% of them
+    // no-ops with database reads) and the box sat at 103% CPU.
+    if (this.keeperReadSkipped) return Math.max(KEEPER_SCHEDULED_IDLE_MS, wanted ?? 0);
     return Math.max(5 * 60_000, wanted ?? 0);
   }
 

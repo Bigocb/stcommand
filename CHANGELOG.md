@@ -6,6 +6,15 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Keepers covered by the read scheduler wake every 15 min; the CPU alert stops suggesting a restart right after one
+
+At 17:20, 34 minutes after the lane-refill deploy, the CPU alert fired at 103% ("restart may be due", at 0 h uptime). The scheduler
+was now running everything it had been starving: about 4,000 keepers each woke every 5 minutes (about 13 tasks a second), and 80%
+of them were no-ops (the heartbeat: ran=678, no-op=539) that only read the database and found the read scheduler had already priced
+their market. A keeper whose poll left the read to the scheduler now waits 15 minutes (`KEEPER_SCHEDULED_IDLE_MS`, agent.ts); it
+still notices a fleet goal, at most 15 minutes late. The CPU alert, under 2 h of uptime, says a restart will not help instead of
+suggesting one (`FRESH_UPTIME_MS`, cpuHealth.ts). Tests: `tests/agentNextTask.test.ts`, `tests/cpuHealth.test.ts`.
+
 ## 2026-11-27 — /api/dispatch sends the routes screens use, not all 250,000 (issue #87)
 
 The new ops `http_endpoints` showed the real weight: `GET /api/dispatch` built a 90 MB JSON body on every call (15 calls in 30

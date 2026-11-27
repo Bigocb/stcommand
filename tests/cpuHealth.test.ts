@@ -80,6 +80,18 @@ describe("cpuHealth: alert", () => {
   });
 });
 
+describe("cpuHealth: alert soon after a restart", () => {
+  it("does not suggest a restart under 2 h uptime", () => {
+    const hot = cpuTile({ share: 1.03, spanMs: 10 * MIN, loopP99Ms: 50 });
+    let s = EMPTY_CPU_ALERT;
+    s = decideCpuAlert(s, hot, 20 * MIN, NOW, 10 * MIN, HOUR).state;
+    const d = decideCpuAlert(s, hot, 30 * MIN, NOW + 10 * MIN, 10 * MIN, HOUR);
+    assert.equal(d.alert, true);
+    assert.doesNotMatch(d.title!, /restart may be due/);
+    assert.match(d.body!, /will not help/);
+  });
+});
+
 describe("cpuHealth: recorder and push (the seam)", () => {
   const fakeStore = () => ({ recordHealthSamples: async () => {}, pruneHealthSamples: async () => 0 });
   it("pushes through the cpu detector after the hold, and clears when the box cools", async () => {

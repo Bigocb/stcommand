@@ -29,6 +29,9 @@ export interface CpuPolicy {
   loopBadMs: number;
 }
 
+/** Under this uptime a hot box is load, not age, so the alert does not suggest a restart. */
+export const FRESH_UPTIME_MS = 2 * 3_600_000;
+
 export const DEFAULT_CPU_POLICY: CpuPolicy = { windowMs: 10 * 60_000, warnShare: 0.85, badShare: 0.95, loopWarnMs: 500, loopBadMs: 2_000 };
 
 /** Keep only the samples a window needs (plus one older, so the window has a start). Returns a new array. */
@@ -106,11 +109,15 @@ export function decideCpuAlert(state: CpuAlertState, tile: Tile, uptimeMs: numbe
   if (state.announced) return { alert: false, state: next, reason: "this hot spell was already announced" };
   if (state.lastAlertAt !== null && now - state.lastAlertAt < cooldownMs) return { alert: false, state: next, reason: `cool-down: last alert ${mins(now - state.lastAlertAt)} ago` };
   const h = Math.floor(uptimeMs / 3_600_000);
+  // A hot box soon after a start is load, not age: a restart would not clear it (2026-11-27 17:20, 103% at 0 h uptime after a deploy).
+  const fresh = uptimeMs < FRESH_UPTIME_MS;
   return {
     alert: true,
     state: { hotSince, announced: true, lastAlertAt: now },
     reason: "hot spell held",
-    title: `Box CPU ${tile.value}: restart may be due`,
-    body: `The server process has read ${tile.word} (${tile.value} CPU) for ${mins(now - hotSince)}, at ${h} h uptime. A restart in a quiet moment usually clears it.`,
+    title: fresh ? `Box CPU ${tile.value} since the restart` : `Box CPU ${tile.value}: restart may be due`,
+    body: fresh
+      ? `The server process has read ${tile.word} (${tile.value} CPU) for ${mins(now - hotSince)}, ${mins(uptimeMs)} after it started. A restart will not help: this is load, not age (see ops http_endpoints and the scheduler heartbeat).`
+      : `The server process has read ${tile.word} (${tile.value} CPU) for ${mins(now - hotSince)}, at ${h} h uptime. A restart in a quiet moment usually clears it.`,
   };
 }
