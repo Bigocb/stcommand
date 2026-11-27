@@ -6,6 +6,26 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Database: bigger pool, connections held for traders, price writes that do not wait for disk (issue #88)
+
+Why: with the trade lane at 4 workers, a trade step spent 1.9 s (54%) waiting for a database connection, and `ops db_queries`
+(21:51-22:06) showed half of all query time in one-row market inserts at 80-85 ms each, mostly the commit waiting for disk.
+
+- **Pool 30 -> 50** (`DB_POOL_MAX` still overrides; `src/db/pool.ts` `poolMax()`). 50 rather than 60 so an old and a new process
+  overlapping during a deploy stay near Postgres' default `max_connections` of 100.
+- **10 connections held for traders** (`src/db/dbLanes.ts`). Work outside the "trade" database lane may hold at most pool - reserve
+  connections at once (a FIFO gate in front of `pool.connect()` in `withTenant`/`withPool`); trader tasks (scheduler task ids ending
+  `-trade`, run inside `runInDbLane("trade")` by the scheduler) go straight to the pool. `DB_TRADE_RESERVE` sets the reserve; 0 turns
+  the gate off (the behaviour before). The gate's wait counts in a task's `db.wait`.
+- **Market price writes commit without waiting for disk** (`withPoolRelaxedCommit`, used by `Store.recordMarkets` and
+  `recordMarketSnapshotBatch`): one transaction with `SET LOCAL synchronous_commit TO OFF`. A crash can lose at most the last fraction
+  of a second of price rows, which keepers rewrite every few minutes; nothing else (ledger, flags, ship state) changes.
+- Same evening, a setting, no deploy: `keeperBatchedSnapshotWrites` on (22:15), so a market read is saved in two multi-row writes
+  instead of two per good.
+- Tests: `tests/dbLanes.test.ts` (gate limits, FIFO, live limit change, trade bypass, reserve 0), a scheduler seam test in
+  `tests/schedulerTradeLane.test.ts`; store/latestCache/keeperBatchedSnapshotWrites/registry suites unchanged (store 11 and dashboard 2
+  failures are the known ones).
+
 ## 2026-11-27 — Write-through market_latest in memory; fuel stops indexed per system (issue #88 P4)
 
 - **market_latest write-through copy** (src/db/latestCache.ts). `Store.latestMarketSnapshots()` had a 5 s memo that every market

@@ -8,6 +8,9 @@ instead of one task at a time, and for the long synchronous jobs that block the 
 - P0 deployed 18:05 (queue delay per task kind; ops `db_queries`).
 - P1 lanes and P2 cash reservations built (trade lane off by default, `schedulerTradeWorkers`); DB pool 30. Not deployed yet.
 - Left: per-market sell lock, P3 ramp (operator's call), P4.
+- 2026-11-27 22:20: trade lane on at 2 (20:20) and 4 (21:05). Database fixes built: pool 50, 10 connections held for traders
+  (`src/db/dbLanes.ts`), market writes without the disk wait; `keeperBatchedSnapshotWrites` on. Next: the hot `fleet_flags` row
+  (325 upserts a minute at 637 ms).
 
 ## 1. Why: what 2026-11-27 showed
 

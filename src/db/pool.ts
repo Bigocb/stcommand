@@ -3,6 +3,7 @@ import { queryLabel, queryStats } from "./queryStats.js";
 import pg from "pg";
 import { isUniverseKey } from "../engine/universe.js";
 import { noteStep } from "../core/stepTiming.js";
+import { acquireConnectionSlot } from "./dbLanes.js";
 
 const { Pool } = pg;
 
@@ -45,6 +46,17 @@ export function dbSchema(): string {
   return schema;
 }
 
+/** The pool size: DB_POOL_MAX, default 50, never under 5. */
+export function poolMax(): number {
+  return Math.max(5, Number(process.env.DB_POOL_MAX) || 50);
+}
+
+/** The max a pool was created with (pg keeps it on options). */
+function maxOf(pool: pg.Pool): number {
+  const m = (pool as unknown as { options?: { max?: number } }).options?.max;
+  return typeof m === "number" && m > 0 ? m : poolMax();
+}
+
 export function createPool(connectionString: string): pg.Pool {
   // Render's Postgres (and most hosted Postgres) requires TLS and rejects a
   // plaintext connection outright ("SSL/TLS required") — local dev/CI
@@ -78,7 +90,10 @@ export function createPool(connectionString: string): pg.Pool {
     // 30 from 2026-11-27 (issue #88): trader tasks may now run side by side (schedulerTradeWorkers) beside 12 keeper-lane
     // workers and the HTTP endpoints; waiting for a connection was 1-6% of a task's time at 20. DB_POOL_MAX overrides it
     // (Postgres' own max_connections is 100 by default, so keep the total of every process under that).
-    max: Math.max(5, Number(process.env.DB_POOL_MAX) || 30),
+    // 50 from 2026-11-27 22:20 (issue #88, database fix 1; 50 not 60 so an old and a new process overlapping during a deploy
+    // stay near Postgres' default max_connections of 100): at 30, with the trade lane at 4 workers, a trade step waited
+    // 1.9 s for a connection (54% of the step). 10 of them are held for traders (dbLanes.ts, DB_TRADE_RESERVE).
+    max: poolMax(),
   });
   // An idle pooled connection that the server drops (a database restart, a network blip, an idle timeout on the
   // provider's side) is reported as an 'error' event on the pool. With no listener, Node treats it as an uncaught
@@ -161,7 +176,14 @@ async function runAsTenant<T>(pool: pg.Pool, tenantId: string, scope: UniverseSc
   const universe = scope === undefined ? tenantUniverses.get(tenantId) : scope;
   if (universe !== null && universe !== undefined && !isUniverseKey(universe)) throw new Error(`withTenant: not a universe key: ${JSON.stringify(universe)}`);
   const waitAt = Date.now();
-  const client = await pool.connect();
+  const slot = await acquireConnectionSlot(pool, maxOf(pool));
+  let client: pg.PoolClient;
+  try {
+    client = await pool.connect();
+  } catch (err) {
+    slot();
+    throw err;
+  }
   const heldAt = Date.now();
   noteStep("db.wait", heldAt - waitAt);
   const restore = instrumentClient(client);
@@ -179,6 +201,7 @@ async function runAsTenant<T>(pool: pg.Pool, tenantId: string, scope: UniverseSc
   } finally {
     restore();
     client.release();
+    slot();
     noteStep("db.query", Date.now() - heldAt);
   }
 }
@@ -233,7 +256,14 @@ export function withTenantAllUniverses<T>(pool: pg.Pool, tenantId: string, fn: (
 export async function withPool<T>(pool: pg.Pool, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
   // Per-task timing (src/core/stepTiming.ts): time waiting for a free connection, then time holding it. No-op outside a timed task.
   const waitAt = Date.now();
-  const client = await pool.connect();
+  const slot = await acquireConnectionSlot(pool, maxOf(pool));
+  let client: pg.PoolClient;
+  try {
+    client = await pool.connect();
+  } catch (err) {
+    slot();
+    throw err;
+  }
   const heldAt = Date.now();
   noteStep("db.wait", heldAt - waitAt);
   const restore = instrumentClient(client);
@@ -242,6 +272,28 @@ export async function withPool<T>(pool: pg.Pool, fn: (client: pg.PoolClient) => 
   } finally {
     restore();
     client.release();
+    slot();
     noteStep("db.query", Date.now() - heldAt);
   }
+}
+
+/**
+ * As withPool(), inside one transaction with `synchronous_commit` off (issue #88, database fix 2): the commit returns
+ * without waiting for the write-ahead log to reach disk. For rows that are rewritten every few minutes anyway (market
+ * prices): on 2026-11-27 a one-row market insert took 80-85 ms, mostly that wait, and market writes were half of all
+ * database time. A crash can lose at most the last fraction of a second of these rows; the database stays consistent
+ * (Postgres never applies a partial transaction). Never use it for the ledger or any state a decision is made from.
+ */
+export async function withPoolRelaxedCommit<T>(pool: pg.Pool, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
+  return withPool(pool, async (c) => {
+    await c.query("BEGIN; SET LOCAL synchronous_commit TO OFF");
+    try {
+      const out = await fn(c);
+      await c.query("COMMIT");
+      return out;
+    } catch (err) {
+      await c.query("ROLLBACK").catch(() => {});
+      throw err;
+    }
+  });
 }

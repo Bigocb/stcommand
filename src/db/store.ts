@@ -5,7 +5,7 @@ import type { DeliveryState, NotifyPrefs } from "../engine/notify/types.js";
 import type { PushSubscriptionRow } from "../engine/notify/store.js";
 import { shipLedgerEvent } from "../engine/shipLedgerEvent.js";
 import type pg from "pg";
-import { withTenant, withTenantUniverse, withTenantAllUniverses, tenantUniverse, withPool } from "./pool.js";
+import { withTenant, withTenantUniverse, withTenantAllUniverses, tenantUniverse, withPool, withPoolRelaxedCommit } from "./pool.js";
 import { isUniverseKey, universeKey } from "../engine/universe.js";
 import { instantiateTemplate, type TaskSpec, type TaskRun, type TaskStatus, type Trigger, type Step, type OpeningTemplateRow, type OpeningTaskRow } from "../engine/openingTasks.js";
 import { getCurrentResetDate } from "../core/universe.js";
@@ -2585,7 +2585,7 @@ export class Store {
     if (rows.length === 0) return;
     const CHUNK = 200;
     const writtenAt = new Date().toISOString();
-    await withPool(this.pool, async (c) => {
+    await withPoolRelaxedCommit(this.pool, async (c) => {
       for (let i = 0; i < rows.length; i += CHUNK) {
         const chunk = rows.slice(i, i + CHUNK);
         const historyValues: string[] = [];
@@ -2652,7 +2652,7 @@ export class Store {
       return { sql: tuples.join(", "), params };
     };
     const CHUNK = 200;
-    await withPool(this.pool, async (c) => {
+    await withPoolRelaxedCommit(this.pool, async (c) => {
       for (let i = 0; i < rows.length; i += CHUNK) {
         const h = valuesFor(rows.slice(i, i + CHUNK));
         await c.query(

@@ -19,6 +19,12 @@
  */
 
 import { StepTimer, runWithStepTimer } from "../core/stepTiming.js";
+import { runInDbLane } from "../db/dbLanes.js";
+
+/** A trader's task (the id convention tenantRegistry's trade lane uses). */
+export function isTradeTask(task: { id: string }): boolean {
+  return task.id.endsWith("-trade");
+}
 
 export type Priority = 0 | 1 | 2 | 3 | 4; // 0 rescue · 1 mission · 2 trade · 3 survey/keeper · 4 telemetry
 
@@ -231,7 +237,10 @@ export class Scheduler {
     const timer = this.onTaskTimed ? new StepTimer() : undefined;
     const startedAt = Date.now();
     try {
-      const work = () => (this.runWithPriority ? this.runWithPriority(task.priority, () => task.run(), task.shipSymbol) : task.run());
+      const inner = () => (this.runWithPriority ? this.runWithPriority(task.priority, () => task.run(), task.shipSymbol) : task.run());
+      // Trader tasks borrow database connections from the reserve the gate keeps for them (dbLanes.ts); everything else
+      // shares the rest of the pool.
+      const work = () => (isTradeTask(task) ? runInDbLane("trade", inner) : inner());
       const run = () => (timer ? runWithStepTimer(timer, work) : work());
       let result: TaskResult;
       let charged: number;

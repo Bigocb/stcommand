@@ -64,3 +64,19 @@ describe("Scheduler trade lane (issue #88)", () => {
     assert.equal(n, 0);
   });
 });
+
+describe("Scheduler: trader tasks use the trade database lane (issue #88, database fix 4)", () => {
+  it("a -trade task runs in the 'trade' db lane, any other task does not", async () => {
+    const { currentDbLane } = await import("../src/db/dbLanes.js");
+    const seen: Record<string, string | undefined> = {};
+    const sched = new Scheduler({ ratePerSec: 1000, burst: 1000, lanes: [{ name: "trade", takes: isTrade, workers: () => 1 }] });
+    for (const id of ["A-trade", "B-keeper"]) {
+      sched.enqueue({ id, shipSymbol: id, priority: 2, estimatedCalls: 1, earliestRunAt: 0, run: async () => { seen[id] = currentDbLane(); return { actualCalls: 1 }; } });
+    }
+    const loop = sched.run(1_000_000, 5);
+    await sleep(100);
+    sched.stop(); await loop; await sleep(20);
+    assert.equal(seen["A-trade"], "trade");
+    assert.equal(seen["B-keeper"], undefined);
+  });
+});
