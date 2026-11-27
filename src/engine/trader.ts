@@ -163,6 +163,10 @@ export interface TraderOptions {
    *  refreshed once per tick and goes stale the moment another ship buys)
    *  with the floor then subtracted from it. */
   applyCashFloor?: (credits: number) => number;
+  /** Cash set aside by other traders' buys in progress (cashReservations.ts), subtracted from what this trader may spend. */
+  cashReservedByOthers?: () => number;
+  /** Set aside `amount` for this trader's buy; returns the release. */
+  reserveCash?: (amount: number) => () => void;
   /** Max acceptable loss per unit (percent of cost basis) before refusing to sell. Default 15. */
   maxLossPct?: number;
   /** Minimum per-unit margin for a route to be worth taking. Default 10. */
@@ -333,6 +337,8 @@ export class TraderAgent {
   private readonly getCredits?: () => number;
   private readonly buysBlocked?: () => boolean;
   private readonly applyCashFloor?: (credits: number) => number;
+  private readonly cashReservedByOthers?: () => number;
+  private readonly reserveCash?: (amount: number) => () => void;
   private readonly maxLossPct: number;
   private readonly marginFloor: number;
   private readonly maxLotsPerTrip: () => number;
@@ -501,6 +507,8 @@ export class TraderAgent {
     this.getCredits = opts.getCredits;
     this.buysBlocked = opts.buysBlocked;
     this.applyCashFloor = opts.applyCashFloor;
+    this.cashReservedByOthers = opts.cashReservedByOthers;
+    this.reserveCash = opts.reserveCash;
     this.maxLossPct = opts.maxLossPct ?? 15;
     this.marginFloor = opts.marginFloor ?? 10;
     this.maxLotsPerTrip = opts.maxLotsPerTrip ?? (() => MAX_LOTS_PER_TRIP);
@@ -2394,7 +2402,10 @@ export class TraderAgent {
    */
   private async spendableNow(): Promise<number> {
     const live = (await this.api.getMyAgent()).credits;
-    return this.applyCashFloor ? this.applyCashFloor(live) : live;
+    // Net of other traders' buys in progress (issue #88): nothing awaits between this and the caller's reserveCash(), so the
+    // two are one step for any other task.
+    const net = Math.max(0, live - (this.cashReservedByOthers?.() ?? 0));
+    return this.applyCashFloor ? this.applyCashFloor(net) : net;
   }
 
   /**
@@ -2717,110 +2728,117 @@ export class TraderAgent {
       let lastPrice = buyPrice;
       // The cash this whole trip may use (tripBudget.ts): sized once, from the cash in hand before the first lot.
       const tripLimit = tripBuyBudget(liveCredits, this.tradeBuyPolicy?.() ?? NO_TRADE_BUY_LIMIT);
-      /** What the lot before the one just bought cost; undefined for the first lot of the trip (guard 2 only). */
-      let prevLotPrice: number | undefined;
-      let lotCap = route.lotSize;
-      while (bought < target) {
-        const room = Math.min(liveCredits, tripLimit.budget - totalPaid);
-        const affordable = lastPrice > 0 ? Math.floor(room / lastPrice) : 0;
-        const lot = Math.max(0, Math.min(lotCap, target - bought, affordable));
-        if (lot <= 0) {
-          // Stopped by the trip's own cash limit, not by the wallet or the hold: say so, and count it as a doctrine fire.
-          if (room < liveCredits && target - bought > 0) {
-            this.recordDoctrineFire?.("tradeBuyCashShare");
-            this.log(`stopping at ${bought}u ${route.good}: ${tripLimit.reason}`);
-          }
-          break;
-        }
-        this.currentStep = { kind: "transacting", action: "buy", good: route.good };
-        this.assertAt(route.buyAt, `buy ${route.good}`);
-        let res: Awaited<ReturnType<SpaceTradersAPI["purchaseCargo"]>>;
-        try {
-          res = await this.api.purchaseCargo(this.symbol, route.good, lot);
-        } catch (err) {
-          // Same as the sell side: the market's cap moves, so retry at the size it named. A refused buy bought nothing, so retrying is safe.
-          const cap = lotAfterRefusal(err, lot);
-          this.currentStep = IDLE_STEP;
-          if (cap === undefined) throw err;
-          this.log(`${route.good}: ${route.buyAt} sells ${cap}u at a time, buying in lots of ${cap}`);
-          lotCap = cap;
-          continue;
-        }
-        this.currentStep = IDLE_STEP;
-        this.ship = { ...this.ship, cargo: res.cargo };
-        // The price of the lot before this one, for guard 2's next-ask estimate: `lastPrice` still holds it here, and for
-        // the first lot it holds the planned ask, which is not a price any lot was bought at.
-        const priceBeforeThisLot = bought > 0 ? lastPrice : undefined;
-        bought += lot;
-        totalPaid += res.transaction.totalPrice;
-        lastPrice = res.transaction.pricePerUnit;
-        prevLotPrice = priceBeforeThisLot;
-        liveCredits -= res.transaction.totalPrice;
-        this.recordLedger?.({
-          timestamp: new Date().toISOString(),
-          shipSymbol: this.symbol,
-          waypointSymbol: this.ship.nav.waypointSymbol,
-          type: "PURCHASE",
-          tradeSymbol: route.good,
-          units: lot,
-          pricePerUnit: res.transaction.pricePerUnit,
-          total: res.transaction.totalPrice,
-        });
-        this.recordBuy?.(route.good, route.buyAt, lot, res.transaction.pricePerUnit);
-        // The first lot is the trip's start for the spacing rule (tripSpacing.ts); later lots of the same trip are not new starts.
-        if (bought === lot) this.recordTripStart?.(route.good, route.buyAt, res.transaction.pricePerUnit);
-        this.log(`bought ${lot}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`);
-        this.onActivity?.("buy", `${lot}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`, -res.transaction.totalPrice, this.symbol);
-        // Pinned and persisted after every lot, not once after the whole
-        // loop — a multi-lot buy can take several real API round trips
-        // (several seconds), and a restart landing between one lot and the
-        // next used to find no pin at all yet, since the old single
-        // end-of-loop write hadn't run. Confirmed live: THEO-1 bought 40u
-        // MEDICINE in two 20u lots five seconds apart; a restart landed
-        // right after the second lot but before this write, so on reboot
-        // the app had no memory of the trip and the dispatcher handed the
-        // (now full, cargo-stuck) ship a fresh, unexecutable good on every
-        // recompute since. Re-persisting each lot means even a restart
-        // between the *first* lot and the second still finds a durable pin
-        // for what's already in the hold. See migration 013_held_route.sql's
-        // comment for the original incident this table was built to close.
-        const avgCostSoFar = totalPaid / bought;
-        this.heldCost.set(route.good, avgCostSoFar);
-        this.heldRoute.set(route.good, { good: route.good, buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: lotCap });
-        await this.persistHeldRoute?.(route.good, { buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: lotCap }, avgCostSoFar);
-        // Stop topping off once the price has drifted (supply depleting lot
-        // over lot) past what still clears the margin floor against this
-        // route's sell price — the same guard the pre-loop stale-snapshot
-        // check already applied, now re-checked between lots too.
-        if (route.sellPrice - lastPrice < effectiveMarginFloor(this.marginFloor, lastPrice)) break;
-        // Buy guard 2: the stop above judges the NEXT lot by the route's planned sell price, which ignores that the lots
-        // already in the hold are sold into that sink first and push its bid down. Judge the next lot by the destination
-        // bid guard 1 read, after those lots, and by an ask estimate that follows how far the last lot actually moved.
-        if (guardPct > 0 && bought > 0) {
-          const lotsBought = Math.ceil(bought / Math.max(1, lotCap));
-          const d = nextBuyLotDecision({
-            lotsBought,
-            lastPrice,
-            prevPrice: prevLotPrice,
-            liveSink: sinkNow,
-            fallbackSink: route.sellPrice,
-            marginFloor: effectiveMarginFloor(this.marginFloor, lastPrice),
-            policy: { impactPerLot: guardPct / 100 },
-          });
-          if (!d.ok) {
-            this.recordDoctrineFire?.("buyGuardImpactPct");
-            this.log(`stopping at ${bought}u ${route.good}: ${d.reason}`);
+      // Set this trip's cash aside while it buys, so a trader running beside this one sizes its buy against what is left
+      // (issue #88; released when the pass ends, however it ends).
+      const releaseCash = this.reserveCash?.(Math.min(liveCredits, tripLimit.budget)) ?? (() => {});
+      try {
+        /** What the lot before the one just bought cost; undefined for the first lot of the trip (guard 2 only). */
+        let prevLotPrice: number | undefined;
+        let lotCap = route.lotSize;
+        while (bought < target) {
+          const room = Math.min(liveCredits, tripLimit.budget - totalPaid);
+          const affordable = lastPrice > 0 ? Math.floor(room / lastPrice) : 0;
+          const lot = Math.max(0, Math.min(lotCap, target - bought, affordable));
+          if (lot <= 0) {
+            // Stopped by the trip's own cash limit, not by the wallet or the hold: say so, and count it as a doctrine fire.
+            if (room < liveCredits && target - bought > 0) {
+              this.recordDoctrineFire?.("tradeBuyCashShare");
+              this.log(`stopping at ${bought}u ${route.good}: ${tripLimit.reason}`);
+            }
             break;
           }
+          this.currentStep = { kind: "transacting", action: "buy", good: route.good };
+          this.assertAt(route.buyAt, `buy ${route.good}`);
+          let res: Awaited<ReturnType<SpaceTradersAPI["purchaseCargo"]>>;
+          try {
+            res = await this.api.purchaseCargo(this.symbol, route.good, lot);
+          } catch (err) {
+            // Same as the sell side: the market's cap moves, so retry at the size it named. A refused buy bought nothing, so retrying is safe.
+            const cap = lotAfterRefusal(err, lot);
+            this.currentStep = IDLE_STEP;
+            if (cap === undefined) throw err;
+            this.log(`${route.good}: ${route.buyAt} sells ${cap}u at a time, buying in lots of ${cap}`);
+            lotCap = cap;
+            continue;
+          }
+          this.currentStep = IDLE_STEP;
+          this.ship = { ...this.ship, cargo: res.cargo };
+          // The price of the lot before this one, for guard 2's next-ask estimate: `lastPrice` still holds it here, and for
+          // the first lot it holds the planned ask, which is not a price any lot was bought at.
+          const priceBeforeThisLot = bought > 0 ? lastPrice : undefined;
+          bought += lot;
+          totalPaid += res.transaction.totalPrice;
+          lastPrice = res.transaction.pricePerUnit;
+          prevLotPrice = priceBeforeThisLot;
+          liveCredits -= res.transaction.totalPrice;
+          this.recordLedger?.({
+            timestamp: new Date().toISOString(),
+            shipSymbol: this.symbol,
+            waypointSymbol: this.ship.nav.waypointSymbol,
+            type: "PURCHASE",
+            tradeSymbol: route.good,
+            units: lot,
+            pricePerUnit: res.transaction.pricePerUnit,
+            total: res.transaction.totalPrice,
+          });
+          this.recordBuy?.(route.good, route.buyAt, lot, res.transaction.pricePerUnit);
+          // The first lot is the trip's start for the spacing rule (tripSpacing.ts); later lots of the same trip are not new starts.
+          if (bought === lot) this.recordTripStart?.(route.good, route.buyAt, res.transaction.pricePerUnit);
+          this.log(`bought ${lot}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`);
+          this.onActivity?.("buy", `${lot}u ${route.good} @ ${res.transaction.pricePerUnit}c at ${route.buyAt}`, -res.transaction.totalPrice, this.symbol);
+          // Pinned and persisted after every lot, not once after the whole
+          // loop — a multi-lot buy can take several real API round trips
+          // (several seconds), and a restart landing between one lot and the
+          // next used to find no pin at all yet, since the old single
+          // end-of-loop write hadn't run. Confirmed live: THEO-1 bought 40u
+          // MEDICINE in two 20u lots five seconds apart; a restart landed
+          // right after the second lot but before this write, so on reboot
+          // the app had no memory of the trip and the dispatcher handed the
+          // (now full, cargo-stuck) ship a fresh, unexecutable good on every
+          // recompute since. Re-persisting each lot means even a restart
+          // between the *first* lot and the second still finds a durable pin
+          // for what's already in the hold. See migration 013_held_route.sql's
+          // comment for the original incident this table was built to close.
+          const avgCostSoFar = totalPaid / bought;
+          this.heldCost.set(route.good, avgCostSoFar);
+          this.heldRoute.set(route.good, { good: route.good, buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: lotCap });
+          await this.persistHeldRoute?.(route.good, { buyAt: route.buyAt, sellAt: route.sellAt, buyPrice: route.buyPrice, sellPrice: route.sellPrice, lotSize: lotCap }, avgCostSoFar);
+          // Stop topping off once the price has drifted (supply depleting lot
+          // over lot) past what still clears the margin floor against this
+          // route's sell price — the same guard the pre-loop stale-snapshot
+          // check already applied, now re-checked between lots too.
+          if (route.sellPrice - lastPrice < effectiveMarginFloor(this.marginFloor, lastPrice)) break;
+          // Buy guard 2: the stop above judges the NEXT lot by the route's planned sell price, which ignores that the lots
+          // already in the hold are sold into that sink first and push its bid down. Judge the next lot by the destination
+          // bid guard 1 read, after those lots, and by an ask estimate that follows how far the last lot actually moved.
+          if (guardPct > 0 && bought > 0) {
+            const lotsBought = Math.ceil(bought / Math.max(1, lotCap));
+            const d = nextBuyLotDecision({
+              lotsBought,
+              lastPrice,
+              prevPrice: prevLotPrice,
+              liveSink: sinkNow,
+              fallbackSink: route.sellPrice,
+              marginFloor: effectiveMarginFloor(this.marginFloor, lastPrice),
+              policy: { impactPerLot: guardPct / 100 },
+            });
+            if (!d.ok) {
+              this.recordDoctrineFire?.("buyGuardImpactPct");
+              this.log(`stopping at ${bought}u ${route.good}: ${d.reason}`);
+              break;
+            }
+          }
         }
+        if (bought <= 0) return true;
+        this.notePlannedTrip(route, bought, totalPaid);
+        // Stop here. The sell is a separate reconciled step — deliverHeldCargo()
+        // picks the trip up next tick from the pin just recorded, and gets to
+        // the market by arriving there rather than by falling through a
+        // navigate whose failure the statements below could not see.
+        return true;
+      } finally {
+        releaseCash();
       }
-      if (bought <= 0) return true;
-      this.notePlannedTrip(route, bought, totalPaid);
-      // Stop here. The sell is a separate reconciled step — deliverHeldCargo()
-      // picks the trip up next tick from the pin just recorded, and gets to
-      // the market by arriving there rather than by falling through a
-      // navigate whose failure the statements below could not see.
-      return true;
     }
 
     // A pinned ship that can't fly its route right now (usually: not enough credits yet) waits at its buy market

@@ -79,6 +79,17 @@ export const PASS_MAX_MS = 5_000;
 export const LOW_PRIORITY_FROM = 3;
 
 /**
+ * A lane runs the tasks it `takes` beside the main loop, up to `workers()` at once, each started as soon as a worker frees
+ * (issue #88). A task belongs to the first lane, in the order given, that takes it and has workers; everything else stays in
+ * the main loop. workers() 0 = the lane is off and its tasks run in the main loop, as before.
+ */
+export interface Lane {
+  name: string;
+  takes: (task: Task) => boolean;
+  workers: () => number;
+}
+
+/**
  * One per tenant. Holds a priority queue of `Task`s and a `SchedulerBudget`;
  * `run()` is a coordinator-style loop (same `while (running) { ...; await
  * sleep(...) }` shape as `FleetManager.run()`) that, each pass, admits
@@ -118,8 +129,7 @@ export class Scheduler {
   private lastHeartbeat = Date.now();
   private lastRanAt = Date.now();
   /** How many priority-3-and-lower-urgency tasks (keepers, survey) may run side by side with the main loop; 0 or unset keeps them in the main loop. */
-  private readonly lowPriorityWorkers: () => number;
-  private lowInFlight = 0;
+  private readonly lanes: { def: Lane; inFlight: number }[] = [];
   /** Told how long each task held its worker and where the time went (issue #66, taskTiming.ts). Telemetry only. */
   private readonly onTaskTimed?: (task: Task, totalMs: number, timer: StepTimer, queueMs: number) => void;
   /** Counts the requests a task's own work sends (client.ts countTaskCalls). With it the budget is charged that count, not the
@@ -127,7 +137,7 @@ export class Scheduler {
    *  call made elsewhere. Unset (tests, a Scheduler with no client) = `actualCalls`, as before. */
   private readonly countCalls?: <T>(fn: () => Promise<T>) => Promise<{ value: T; calls: number }>;
 
-  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void; runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>, shipSymbol?: string) => Promise<T>; lowPriorityWorkers?: () => number; onTaskTimed?: (task: Task, totalMs: number, timer: StepTimer, queueMs: number) => void; countCalls?: <T>(fn: () => Promise<T>) => Promise<{ value: T; calls: number }> } = {}) {
+  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void; runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>, shipSymbol?: string) => Promise<T>; lowPriorityWorkers?: () => number; onTaskTimed?: (task: Task, totalMs: number, timer: StepTimer, queueMs: number) => void; countCalls?: <T>(fn: () => Promise<T>) => Promise<{ value: T; calls: number }>; lanes?: Lane[] } = {}) {
     // Matches Client's own RateLimiter (see client.ts's comment) — admitting
     // tasks faster than the transport layer can actually sustain just means
     // more of them arrive at the real 429 ceiling instead of waiting here.
@@ -146,7 +156,10 @@ export class Scheduler {
     this.heartbeatMs = opts.heartbeatMs ?? 30_000;
     this.setClientPriority = opts.setClientPriority;
     this.runWithPriority = opts.runWithPriority;
-    this.lowPriorityWorkers = opts.lowPriorityWorkers ?? (() => 0);
+    // The lanes, in order: the caller's own (trade, ...), then the keeper lane (priority 3 and up) from lowPriorityWorkers.
+    for (const def of opts.lanes ?? []) this.lanes.push({ def, inFlight: 0 });
+    const low = opts.lowPriorityWorkers ?? (() => 0);
+    this.lanes.push({ def: { name: "keeper", takes: (t) => t.priority >= LOW_PRIORITY_FROM, workers: low }, inFlight: 0 });
     this.onTaskTimed = opts.onTaskTimed;
     this.countCalls = opts.countCalls;
   }
@@ -163,13 +176,14 @@ export class Scheduler {
   async runOnce(): Promise<number> {
     const now = Date.now();
     const paused = this.isPaused();
-    // With a keeper lane the low-priority tasks run beside this loop (startLowPriority), so a long run of trader tasks
-    // can no longer use up every pass before the first keeper is reached (2026-11-01: 600 keepers due, none run for hours).
-    const laneOn = this.lowPriorityWorkers() > 0;
+    // Tasks a lane takes run beside this loop (startLanes), so a long run of trader tasks can no longer use up every pass
+    // before the first keeper is reached (2026-11-01: 600 keepers due, none run for hours), and with a trade lane on, one
+    // trader waiting on the API no longer holds every other trader (issue #88).
+    const active = this.activeLanes();
     const ready = this.queue
       .filter((t) => t.earliestRunAt <= now)
       .filter((t) => (paused ? t.priority === 0 : true))
-      .filter((t) => !(laneOn && t.priority >= LOW_PRIORITY_FROM))
+      .filter((t) => !this.laneOf(t, active))
       .sort((a, b) => a.priority - b.priority || a.earliestRunAt - b.earliestRunAt);
 
     let ran = 0;
@@ -195,7 +209,7 @@ export class Scheduler {
       this.queue.splice(this.queue.indexOf(task), 1);
       if (await this.execute(task)) ran += 1;
     }
-    this.heartbeat(ready.length + (laneOn ? this.queue.filter((t) => t.earliestRunAt <= now && t.priority >= LOW_PRIORITY_FROM).length : 0));
+    this.heartbeat(ready.length + (active.length ? this.queue.filter((t) => t.earliestRunAt <= now && this.laneOf(t, active)).length : 0));
     return ran;
   }
 
@@ -254,31 +268,54 @@ export class Scheduler {
     }
   }
 
+  /** The lanes with workers right now (workers() is read live, so a doctrine change takes effect on the next pass). */
+  private activeLanes(): { def: Lane; inFlight: number; workers: number }[] {
+    const out: { def: Lane; inFlight: number; workers: number }[] = [];
+    for (const l of this.lanes) {
+      const workers = Math.max(0, Math.floor(l.def.workers()));
+      if (workers > 0) out.push(Object.assign(l, { workers }));
+    }
+    return out;
+  }
+
+  /** The first active lane that takes `task`, or undefined for the main loop. */
+  private laneOf<L extends { def: Lane }>(task: Task, active: L[]): L | undefined {
+    for (const l of active) if (l.def.takes(task)) return l;
+    return undefined;
+  }
+
   /**
-   * Start due low-priority tasks (keepers, survey) up to the configured number at once, oldest due first. They share the
-   * token budget with the main loop but never wait for it to finish a pass, and the API limiter still serves traders first.
-   * A halted fleet runs none of them (only rescue work runs while paused).
+   * Start due lane tasks up to each lane's worker count, oldest due first within a lane. They share the token budget with the
+   * main loop but never wait for it to finish a pass, and the API limiter still serves higher priorities first. A halted fleet
+   * runs none of them (only rescue work runs while paused).
    */
-  private startLowPriority(): void {
-    const workers = this.lowPriorityWorkers();
-    if (workers <= 0 || this.isPaused()) return;
+  private startLanes(): void {
+    if (this.isPaused()) return;
+    const active = this.activeLanes();
+    if (!active.length) return;
     const now = Date.now();
     const due = this.queue
-      .filter((t) => t.priority >= LOW_PRIORITY_FROM && t.earliestRunAt <= now)
+      .filter((t) => t.earliestRunAt <= now)
       .sort((a, b) => a.priority - b.priority || a.earliestRunAt - b.earliestRunAt);
     for (const task of due) {
-      if (this.lowInFlight >= workers) break;
-      if (task.estimatedCalls > this.budget.availableTokens()) break;
+      const lane = this.laneOf(task, active);
+      if (!lane || lane.inFlight >= lane.workers) continue;
+      if (task.estimatedCalls > this.budget.availableTokens()) continue;
       this.queue.splice(this.queue.indexOf(task), 1);
-      this.lowInFlight += 1;
+      lane.inFlight += 1;
       // Refill as soon as a worker frees up, not only once per main-loop pass: a pass can hold the loop for 5 s plus one trader task
-      // (up to 96 s seen), so the lane sat idle after each batch and ran about 2 keeper tasks a second against 3,800 ready
+      // (up to 96 s seen), so the keeper lane sat idle after each batch and ran about 2 tasks a second against 3,800 ready
       // (2026-11-27; delivered keepers sat at their gates for hours). setImmediate keeps a run of instant tasks off one microtask chain.
       void this.execute(task).finally(() => {
-        this.lowInFlight -= 1;
-        if (this.running) setImmediate(() => this.startLowPriority());
+        lane.inFlight -= 1;
+        if (this.running) setImmediate(() => this.startLanes());
       });
     }
+  }
+
+  /** Tasks running in each lane now, for diagnostics. */
+  laneLoad(): { lane: string; inFlight: number; workers: number }[] {
+    return this.lanes.map((l) => ({ lane: l.def.name, inFlight: l.inFlight, workers: Math.max(0, Math.floor(l.def.workers())) }));
   }
 
   /**
@@ -354,7 +391,7 @@ export class Scheduler {
     let ticks = 0;
     while (this.running && ticks < maxTicks) {
       ticks += 1;
-      this.startLowPriority();
+      this.startLanes();
       await this.runOnce();
       await sleep(pollIntervalMs);
     }

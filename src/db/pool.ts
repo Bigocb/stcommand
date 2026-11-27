@@ -75,7 +75,10 @@ export function createPool(connectionString: string): pg.Pool {
     // and requests queued waiting. This alone doesn't fix the root cause
     // (Store.recordMarkets() batching real connection *usage* down, see its
     // own comment) — it's headroom on top of that, not a substitute for it.
-    max: 20,
+    // 30 from 2026-11-27 (issue #88): trader tasks may now run side by side (schedulerTradeWorkers) beside 12 keeper-lane
+    // workers and the HTTP endpoints; waiting for a connection was 1-6% of a task's time at 20. DB_POOL_MAX overrides it
+    // (Postgres' own max_connections is 100 by default, so keep the total of every process under that).
+    max: Math.max(5, Number(process.env.DB_POOL_MAX) || 30),
   });
   // An idle pooled connection that the server drops (a database restart, a network blip, an idle timeout on the
   // provider's side) is reported as an 'error' event on the pool. With no listener, Node treats it as an uncaught

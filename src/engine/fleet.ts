@@ -1,3 +1,4 @@
+import { CashReservations } from "./cashReservations.js";
 import { DispatchWorkerHost } from "./dispatchWorkerHost.js";
 import { buildDispatchWorld } from "./dispatchWorld.js";
 import type { DispatchJob } from "./dispatchJob.js";
@@ -1694,6 +1695,8 @@ export class FleetManager {
       // The same floor applied to a live balance, for the purchase sites —
       // see TraderAgent.spendableNow() for why they need both. Cargo uses the trade budget (tradeBudget.ts).
       applyCashFloor: (credits: number) => this.tradeSpendable(credits),
+      cashReservedByOthers: () => this.cashReservations.othersThan(shipSymbol),
+      reserveCash: (amount: number) => this.cashReservations.reserve(shipSymbol, amount),
       // Off by default (doctrine traderIdleDiscovery): a trader with no route waits for the dispatcher instead of re-pricing markets.
       idleDiscovery: () => this.doctrine.isEnabled("traderIdleDiscovery"),
       maxLossPct: this.doctrine.value("maxLossPct", 100),
@@ -5968,6 +5971,8 @@ export class FleetManager {
   private readonly systemQueue = new SystemQueue();
   /** Keepers parked on a staged system's markets, ship -> system, saved in the `freshGate` flag with the last release time. */
   private readonly stagedParked = new Map<string, string>();
+  /** Cash set aside by traders' buys in progress (cashReservations.ts, issue #88): one buy pass long, so not persisted. */
+  readonly cashReservations = new CashReservations();
   /** Keepers parked because their live system has no sales (clause freshIdleParkHours): ship -> system. */
   private readonly idleParked = new Map<string, string>();
   /** When each idle system's keepers were parked, and when it was last opened for a re-check (idleSystems.ts). Saved with the fresh gate. */

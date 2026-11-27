@@ -566,7 +566,7 @@ export class TenantRegistry {
     // point it's long since been assigned. Same forward-reference pattern
     // MissionManager's own callbacks into FleetManager already use.
     let fleet!: FleetManager;
-    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused(), log, setClientPriority: (p) => api.setPriority(p), runWithPriority: (p, fn, sym) => runWithApiRole(sym ? fleet.apiRoleOf(sym) : "fleet", () => (sym ? runWithApiShip(sym, () => runWithApiPriority(taskToApiPriority(p), fn)) : runWithApiPriority(taskToApiPriority(p), fn))), lowPriorityWorkers: () => (fleet?.doctrine ? fleet.doctrine.value("keeperLaneWorkers", 0) : 0), onTaskTimed: (task, ms, timer, queueMs) => fleet?.noteTaskTiming(task.id, ms, timer, queueMs), countCalls: countTaskCalls });
+    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused(), log, setClientPriority: (p) => api.setPriority(p), runWithPriority: (p, fn, sym) => runWithApiRole(sym ? fleet.apiRoleOf(sym) : "fleet", () => (sym ? runWithApiShip(sym, () => runWithApiPriority(taskToApiPriority(p), fn)) : runWithApiPriority(taskToApiPriority(p), fn))), lowPriorityWorkers: () => (fleet?.doctrine ? fleet.doctrine.value("keeperLaneWorkers", 0) : 0), lanes: [{ name: "trade", takes: (t) => t.id.endsWith("-trade"), workers: () => (fleet?.doctrine?.isEnabledOr("schedulerTradeWorkers", false) ? fleet.doctrine.value("schedulerTradeWorkers", 0) : 0) }], onTaskTimed: (task, ms, timer, queueMs) => fleet?.noteTaskTiming(task.id, ms, timer, queueMs), countCalls: countTaskCalls });
     fleet = new FleetManager({
       api,
       contracts,

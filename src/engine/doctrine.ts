@@ -766,6 +766,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: true, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "schedulerTradeWorkers",
+    name: "Traders: tasks run side by side",
+    description: "How many trader tasks may run at the same time, in their own scheduler lane (issue #88). The main loop ran one task at a time, so 94 traders queued behind each other: on 2026-11-27 a trade step waited about 3 minutes to start and then held the loop for 9 s, half of it waiting for the API. With this on, up to this many trader steps run at once; buys still take a fleet-wide buy lock, so two traders never size a purchase against the same cash, and the API limiter still paces every call. Raise it a step at a time (2, 4, 8) and watch ops keeper_coverage taskTiming (trade avgQueueMs), 429s in ops api_budget and box CPU. Off (the default) = trader tasks run in the main loop one at a time, as before. Takes effect within a second.",
+    value: 2, min: 1, max: 16, step: 1, unit: "",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "keeperBatchedSnapshotWrites",
     name: "Keepers: save a market read in one database trip",
     description: "On = a market read (a keeper's poll, and every other ship's market snapshot through the same path) saves its prices in one database connection with two multi-row writes, instead of one connection and two writes per good (about 20 round trips for a 10-good market, each waiting its turn for the pool). The rows saved are exactly the same. Why: on 2026-11-21 12 keeper lane workers managed only about 40 market reads a minute, so a keeper task held its worker 15-18 s while the API wait was 0.1-0.4 s (issue #66); ops keeper_coverage's taskTiming shows where a keeper task's time goes (db.wait, db.query, api.wait, ...) so the effect can be checked before and after. Off (the default) = one write per good, as before. Takes effect on the next read.",

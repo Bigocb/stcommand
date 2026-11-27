@@ -6,6 +6,28 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Scheduler lanes and cash reservations (issue #88, P1 and P2), trade lane shipped off
+
+The scheduler's main loop ran one task at a time, so 94 traders queued behind each other: the P0 measurement right after the 18:05
+boot showed a trade step waiting 175 s on average (230 s p90) to start, 27 trade steps in 10 minutes, and each holding the loop 9 s,
+half of it waiting for the API. This change gives the scheduler lanes and makes trading safe to run side by side; the trade lane
+ships switched off (operator, 2026-11-27: "fix the code before changing any more settings").
+
+- **Lanes** (`Lane` in src/engine/scheduler.ts): each lane takes some tasks and runs up to `workers()` of them at once, refilled as
+  each finishes. The keeper lane (priority 3 and up, `keeperLaneWorkers`) is now one of them; a trade lane (task ids ending
+  `-trade`) is the other, sized by the new doctrine clause `schedulerTradeWorkers` (off by default = trader tasks stay in the main
+  loop, one at a time, as before; value 2, range 1-16). A task belongs to the first lane that takes it and has workers; the rest
+  (rescue, missions, explorers, miners) stay in the main loop. Paused fleet: lanes run nothing. `laneLoad()` reports workers in use.
+- **Cash reservations** (src/engine/cashReservations.ts): a trader sets its trip's cash limit aside while it buys, and every other
+  trader's spendable cash (`spendableNow`) is the wallet less those reservations, before the cash floor. The read and the
+  reservation happen in one synchronous stretch, so two traders cannot size a buy against the same cash; an error is on the safe
+  side (part of a reserved buy may be subtracted twice). Released when the buy pass ends, however it ends.
+- **Database pool** 20 to 30 connections (`DB_POOL_MAX` overrides).
+
+Not yet: a per-market lock around sell passes (the dispatcher already keeps two ships off one route), and the long synchronous jobs
+(P4). Tests: `tests/schedulerTradeLane.test.ts`, `tests/cashReservations.test.ts`; the scheduler, keeper and trader suites pass as
+before.
+
 ## 2026-11-27 — Measurement for the scheduler-lanes plan (issue #88, P0)
 
 Before splitting the scheduler's main loop, measure what it costs:

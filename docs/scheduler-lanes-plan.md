@@ -3,6 +3,12 @@
 Operator, 2026-11-27: "We are kind of being held back by these performance issues." Plan for running trade work concurrently
 instead of one task at a time, and for the long synchronous jobs that block the whole process. Issue: https://github.com/Bigocb/stcommand/issues/88.
 
+## Status (2026-11-27 18:45)
+
+- P0 deployed 18:05 (queue delay per task kind; ops `db_queries`).
+- P1 lanes and P2 cash reservations built (trade lane off by default, `schedulerTradeWorkers`); DB pool 30. Not deployed yet.
+- Left: per-market sell lock, P3 ramp (operator's call), P4.
+
 ## 1. Why: what 2026-11-27 showed
 
 | Time | What we saw | Cause | Fixed |
