@@ -6,6 +6,20 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Scheduler: charge each task its own API calls, not everyone's
+
+The scheduler admits a task only when its token budget (1.5 a second, burst 5) covers the task's estimate, then charges the task
+its `actualCalls`. Tasks took that as the client's whole call count before and after their run, which also counts every concurrent
+call: the keeper read scheduler (about 330 reads a minute on 2026-11-27), up to 12 keeper-lane tasks and the other tasks. The budget
+sat near zero, and the log showed `queue=4266 ready=4053 tokens=1.34 · ran=122 skipped=17781` with trade tasks (THEO-1B9, 6A1, 1BA,
+F56), the staged systems' tour ships (THEO-DCD, BF3) and fleet-rescue "starved for 100 passes". Keepers delivered to staged systems
+sat at the jump gate for hours (X1-KQ85's eight since about 13:00), never read their markets, and so the release rule saw those
+systems as 0% priced and released nothing for over an hour.
+
+Now `countTaskCalls` (src/core/client.ts) counts the requests sent inside a task's own async context, and the scheduler charges
+that (`countCalls`, wired in tenantRegistry.ts). The API's own rate limiter still paces every request. Tests:
+`tests/schedulerOwnCalls.test.ts`.
+
 ## 2026-11-27 — Tower: Compare and the other More tabs draw only their own section (issue #87)
 
 Operator: "the screen reload often happens on the compare page". Compare lives on Tower's More screen with eleven other sections,

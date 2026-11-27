@@ -169,6 +169,27 @@ export function runWithApiRole<T>(role: string, fn: () => Promise<T>): Promise<T
 const shipContext = new AsyncLocalStorage<string>();
 
 /**
+ * Requests sent inside one scheduler task's own async context (scheduler.ts). The scheduler used to charge a task the client's
+ * whole call count during the task (getCallCount() after minus before), which also counted every concurrent call by the keeper
+ * read scheduler, the keeper lane and other tasks: on 2026-11-27, with about 330 keeper reads a minute, that kept the scheduler's
+ * token budget near zero, and trade, tour and rescue tasks starved for hundreds of passes ("starved for 100 passes").
+ */
+const taskCallContext = new AsyncLocalStorage<{ calls: number }>();
+
+/** Count one request against the scheduler task whose async context this is, if any. Called by Client for every request sent. */
+export function noteTaskCall(): void {
+  const box = taskCallContext.getStore();
+  if (box) box.calls += 1;
+}
+
+/** Run `fn` and count the requests sent from inside it (its own async descendants only). */
+export async function countTaskCalls<T>(fn: () => Promise<T>): Promise<{ value: T; calls: number }> {
+  const box = { calls: 0 };
+  const value = await taskCallContext.run(box, fn);
+  return { value, calls: box.calls };
+}
+
+/**
  * Run `fn` with every API call made inside it attributed to `ship`: the scheduler wraps each ship's own task in it. Trade lanes
  * (tradeLanes.ts) use it to send an enrolled trader's calls through that ship's proxy; nothing else reads it.
  */
@@ -733,6 +754,7 @@ export class Client {
         try { apiCallLog.record({ at: sentAt, role: roleContext.getStore() ?? "?", kind, priority, waitMs: sentAt - waitStart, durationMs: status === 0 ? 0 : Date.now() - sentAt, status, lane }); } catch { /* telemetry must never fail the request */ }
       };
       this.callCount += 1;
+      noteTaskCall();
       // A proxied Client goes through undici's own fetch, with its own
       // ProxyAgent as the dispatcher — both from the same undici install.
       // Node's global fetch is backed by its own internal, differently-

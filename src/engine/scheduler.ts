@@ -122,8 +122,12 @@ export class Scheduler {
   private lowInFlight = 0;
   /** Told how long each task held its worker and where the time went (issue #66, taskTiming.ts). Telemetry only. */
   private readonly onTaskTimed?: (task: Task, totalMs: number, timer: StepTimer) => void;
+  /** Counts the requests a task's own work sends (client.ts countTaskCalls). With it the budget is charged that count, not the
+   *  task's `actualCalls`, which tasks take as the client's whole call count before and after and so includes every concurrent
+   *  call made elsewhere. Unset (tests, a Scheduler with no client) = `actualCalls`, as before. */
+  private readonly countCalls?: <T>(fn: () => Promise<T>) => Promise<{ value: T; calls: number }>;
 
-  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void; runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>, shipSymbol?: string) => Promise<T>; lowPriorityWorkers?: () => number; onTaskTimed?: (task: Task, totalMs: number, timer: StepTimer) => void } = {}) {
+  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void; runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>, shipSymbol?: string) => Promise<T>; lowPriorityWorkers?: () => number; onTaskTimed?: (task: Task, totalMs: number, timer: StepTimer) => void; countCalls?: <T>(fn: () => Promise<T>) => Promise<{ value: T; calls: number }> } = {}) {
     // Matches Client's own RateLimiter (see client.ts's comment) — admitting
     // tasks faster than the transport layer can actually sustain just means
     // more of them arrive at the real 429 ceiling instead of waiting here.
@@ -144,6 +148,7 @@ export class Scheduler {
     this.runWithPriority = opts.runWithPriority;
     this.lowPriorityWorkers = opts.lowPriorityWorkers ?? (() => 0);
     this.onTaskTimed = opts.onTaskTimed;
+    this.countCalls = opts.countCalls;
   }
 
   enqueue(task: Task): void {
@@ -213,8 +218,18 @@ export class Scheduler {
     const startedAt = Date.now();
     try {
       const work = () => (this.runWithPriority ? this.runWithPriority(task.priority, () => task.run(), task.shipSymbol) : task.run());
-      const result = timer ? await runWithStepTimer(timer, work) : await work();
-      this.budget.consumeTokens(result.actualCalls);
+      const run = () => (timer ? runWithStepTimer(timer, work) : work());
+      let result: TaskResult;
+      let charged: number;
+      if (this.countCalls) {
+        const counted = await this.countCalls(run);
+        result = counted.value;
+        charged = counted.calls;
+      } else {
+        result = await run();
+        charged = result.actualCalls;
+      }
+      this.budget.consumeTokens(charged);
       this.stats.ran += 1;
       this.lastRanAt = Date.now();
       if (result.actualCalls === 0) this.stats.yielded += 1;

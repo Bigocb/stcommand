@@ -7,7 +7,7 @@ import { rateLimitMonitor } from "../core/rateLimitMonitor.js";
 import { LaneBreaker, LANES_OFF, type LanePolicy } from "./apiLanes.js";
 import { poolFromEnv, ByteMeter } from "./lanePool.js";
 import type { LaneSlot } from "../core/client.js";
-import { Client, RateLimiter, apiBurstFromEnv, apiRateFromEnv, SpaceTradersAPI, runWithApiPriority, runWithApiRole, runWithApiShip, tradeLaneDecisionStats, taskToApiPriority, API_PRIORITY } from "../core/client.js";
+import { Client, RateLimiter, apiBurstFromEnv, apiRateFromEnv, SpaceTradersAPI, runWithApiPriority, runWithApiRole, runWithApiShip, tradeLaneDecisionStats, taskToApiPriority, API_PRIORITY, countTaskCalls } from "../core/client.js";
 import { laneShips, TRADE_LANES_OFF, type TradeLanePolicy } from "./tradeLanes.js";
 import { Store } from "../db/store.js";
 import { FleetState } from "./state.js";
@@ -566,7 +566,7 @@ export class TenantRegistry {
     // point it's long since been assigned. Same forward-reference pattern
     // MissionManager's own callbacks into FleetManager already use.
     let fleet!: FleetManager;
-    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused(), log, setClientPriority: (p) => api.setPriority(p), runWithPriority: (p, fn, sym) => runWithApiRole(sym ? fleet.apiRoleOf(sym) : "fleet", () => (sym ? runWithApiShip(sym, () => runWithApiPriority(taskToApiPriority(p), fn)) : runWithApiPriority(taskToApiPriority(p), fn))), lowPriorityWorkers: () => (fleet?.doctrine ? fleet.doctrine.value("keeperLaneWorkers", 0) : 0), onTaskTimed: (task, ms, timer) => fleet?.noteTaskTiming(task.id, ms, timer) });
+    const scheduler = new Scheduler({ isPaused: () => fleet.isPaused(), log, setClientPriority: (p) => api.setPriority(p), runWithPriority: (p, fn, sym) => runWithApiRole(sym ? fleet.apiRoleOf(sym) : "fleet", () => (sym ? runWithApiShip(sym, () => runWithApiPriority(taskToApiPriority(p), fn)) : runWithApiPriority(taskToApiPriority(p), fn))), lowPriorityWorkers: () => (fleet?.doctrine ? fleet.doctrine.value("keeperLaneWorkers", 0) : 0), onTaskTimed: (task, ms, timer) => fleet?.noteTaskTiming(task.id, ms, timer), countCalls: countTaskCalls });
     fleet = new FleetManager({
       api,
       contracts,
