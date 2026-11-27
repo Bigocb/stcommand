@@ -13,7 +13,8 @@ import { setTenantDiscordWebhook, getTenantDiscordWebhook, getTenantDiscordEnabl
 import { mintMcpKey, listMcpKeys, revokeMcpKey } from "../db/mcpKeys.js";
 import type { TenantRegistry, TenantWorker } from "../engine/tenantRegistry.js";
 import type { ProposedAction } from "../engine/agentChat.js";
-import { makeTTLCache } from "./cache.js";
+import { makeTTLCache, keyedTtlCache, HttpStatusError } from "./cache.js";
+import { markCached } from "./endpointStats.js";
 import { jsonErrors } from "./jsonErrors.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
@@ -90,6 +91,13 @@ async function executeCopilotAction(w: TenantWorker, action: ProposedAction): Pr
 
 export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, galaxyCrawler: GalaxyCrawler): Router {
   const router = Router();
+
+  // Any change made from a screen (pause, role, park, buy, ...) drops the short screen caches below (issue #87), so the re-read
+  // the screen makes straight after shows the change, not an answer built before it. Changes made through MCP wait out the TTL.
+  router.use((req, res, next) => {
+    if (req.method !== "GET") res.on("finish", () => { bridgeCache.clear(); marketsCache.clear(); });
+    next();
+  });
 
   function worker(req: { tenantId?: string }): TenantWorker | undefined {
     return req.tenantId ? registry.get(req.tenantId) : undefined;
@@ -554,10 +562,28 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   const hullEventsFrom = (rows: { timestamp: string; scrap: boolean; total: number }[]): HullEvent[] =>
     rows.map((r) => ({ ts: Date.parse(r.timestamp), amount: r.scrap ? -r.total : r.total }));
 
+  // One build of /api/metrics serves every open Metrics screen, Hourly card and Status panel for a short while (issue #87): each
+  // build reads up to a week of ledger rows and every ship's status. The live 30-minute view keeps its 15 s refresh.
+  const metricsCache = keyedTtlCache<string, unknown>({ ttlMs: (k) => (k.endsWith("|live") ? 10_000 : 45_000), maxEntries: 32 });
   router.get("/metrics", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
+    const reqHours = Math.min(72, Math.max(0.5, Number(req.query.hours) || 6));
+    const key = `${w.tenantId}|${req.query.since === "reset" ? "reset" : reqHours}${req.query.since !== "reset" && reqHours <= 0.5 ? "|live" : ""}`;
+    let built = false;
     try {
+      const body = await metricsCache.get(key, async () => { built = true; return buildMetricsBody(req, w); });
+      if (!built) markCached(res);
+      res.json(body);
+    } catch (err) {
+      if (err instanceof HttpStatusError) return res.status(err.status).json({ error: err.message });
+      console.error("[dashboard] /metrics error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  async function buildMetricsBody(req: ExpressRequest, w: TenantWorker) {
+    {
       const now = Date.now();
       // ?since=reset: everything since the start of the current universe. The reset is weekly, so the start is the
       // next scheduled reset less a week. Rows before it belong to the old universe and are never read.
@@ -566,7 +592,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       let rows;
       if (sinceReset) {
         const nextReset = Date.parse(resetWatcherStatus()?.nextReset ?? "");
-        if (!Number.isFinite(nextReset)) return res.status(503).json({ error: "the next server reset is not known yet" });
+        if (!Number.isFinite(nextReset)) throw new HttpStatusError(503, "the next server reset is not known yet");
         const resetStart = nextReset - 7 * 24 * 3600_000;
         // A week at most: the universe is weekly, and the ledger read is capped either way.
         hours = Math.min(168, Math.max(1, Math.ceil((now - resetStart) / 3600_000)));
@@ -599,7 +625,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       const matchedSinceReset = Number.isFinite(resetAtMs)
         ? (await w.store.opsLedgerBuckets(w.tenantId, { sinceIso: new Date(resetAtMs - 7 * 24 * 3600_000).toISOString(), bucketMin: 1440 })).reduce((s, b) => s + b.pnl, 0)
         : null;
-      res.json({
+      return {
         ...metrics,
         matchedSinceReset,
         buckets: metrics.buckets.map((b, i) => ({
@@ -616,12 +642,9 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         shipCount: statuses.length,
         traderCount: traders.length,
         resetAt: resetWatcherStatus()?.nextReset ?? null,
-      });
-    } catch (err) {
-      console.error("[dashboard] /metrics error", err);
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      };
     }
-  });
+  }
 
   type TripRow = { timestamp: Date; ship_symbol: string; trade_symbol: string; units: number; price_per_unit: number; total: number; realized_pnl: number | null; waypoint_symbol: string; route: string | null };
 
@@ -674,10 +697,25 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
     res.json(attentionView(w.fleet));
   });
 
+  // One /api/bridge answer per tenant for 15 s (issue #87): it lists every ship twice (status and summary, about 4,000 each) and
+  // runs triage over all of them; Deck and Tower both poll it.
+  const bridgeCache = keyedTtlCache<string, unknown>({ ttlMs: 15_000, maxEntries: 8 });
   router.get("/bridge", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
+    let built = false;
     try {
+      const body = await bridgeCache.get(w.tenantId, async () => { built = true; return buildBridgeBody(w); });
+      if (!built) markCached(res);
+      res.json(body);
+    } catch (err) {
+      console.error("[dashboard] /bridge error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  async function buildBridgeBody(w: TenantWorker) {
+    {
       const since = new Date(Date.now() - 12 * 3600 * 1000).toISOString();
       const series = await w.store.netSeries(w.tenantId, since, 60);
       const byShip = await w.store.earningsByShip(w.tenantId, new Date(Date.now() - 3600 * 1000).toISOString());
@@ -743,7 +781,7 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         console.error("[dashboard] worth rate failed:", err instanceof Error ? err.message : err);
       }
 
-      res.json({
+      return {
         rate, prevRate: prev, pace, paceExpansion: { perHour1h: paceExpansion.perHour1h, perHour3h: paceExpansion.perHour3h }, worthPace, forgone,
         matchedNet: matched.net, matchedTrades: matched.trades, matchedWindowHours: RATE_WINDOW_HOURS,
         series: series.map((p) => p.net),
@@ -756,12 +794,9 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
         shipStatus: status.ships,
         summary: w.fleet.fleetStatusSummary(),
         triage,
-      });
-    } catch (err) {
-      console.error("[dashboard] /bridge error", err);
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      };
     }
-  });
+  }
 
   /* Every market this fleet has ever priced, with how old its newest snapshot
      is — no freshness cutoff. The keeper picker needs the stale ones too: a
@@ -799,10 +834,27 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
 
   /* ── Markets ─────────────────────────────────────────────────
      Routes ranked by profit per round trip net of fuel, not margin %. */
+  const freshSnapshotsCache = keyedTtlCache<string, Awaited<ReturnType<Store["freshMarketSnapshots"]>>>({ ttlMs: 60_000, maxEntries: 4 });
+  // The whole Markets answer, per tenant and system filter, for 20 s (issue #87): it walks every priced route (up to about
+  // 250,000) through route status, gate hops and reachability, and Tower asks for it every 15 s on the Fleet and Markets tabs.
+  const marketsCache = keyedTtlCache<string, unknown>({ ttlMs: 20_000, maxEntries: 32 });
   router.get("/markets", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
+    let built = false;
     try {
+      const sys = typeof req.query.system === "string" ? req.query.system : "";
+      const body = await marketsCache.get(`${w.tenantId}|${sys}`, async () => { built = true; return buildMarketsBody(req, w); });
+      if (!built) markCached(res);
+      res.json(body);
+    } catch (err) {
+      console.error("[dashboard] /markets error", err);
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  async function buildMarketsBody(req: ExpressRequest, w: TenantWorker) {
+    {
       // Same staleness cutoff trading actually flies by (doctrine's
       // snapshotMaxAgeMin, default 90m) — latestMarketSnapshots() had no
       // age filter at all, so this panel could show a price hours or days
@@ -816,7 +868,9 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       // record before anything else below (the age filter, the system
       // dropdown, route computation) ever sees it.
       const charted = new Set(w.fleet.getChartedSystems());
-      const allSnapshots = (await w.store.freshMarketSnapshots(maxAgeMin)).filter((s) => charted.has(s.systemSymbol));
+      // The fresh snapshots are a shared table (every tenant), read once a minute for all callers (issue #87): Tower polls this
+      // every 15 s on the Fleet and Markets tabs, and each read was every market in about 280 systems.
+      const allSnapshots = (await freshSnapshotsCache.get(`${maxAgeMin}`, () => w.store.freshMarketSnapshots(maxAgeMin))).filter((s) => charted.has(s.systemSymbol));
       // Optional ?system=X1-AB12 filter — the Markets tab's system-filter
       // control. This fleet can span several systems once gates are in
       // play, and both panels get unusable fast without one. `systems` is
@@ -949,12 +1003,9 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
       const intel = await w.fleet.getIntel();
       const shipyards = systemFilter ? intel.shipyards.filter((y) => y.systemSymbol === systemFilter) : intel.shipyards;
       const modules = systemFilter ? intel.modules.filter((m) => m.systemSymbol === systemFilter) : intel.modules;
-      res.json({ routes, snapshots, shipyards, modules, systems, traderExclusions, shortRouteMaxHops: shortMaxHops });
-    } catch (err) {
-      console.error("[dashboard] /markets error", err);
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      return { routes, snapshots, shipyards, modules, systems, traderExclusions, shortRouteMaxHops: shortMaxHops };
     }
-  });
+  }
 
   /* ── Doctrine ────────────────────────────────────────────────
      The policy the engine flies by. Reads are live, so an edit takes effect

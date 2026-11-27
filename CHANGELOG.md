@@ -6,6 +6,29 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Screen caches for Metrics, Compare, Markets and Bridge, and per-endpoint cost (issue #87)
+
+The box's CPU and memory kept climbing, and Tower kept reloading on the operator's phone, worst on Compare and Metrics ("Compare and
+metrics tab are really heavy on calls"). Each request rebuilt its whole answer from scratch, however many screens asked:
+
+- `/api/metrics` read up to a week of ledger rows (since reset), every ship purchase and all ~4,000 ships' status, every 60 s per open
+  Metrics screen (every 15 s on the 30-minute view), plus Tower's Hourly card and Status panel.
+- `/api/compare` ran two whole-week ledger aggregations, up to 10,000 snapshot rows and the shipyard inventory on every open, though a
+  finished week never changes.
+- `/api/markets` walked every priced route (about 250,000) through route status, gate hops and reachability and read every fresh
+  market snapshot; Tower asks for it every 15 s on the Fleet and Markets tabs.
+- `/api/bridge` listed every ship twice and ran triage over all of them, polled by Deck and Tower.
+
+Now one build serves every caller for a short while (`keyedTtlCache` in `src/http/cache.ts`; concurrent callers on a cold key share
+one build, failures are not cached): metrics 45 s (10 s on the live 30-minute view), compare 60 s for the answer with a finished
+week's series and fleet points kept 6 h and the live week's 3 min (the forecast clauses are part of the key), the week list 5 min,
+markets 20 s per system filter with the fresh snapshots read once a minute, bridge 15 s. Any change made from a screen (POST,
+pause, role, park, ...) clears the bridge and markets caches so the re-read right after shows it; MCP changes wait out the TTL.
+
+New ops tool `http_endpoints` (`src/http/endpointStats.ts`): per route over up to 24 h, calls a minute, average and worst time,
+average and largest JSON body before gzip, total JSON MB built and MB sent, the share served from cache, and 5xx errors, sorted by
+JSON built. It is the measurement for the next step (a slimmer bridge for Tower). Tests: `tests/keyedCache.test.ts`.
+
 ## 2026-11-27 — Compare: net after spending, and profit per credit spent
 
 Operator, 2026-11-27: "I really don't know which week was better". The 2026-11-15 week matched 643.9M, 35M more than the 2026-11-08

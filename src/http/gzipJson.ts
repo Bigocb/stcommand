@@ -14,6 +14,8 @@ export function gzipJson(threshold = 1024) {
     const send = res.json.bind(res);
     res.json = ((body: unknown) => {
       const text = JSON.stringify(body);
+      // For the endpoint stats (endpointStats.ts): what was serialized, before gzip.
+      if (text !== undefined) res.locals.jsonBytes = Buffer.byteLength(text);
       if (text === undefined || Buffer.byteLength(text) < threshold || res.headersSent) return send(body);
       gzip(text, (err, zipped) => {
         if (res.headersSent) return;

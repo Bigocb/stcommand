@@ -1,3 +1,4 @@
+import { endpointStats } from "../http/endpointStats.js";
 import * as z from "zod";
 import { gateAtOrBefore, gateBuildTime } from "../engine/agentWatch.js";
 import { systemCandidates } from "./systems.js";
@@ -390,6 +391,18 @@ export const OPS_TOOLS: OpsTool[] = [
         // This billing period's proxy bytes against the plan (API_LANE_PLAN_GB, API_LANE_PLAN_RESET_DAY), stored in lane_bytes.
         ...(billing ? { planBilling: billing } : {}),
       };
+    },
+  },
+
+  {
+    name: "http_endpoints",
+    title: "Dashboard endpoints: requests, JSON size and time per route",
+    description:
+      "What each dashboard/API endpoint (Deck, Tower, the MCP server's own HTTP calls) cost this process over the last sinceMin minutes (default 60, up to 1440; in memory, a restart empties it and coveredMin says how much it holds): calls and calls a minute, average and worst time to the last byte, average and largest JSON body (before gzip: what the box serialized and the browser parses), total JSON MB and MB sent, the share answered from the server cache, and 5xx errors. Sorted by total JSON built, which is where the box's JSON.stringify time and the phone's memory go (issue #87). Read-only.",
+    input: { sinceMin: num(60), top: num(25) },
+    async run(ctx, a) {
+      const windowMs = Math.min(1440, Math.max(1, a.sinceMin)) * 60_000;
+      return { asOf: iso(ctx.now()), ...endpointStats.summary(ctx.now(), windowMs, Math.min(Math.max(a.top, 1), 80)) };
     },
   },
 

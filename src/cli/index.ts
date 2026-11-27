@@ -16,6 +16,7 @@ import { runMigrations } from "../db/migrate.js";
 import { Store } from "../db/store.js";
 import { createGateRouter } from "../http/gate.js";
 import { gzipJson } from "../http/gzipJson.js";
+import { endpointStatsMiddleware } from "../http/endpointStats.js";
 import { createPushRouter } from "../http/push.js";
 import { createResolveTenant } from "../http/resolveTenant.js";
 import { createDashboardRouter } from "../http/dashboard.js";
@@ -183,6 +184,8 @@ async function main(): Promise<void> {
   const app = express();
   app.use(express.json());
   // JSON responses are gzipped when the browser accepts it (src/http/gzipJson.ts).
+  // Per-endpoint requests, JSON bytes and time (src/http/endpointStats.ts, ops http_endpoints), before gzip so it sees its byte count.
+  app.use(endpointStatsMiddleware());
   app.use("/api", gzipJson());
 
   // Render's health check: mounted first, ahead of every other route, so it

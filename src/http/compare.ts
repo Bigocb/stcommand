@@ -8,6 +8,8 @@ import { checkpoints, drawnPoints, gateAligned, gateOpenToFirstJob, hoursReached
 import { GATE_OPEN_SUBJECT } from "../engine/actionEvents.js";
 import { forecastFrom, forecastPolicyFromDoctrine, forecastWeek, gateHourOf, joinForecast, typicalHullPrice, type ForecastPoint } from "../engine/forecast.js";
 import { buyRulesFrom } from "../engine/buyAdvice.js";
+import { keyedTtlCache } from "./cache.js";
+import { markCached } from "./endpointStats.js";
 
 /**
  * Week over week (src/engine/weekCompare.ts), for the Season screen's Compare tab and Tower's card. Mounted in the dashboard router.
@@ -32,6 +34,18 @@ interface WeekRef { tenantId: string; agentSymbol: string; universeKey: string }
 
 export function createCompareRouter(worker: (req: Request) => TenantWorker | undefined): Router {
   const router = Router();
+  /**
+   * Server caches (issue #87). Each Compare open used to run two whole-week ledger aggregations, up to 10,000 snapshot rows and the
+   * shipyard inventory. A finished week never changes, so its series and fleet points are kept for hours; the live week's for
+   * a few minutes, which is also how often Tower refreshes the card. The week list changes only when a week starts.
+   */
+  const LIVE_TTL_MS = 3 * 60_000;
+  const DONE_TTL_MS = 6 * 3600_000;
+  const isLive = (k: string) => k.startsWith("live|");
+  const seriesCache = keyedTtlCache<string, WeekSeries>({ ttlMs: (k) => (isLive(k) ? LIVE_TTL_MS : DONE_TTL_MS), maxEntries: 64 });
+  const fleetCache = keyedTtlCache<string, ReturnType<typeof fleetPoints>>({ ttlMs: (k) => (isLive(k) ? LIVE_TTL_MS : DONE_TTL_MS), maxEntries: 64 });
+  const responseCache = keyedTtlCache<string, unknown>({ ttlMs: 60_000, maxEntries: 32 });
+  const weekListCache = keyedTtlCache<string, unknown>({ ttlMs: 5 * 60_000, maxEntries: 16 });
 
   async function weekList(w: TenantWorker, op: boolean) {
     const directory = op ? await w.store.tenantDirectory() : [{ id: w.tenantId, agentSymbol: w.agentSymbol }];
@@ -61,7 +75,12 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
     return t ? { tenantId, agentSymbol: t.agentSymbol, universeKey } : undefined;
   }
 
-  async function series(w: TenantWorker, ref: WeekRef): Promise<WeekSeries> {
+  const liveTag = (ref: WeekRef) => (ref.universeKey === tenantUniverse(ref.tenantId) ? "live" : "done");
+  function series(w: TenantWorker, ref: WeekRef): Promise<WeekSeries> {
+    return seriesCache.get(`${liveTag(ref)}|${ref.tenantId}|${ref.universeKey}`, () => buildSeries(w, ref));
+  }
+
+  async function buildSeries(w: TenantWorker, ref: WeekRef): Promise<WeekSeries> {
     const s = await w.store.weekHours(ref.tenantId, ref.universeKey);
     // The engine's gate_open milestone for this week, on the same clock as the hour rows (hours since the first trade).
     const milestones = s.startAt ? await w.store.actionEvents(ref.tenantId, { sinceIso: s.startAt, kinds: ["milestone"], limit: 500 }) : [];
@@ -76,7 +95,7 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
     if (!w) return res.status(503).json({ error: "engine not ready" });
     const op = canSeeAll(req.agentSymbol);
     try {
-      res.json({ operator: op, operatorList: [...operatorAgents()], you: req.agentSymbol, weeks: await weekList(w, op) });
+      res.json({ operator: op, operatorList: [...operatorAgents()], you: req.agentSymbol, weeks: await weekListCache.get(`${w.tenantId}|${op}`, () => weekList(w, op)) });
     } catch (err) {
       res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
     }
@@ -93,13 +112,27 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
       const baseId = typeof req.query.base === "string" ? req.query.base : currentKey ? `${w.tenantId}|${currentKey}` : undefined;
       const base = await resolve(w, op, baseId);
       if (!base) return res.status(400).json({ error: "this tenant has no current week yet" });
+      let built = false;
+      // The forecast settings are part of the key, so switching a forecast clause shows at once.
+      const d = w.fleet?.doctrine;
+      const fcKey = d ? ["weekForecast", "weekForecastHeavyHour", "weekForecastAnchor"].map((k) => `${d.isEnabled(k) ? 1 : 0}:${d.value(k, 0)}`).join(",") : "-";
+      const body = await responseCache.get(`${w.tenantId}|${base.tenantId}|${base.universeKey}|${other.tenantId}|${other.universeKey}|${fcKey}`, async () => { built = true; return buildCompare(w, base, other); });
+      if (!built) markCached(res);
+      res.json(body);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
+
+  async function buildCompare(w: TenantWorker, base: WeekRef, other: WeekRef) {
+    {
       const [a, b] = await Promise.all([series(w, base), series(w, other)]);
       const upTo = Math.min(MAX_HOURS, Math.max(hoursReached(a), hoursReached(b)));
       const pa = toPoints(a, upTo), pb = toPoints(b, upTo);
-      const fleet = async (ref: WeekRef, ser: WeekSeries) => {
+      const fleet = (ref: WeekRef, ser: WeekSeries) => fleetCache.get(`${liveTag(ref)}|${ref.tenantId}|${ref.universeKey}|${upTo}`, async () => {
         const rows = await w.store.actionEvents(ref.tenantId, { sinceIso: ser.startAt ?? "1970-01-01T00:00:00Z", kinds: [SNAPSHOT_KIND], limit: 5000 });
         return fleetPoints(rows.filter((r) => r.universeKey === ref.universeKey), ser.startAt, upTo);
-      };
+      });
       const [fa, fb] = await Promise.all([fleet(base, a), fleet(other, b)]);
       // The week's forecast (clause weekForecast, issue #76): drawn as a third, dotted line; absent when the clause is off.
       const doctrine = w.fleet?.doctrine;
@@ -131,7 +164,7 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
       } else if (sized) {
         fc = forecastWeek(sized);
       }
-      res.json({
+      return {
         forecast: fc ? { label: "Forecast", gateOpenHour: anchored ? anchored.gateOpenHour : gateHourOf(fc), anchored, points: fc.map((p) => ({ hour: p.hour, cumPnl: p.cumPnl, pnl: p.pnl, rate: p.rate, units: p.units, wallet: p.wallet, ships: null, bigHulls: p.bigHulls, note: p.note })) } : null,
         fleetA: fa, fleetB: fb,
         a: { label: a.label, universeKey: a.universeKey, startAt: a.startAt, firstJumpHour: a.firstJumpHour, gateOpenHour: a.gateOpenHour ?? null, gateOpenToFirstJob: gateOpenToFirstJob(a), totals: weekTotals(a), points: drawnPoints(pa, hoursReached(a)), reached: hoursReached(a) },
@@ -140,11 +173,9 @@ export function createCompareRouter(worker: (req: Request) => TenantWorker | und
         gateAligned: gateAligned(a, b) ?? null,
         checkpoints: checkpoints(pa, pb, hoursReached(a), hoursReached(b)),
         upToHour: upTo,
-      });
-    } catch (err) {
-      res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+      };
     }
-  });
+  }
 
   return router;
 }
