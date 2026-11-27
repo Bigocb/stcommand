@@ -232,7 +232,17 @@ function setTab(name) {
   else metricsScreen?.hide();
   if (name === "markets") { loadMarkets(); loadGoods(); loadKeepers(); renderMarkets(); }
   if (name === "approvals") { loadApprovals(); renderApprovalsScreen(); }
-  if (name === "more") { loadBridge(); loadProgramme(); loadDoctrine(); loadGoods(); loadKeepers(); renderMore(); refreshMcpKeys(); notifyScreen ??= mountNotifications($("more-sec-notify"), { api }); notifyScreen.show(); }
+  if (name === "more") {
+    // Only what the open sections show (issue #87); each section's own card fetches the rest.
+    const on = (...ids) => ids.some((id) => moreSecOn(id));
+    if (on("more-sec-scrap")) loadBridge();
+    if (on("more-sec-contracts", "more-sec-missions", "more-sec-chain", "more-sec-feeds")) loadProgramme();
+    if (on("more-sec-doctrine", "more-sec-opening", "more-sec-blocked")) { loadDoctrine(); loadGoods(); }
+    if (on("more-sec-keepers")) loadKeepers();
+    renderMore();
+    if (on("more-sec-keys")) refreshMcpKeys();
+    if (on("more-sec-notify")) { notifyScreen ??= mountNotifications($("more-sec-notify"), { api }); notifyScreen.show(); }
+  }
   if (name === "copilot") { loadCopilot(); loadCopilotSettings(); }
   // The fields table polls only while visible: stop when leaving More, resume if its Mining segment is open.
   if (name !== "more") { miningScreen?.hide(); explorersScreen?.hide(); }
@@ -331,6 +341,13 @@ function openTab(groupKey, tabKey) {
   currentTab = tab.key;
   navSet(`towerTab:${groupKey}`, tab.key);
   document.querySelectorAll(".grp-hidden").forEach((el) => el.classList.remove("grp-hidden"));
+  // The More pane and its one section are chosen before the screen opens, so opening it draws and loads only that section
+  // (issue #87: Compare drew the hidden bulk-scrap and keeper lists, thousands of rows, on every fleet update).
+  if (tab.pane) {
+    $("more-seg").classList.add("grp-hidden");
+    $("more-seg").querySelector(`[data-mseg="${tab.pane}"]`)?.click();
+    if (tab.only) document.querySelectorAll(`#more-pane-${tab.pane} > [id^="more-sec-"]`).forEach((el) => el.classList.toggle("grp-hidden", !tab.only.includes(el.id)));
+  }
   // A screen that fails to render (a bad API answer) must not leave the navigation stuck on the previous tab.
   try { setTab(tab.screen); } catch (err) { console.error(err); }
   const home = document.querySelector('[data-screen="home"]');
@@ -339,11 +356,6 @@ function openTab(groupKey, tabKey) {
   if (tab.screen === "hourly") renderHourlyScreen();
   if (tab.screen === "menu") renderMenu();
   if (tab.screen === "home" && tab.view !== "activity") loadStatusExtras();
-  if (tab.pane) {
-    $("more-seg").classList.add("grp-hidden");
-    $("more-seg").querySelector(`[data-mseg="${tab.pane}"]`)?.click();
-    if (tab.only) document.querySelectorAll(`#more-pane-${tab.pane} > [id^="more-sec-"]`).forEach((el) => el.classList.toggle("grp-hidden", !tab.only.includes(el.id)));
-  }
   if (tab.seg) {
     $("mkt-seg").classList.add("grp-hidden");
     $("mkt-seg").querySelector(`[data-seg="${tab.seg}"]`)?.click();
@@ -1561,6 +1573,8 @@ $("more-seg").addEventListener("click", (e) => {
   if (b.dataset.mseg === "mining") miningScreen.show(); else miningScreen.hide();
   explorersScreen ??= mountExplorers($("explorers-root"), { api, compact: true });
   if (b.dataset.mseg === "explorers") explorersScreen.show(); else explorersScreen.hide();
+  // A segment tapped while More is already open: draw the sections that just came on screen (they skip while hidden).
+  if (moreTabActive()) renderMore();
 });
 $("cp-form").addEventListener("submit", (e) => {
   e.preventDefault();
@@ -1578,6 +1592,12 @@ $("cp-actions").addEventListener("click", (e) => {
 
 function moreTabActive() {
   return document.querySelector('.screen[data-screen="more"]')?.classList.contains("on") ?? false;
+}
+/** A More section is on screen: the More screen is open, its pane is the open one, and the tab did not hide it. Hidden sections
+ *  are neither drawn nor loaded (issue #87). */
+function moreSecOn(id) {
+  const el = document.getElementById(id);
+  return !!el && moreTabActive() && !el.classList.contains("grp-hidden") && !el.closest("[hidden]");
 }
 subscribe("markets", () => { if (marketsTabActive()) renderMarkets(); });
 
@@ -2334,15 +2354,19 @@ function renderMoreOpening() {
 }
 
 function renderMoreKeepers() {
+  if (!moreSecOn("more-sec-keepers")) return;
   $("more-keeper-count").textContent = `${keeperStationsCfg.length} stationed · ${keeperMarketsCfg.length} listed`;
   $("more-keeper-cover").setAttribute("aria-pressed", String(keeperCoverList));
   const ta = $("more-keeper-markets");
   // Don't clobber an edit in progress.
   if (document.activeElement !== ta) ta.value = keeperMarketsCfg.join("\n");
   const el = $("more-keeper-stations");
+  // Maps, not find/includes per row: with about 5,000 keepers that was 25 million comparisons a draw.
+  const shipAt = new Map(keeperStationsCfg.map((s) => [s.market, s.shipSymbol]));
+  const listed = new Set(keeperMarketsCfg);
   const rows = [
-    ...keeperMarketsCfg.map((m) => ({ market: m, ship: keeperStationsCfg.find((s) => s.market === m)?.shipSymbol })),
-    ...keeperStationsCfg.filter((s) => !keeperMarketsCfg.includes(s.market)).map((s) => ({ market: s.market, ship: s.shipSymbol })),
+    ...keeperMarketsCfg.map((m) => ({ market: m, ship: shipAt.get(m) })),
+    ...keeperStationsCfg.filter((s) => !listed.has(s.market)).map((s) => ({ market: s.market, ship: s.shipSymbol })),
   ];
   el.innerHTML = rows.length
     ? rows.map((r) => `<div class="detail-row"><span>${escapeHtml(shortWp(r.market))}</span><span class="d">${r.ship ? `● ${escapeHtml(r.ship)}` : "◐ no keeper yet"}</span></div>`).join("")
@@ -2363,13 +2387,14 @@ $("more-keeper-save").addEventListener("click", () => {
 });
 $("more-keeper-reset").addEventListener("click", () => postKeepers({ reset: true }));
 $("more-keeper-cover").addEventListener("click", () => postKeepers({ coverList: !keeperCoverList }));
-subscribe("keepers", () => { if (moreTabActive()) renderMoreKeepers(); });
+subscribe("keepers", () => renderMoreKeepers());
 
 /** Bulk scrap: a role filter plus a checkbox per ship; Scrap posts the same
  *  /api/fleet/sell-ship call the per-ship Sell button uses, one ship at a time. */
 let bulkRole = "miner";
 const bulkPicked = new Set();
 function renderBulkScrap() {
+  if (!moreSecOn("more-sec-scrap")) return;
   const ships = fleetStatus.ships ?? [];
   const roles = [...new Set(ships.map((s) => s.role))].sort();
   const sel = $("bulk-role");
@@ -2410,7 +2435,7 @@ $("bulk-go").addEventListener("click", async () => {
   renderBulkScrap();
   if (failed.length) alert(`${failed.length} could not be sold:\n${failed.join("\n")}`);
 });
-subscribe("bridge", () => { if (moreTabActive()) renderBulkScrap(); });
+subscribe("bridge", () => renderBulkScrap());
 
 /**
  * Season card (public/shared/season.js): the week's phase, goals and top suggestions, read-only. The plan is edited on
@@ -2451,16 +2476,16 @@ function renderMoreQueue() {
 
 function renderMore() {
   renderMoreQueue();
-  renderMoreSeason();
-  renderMoreCompare();
+  if (moreSecOn("more-sec-season")) renderMoreSeason();
+  if (moreSecOn("more-sec-compare")) renderMoreCompare();
   renderBulkScrap();
   renderMoreKeepers();
-  renderMoreContracts();
-  renderMoreMissions();
-  renderMoreChains();
-  renderMoreFeeds();
-  renderMoreDoctrine();
-  renderMoreOpening();
+  if (moreSecOn("more-sec-contracts")) renderMoreContracts();
+  if (moreSecOn("more-sec-missions")) renderMoreMissions();
+  if (moreSecOn("more-sec-chain")) renderMoreChains();
+  if (moreSecOn("more-sec-feeds")) renderMoreFeeds();
+  if (moreSecOn("more-sec-doctrine")) renderMoreDoctrine();
+  if (moreSecOn("more-sec-opening")) renderMoreOpening();
 }
 
 $("mission-start-btn").addEventListener("click", async () => {
@@ -2643,8 +2668,13 @@ $("more-contracts").addEventListener("click", async (e) => {
   renderMoreContracts();
 });
 
-subscribe("programme", () => { if (moreTabActive()) { renderMoreContracts(); renderMoreMissions(); renderMoreChains(); renderMoreFeeds(); } });
-subscribe("doctrine", () => { if (moreTabActive()) renderMoreDoctrine(); });
+subscribe("programme", () => {
+  if (moreSecOn("more-sec-contracts")) renderMoreContracts();
+  if (moreSecOn("more-sec-missions")) renderMoreMissions();
+  if (moreSecOn("more-sec-chain")) renderMoreChains();
+  if (moreSecOn("more-sec-feeds")) renderMoreFeeds();
+});
+subscribe("doctrine", () => { if (moreSecOn("more-sec-doctrine")) renderMoreDoctrine(); });
 subscribe("activity", () => renderHomeActivity());
 
 /* ── boot ──────────────────────────────────

@@ -6,6 +6,19 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Tower: Compare and the other More tabs draw only their own section (issue #87)
+
+Operator: "the screen reload often happens on the compare page". Compare lives on Tower's More screen with eleven other sections,
+and opening any of its tabs drew and loaded all of them: the hidden bulk-scrap list (one row per ship of the first role, thousands)
+and the keeper list (about 5,000 rows, matched with a find per row, 25 million comparisons) were rebuilt on every fleet and keeper
+update while Compare was on screen, and every open fetched doctrine, goods, keepers, the programme, MCP keys and push settings. On
+a phone this is memory the browser reclaims by reloading the tab. In a headless check with 3,000 ships, the Compare tab held 21,437
+elements before and 414 after, and its open made 31 fewer requests.
+
+Now `openTab` hides the other sections before the screen opens, `moreSecOn(id)` gates each section's draw and the fleet, keeper,
+programme and doctrine subscriptions, and the More screen loads only what its open sections show. The keeper list uses a Map. The
+Scrap and Keepers tabs still draw their full lists when opened.
+
 ## 2026-11-27 — Screen caches for Metrics, Compare, Markets and Bridge, and per-endpoint cost (issue #87)
 
 The box's CPU and memory kept climbing, and Tower kept reloading on the operator's phone, worst on Compare and Metrics ("Compare and
