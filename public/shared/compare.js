@@ -61,6 +61,16 @@ export function compareChart(a, b, { key, gateA, gateB, openA, openB, height = 1
   return `<svg viewBox="0 0 ${width} ${height}" class="cmp-chart" role="img" aria-label="${h(label)} by hours since the first trade">${ticks}${hourTicks}${gate(openB, "b open", "gate opened")}${gate(openA, "a open", "gate opened")}${gate(gateB, "b")}${gate(gateA, "a")}${fc.length ? `<path d="${path(fc)}" class="cmp-line f"><title>Forecast: the week if the goals hold</title></path>` : ""}<path d="${path(b)}" class="cmp-line b"/><path d="${path(a)}" class="cmp-line a"/></svg>`;
 }
 
+/**
+ * The first hour each week's wallet reached each mark (operator 2026-11-27: "I'd love to see a chart of the wallet over time this
+ * week"; the one-off page's table, kept on Compare). Points are this module's hourly points; a mark not reached reads null.
+ */
+export const WALLET_MARKS = [1e6, 5e6, 10e6, 25e6, 50e6, 100e6, 150e6, 200e6, 300e6];
+export function walletMarks(a, b, marks = WALLET_MARKS) {
+  const first = (pts, v) => { const p = (pts ?? []).find((x) => x && x.wallet !== null && x.wallet !== undefined && Number(x.wallet) >= v); return p ? p.hour : null; };
+  return marks.map((v) => ({ mark: v, a: first(a, v), b: first(b, v) })).filter((r) => r.a !== null || r.b !== null);
+}
+
 /** A chart from the hourly fleet snapshots (hourlySnapshot.ts); a week from before they were kept has none and says so. */
 function fleetChart(key, title, data, gateA, gateB, small) {
   const has = (pts) => (pts ?? []).some((p) => p[key] !== null && p[key] !== undefined);
@@ -159,6 +169,7 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
     const gateTable = gateRows.length ? `<div class="cmp-scroll"><table class="cmp-table"><thead><tr><th>Since gate</th><th class="num">${small ? "This week" : h(A.label)}</th><th class="num">${small ? "Other" : h(B.label)}</th><th class="num">${small ? "Diff" : "Difference"}</th></tr></thead><tbody>${gateRows.map((r) => `<tr><td>+${r.hour} h</td><td class="num">${compact(r.a)}</td><td class="num">${compact(r.b)}</td><td class="num ${tone(r.delta)}">${signed(r.delta)}</td></tr>`).join("")}</tbody></table></div>` : "";
     const charts = `<div class="cmp-charts">
       <div class="cmp-chart-box"><div class="cmp-chart-h">Matched profit, cumulative <span class="cmp-legend"><i class="a"></i>${h(A.label)}<i class="b"></i>${h(B.label)}${F ? `<i class="f"></i>Forecast${data.forecast?.anchored ? ` (follows the real week from hour ${data.forecast.anchored.hour}${data.forecast.anchored.gateOpenHour != null ? `, gate opened at hour ${data.forecast.anchored.gateOpenHour}` : ", gate not open yet"}${data.forecast.anchored.bigHulls ? `, ${data.forecast.anchored.bigHulls} big hulls counted` : ""})` : ""}` : ""}</span></div>${compareChart(A.points, B.points, { key: "cumPnl", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "matched profit", height: small ? 120 : 160, axisPx: small ? 15 : 9 })}</div>
+      <div class="cmp-chart-box"><div class="cmp-chart-h">Wallet (cash only)</div>${compareChart(A.points, B.points, { key: "wallet", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "wallet", height: small ? 120 : 160, axisPx: small ? 15 : 9 })}</div>
       <div class="cmp-chart-box"><div class="cmp-chart-h">Profit per hour, 3-hour average</div>${compareChart(A.points, B.points, { key: "rate", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "profit per hour", height: small ? 120 : 160, axisPx: small ? 15 : 9 })}</div>
       <div class="cmp-chart-box"><div class="cmp-chart-h">Trade volume, cumulative</div>${compareChart(A.points, B.points, { key: "units", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "units sold", height: small ? 120 : 160, axisPx: small ? 15 : 9 })}</div>
       ${fleetChart("live", "Live systems", data, gate(A), gate(B), small)}
@@ -166,12 +177,16 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
       ${small ? "" : fleetChart("calls", "Keeper API calls a minute (planned)", data, gate(A), gate(B), small)}
       ${small ? "" : fleetChart("reads", "Keeper reads a minute (measured)", data, gate(A), gate(B), small)}
       ${small ? "" : `<div class="cmp-chart-box"><div class="cmp-chart-h">Ships bought so far</div>${compareChart(A.points, B.points, { key: "ships", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, label: "ships bought" })}</div>`}
-      ${small ? "" : `<div class="cmp-chart-box"><div class="cmp-chart-h">Wallet</div>${compareChart(A.points, B.points, { key: "wallet", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "wallet" })}</div>`}
     </div>`;
     const rows = data.checkpoints.filter((r) => r.a || r.b).filter((r) => !small || [12, 24, 48, 72].includes(r.hour));
     const table = `<div class="cmp-scroll"><table class="cmp-table"><thead><tr><th>Hour</th><th class="num">${small ? "This week" : h(A.label)}</th><th class="num">${small ? "Other" : h(B.label)}</th><th class="num">${small ? "Diff" : "Difference"}</th>${small ? "" : "<th class=\"num\">Wallet A</th><th class=\"num\">Wallet B</th>"}</tr></thead><tbody>${rows.map((r) => `<tr><td>${r.hour} h</td><td class="num">${r.a ? compact(r.a.cumPnl) : "—"}</td><td class="num">${r.b ? compact(r.b.cumPnl) : "—"}</td><td class="num ${tone(r.pnlDelta)}">${signed(r.pnlDelta)}</td>${small ? "" : `<td class="num">${r.a ? compact(r.a.wallet) : "—"}</td><td class="num">${r.b ? compact(r.b.wallet) : "—"}</td>`}</tr>`).join("")}</tbody></table></div>`;
     const foot = `<div class="cmp-foot">Matched profit counts completed round trips only. Hours run from each week's first trade; the dotted lines mark the first gate jump. ${A.reached} h of this week${B.reached < A.reached ? "" : ""}, ${B.reached} h of the other. The first block lines the weeks up on the gate; the tiles below it cut both weeks at the same ${L.hours} h since the first trade. Profit / hour is matched profit (completed round trips, before fuel, jump costs and ship purchases) divided by the hours in the window. Trade volume and units sold count units on completed sales.</div>`;
-    root.innerHTML = head + gateKpis + gateTable + kpis + charts + table + foot;
+    const marks = walletMarks(A.points, B.points).filter((r) => !small || r.a !== null);
+    const markTable = marks.length ? `<div class="cmp-sub">Hours to each wallet mark</div><div class="cmp-scroll"><table class="cmp-table"><thead><tr><th>Wallet first at</th><th class="num">${small ? "This week" : h(A.label)}</th><th class="num">${small ? "Other" : h(B.label)}</th><th class="num">${small ? "Diff" : "Difference"}</th></tr></thead><tbody>${marks.map((r) => {
+      const d = r.a !== null && r.b !== null ? r.b - r.a : null;
+      return `<tr><td>${compact(r.mark)}</td><td class="num">${r.a !== null ? `${r.a} h` : "not yet"}</td><td class="num">${r.b !== null ? `${r.b} h` : "not reached"}</td><td class="num ${tone(d)}">${d === null ? "—" : d === 0 ? "same hour" : `${Math.abs(d)} h ${d > 0 ? "sooner" : "later"}`}</td></tr>`;
+    }).join("")}</tbody></table></div>` : "";
+    root.innerHTML = head + gateKpis + gateTable + kpis + charts + markTable + table + foot;
     bind();
   }
 

@@ -6,6 +6,17 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Compare: the wallet chart moves up and shows on Tower, with hours to each wallet mark
+
+Operator, 2026-11-27: "I'd love to see a chart of the Wallet over time this week", and then "I wanna add it to the compare page as well".
+
+- **The Wallet chart moved up.** On Deck's Compare tab it is now the second chart, after cumulative matched profit; it used to be the last.
+- **Tower shows it too.** Tower's Compare card now has the Wallet chart; before, it was desktop only.
+- **New table: "Hours to each wallet mark".** It gives the first hour each week's wallet reached 1M, 5M, 10M, 25M, 50M, 100M, 150M, 200M and 300M, with the difference between the two weeks (`walletMarks` in `public/shared/compare.js`).
+  - On Tower it lists only the marks this week has reached.
+- **What the wallet is:** cash only, from the ledger's `wallet_after`; dips are ships bought.
+- **Example:** the 2026-11-22 week reached 10M at hour 49 and 100M at hour 101; the 2026-11-15 week took hours 111 and 141.
+
 ## 2026-11-27 — Box CPU on the health board, with an alert when a restart may be due
 
 Operator, 2026-11-27: "maybe we need an alert for when the CPU gets to a certain percentage indicating that we might need to restart".
