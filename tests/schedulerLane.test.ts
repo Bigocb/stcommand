@@ -64,4 +64,21 @@ describe("Scheduler low-priority lane", () => {
     assert.ok(bad >= 1, "ran and was re-queued rather than lost");
     assert.equal(sched.size(), 1);
   });
+
+  it("refills the lane as each keeper task finishes, while a long trader task holds the main pass (2026-11-27)", async () => {
+    const sched = new Scheduler({ ratePerSec: 1000, burst: 1000, lowPriorityWorkers: () => 2 });
+    let keepers = 0;
+    for (let i = 0; i < 20; i++) sched.enqueue({ id: `k${i}`, priority: 3, estimatedCalls: 2, earliestRunAt: 0, run: async () => { await sleep(5); keepers += 1; return { actualCalls: 0 }; } });
+    let traderDoneAt = 0;
+    const started = Date.now();
+    sched.enqueue({ id: "slow-trader", priority: 2, estimatedCalls: 3, earliestRunAt: 0, run: async () => { await sleep(250); traderDoneAt = Date.now(); return { actualCalls: 1 }; } });
+    const loop = sched.run(1_000_000, 5);
+    await sleep(200);
+    const duringTrader = keepers;
+    await sleep(150);
+    sched.stop();
+    await loop;
+    assert.ok(traderDoneAt === 0 || traderDoneAt - started >= 240);
+    assert.ok(duringTrader >= 15, `the lane kept going while the trader task ran (${duringTrader} of 20 keeper tasks)`);
+  });
 });

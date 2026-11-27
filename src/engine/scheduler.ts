@@ -271,7 +271,13 @@ export class Scheduler {
       if (task.estimatedCalls > this.budget.availableTokens()) break;
       this.queue.splice(this.queue.indexOf(task), 1);
       this.lowInFlight += 1;
-      void this.execute(task).finally(() => { this.lowInFlight -= 1; });
+      // Refill as soon as a worker frees up, not only once per main-loop pass: a pass can hold the loop for 5 s plus one trader task
+      // (up to 96 s seen), so the lane sat idle after each batch and ran about 2 keeper tasks a second against 3,800 ready
+      // (2026-11-27; delivered keepers sat at their gates for hours). setImmediate keeps a run of instant tasks off one microtask chain.
+      void this.execute(task).finally(() => {
+        this.lowInFlight -= 1;
+        if (this.running) setImmediate(() => this.startLowPriority());
+      });
     }
   }
 

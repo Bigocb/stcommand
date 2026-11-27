@@ -38,6 +38,12 @@ limiter) is no longer charged. After the first fix the scheduler still ran only 
 keeper tasks, whose calls go out through the lanes, used up the box's 1.5 tokens a second; X1-KQ85's keepers were still at the gate
 at 15:30.
 
+Third limit, found after that deploy (tokens full, nothing skipped, still about 2 tasks a second against 3,800 ready): the keeper lane
+(keeperLaneWorkers 12) was refilled only once per main-loop pass, and a pass holds the loop for up to 5 s plus one trader task
+(up to 96 s), so the 12 workers finished their batch in about a second and then sat idle. The lane now refills as each of its tasks
+finishes (`startLowPriority` again on setImmediate). Test: `tests/schedulerLane.test.ts` (2 of 20 keeper tasks ran during a long
+trader task before, all but a few after).
+
 ## 2026-11-27 — Tower: Compare and the other More tabs draw only their own section (issue #87)
 
 Operator: "the screen reload often happens on the compare page". Compare lives on Tower's More screen with eleven other sections,
