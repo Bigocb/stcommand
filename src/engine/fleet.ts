@@ -8248,13 +8248,30 @@ export class FleetManager {
     }
     return picked;
   }
+  /**
+   * Fuel-selling waypoints per system, built once per latest-snapshot list (issue #88 P4). fuelStops() used to filter the whole
+   * list (about 50,000 rows) for one system, and the dispatcher asks for every relay system each recompute (a few hundred), plus
+   * every ship looking for a fuel stop: about 8% of the process's CPU in the 2026-11-27 13:00 profile. The store hands back the
+   * same array while its memo is fresh, so the index is rebuilt only when the list changes. A pure cache: rebuilt from the rows.
+   */
+  private fuelIndex: { rows: readonly { systemSymbol: string; waypointSymbol: string; goodSymbol: string; purchasePrice: number }[]; bySystem: Map<string, string[]> } | undefined;
+  private fuelSellersBySystem(rows: readonly { systemSymbol: string; waypointSymbol: string; goodSymbol: string; purchasePrice: number }[] | undefined): Map<string, string[]> | undefined {
+    if (!rows) return undefined;
+    if (this.fuelIndex?.rows === rows) return this.fuelIndex.bySystem;
+    const bySystem = new Map<string, string[]>();
+    for (const r of rows) {
+      if (r.goodSymbol !== "FUEL" || !(r.purchasePrice > 0)) continue;
+      const list = bySystem.get(r.systemSymbol);
+      if (list) list.push(r.waypointSymbol);
+      else bySystem.set(r.systemSymbol, [r.waypointSymbol]);
+    }
+    this.fuelIndex = { rows, bySystem };
+    return bySystem;
+  }
+
   /** Known fuel stops (marketplaces that list FUEL) in a system, by symbol. */
   private async fuelStops(systemSymbol: string): Promise<Set<string>> {
-    const out = new Set<string>();
-    const rows = (await this.store?.latestMarketSnapshots())?.filter((r) => r.systemSymbol === systemSymbol && r.goodSymbol === "FUEL" && r.purchasePrice > 0) ?? [];
-    for (const r of rows) {
-      out.add(r.waypointSymbol);
-    }
+    const out = new Set<string>(this.fuelSellersBySystem(await this.store?.latestMarketSnapshots())?.get(systemSymbol) ?? []);
     const known = this.galaxy.getSystem(systemSymbol);
     for (const w of known?.waypoints ?? []) {
       if (w.type === "FUEL_STATION") out.add(w.symbol);

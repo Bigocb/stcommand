@@ -6,6 +6,23 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Write-through market_latest in memory; fuel stops indexed per system (issue #88 P4)
+
+- **market_latest write-through copy** (src/db/latestCache.ts). `Store.latestMarketSnapshots()` had a 5 s memo that every market
+  write dropped; with keepers writing 340-600 times a minute, nearly every caller (16 call sites, feeds every 2 s per carrier, the
+  route build, fuel stops, staging) re-read and re-parsed the whole table, about 50,000 rows, which matches the ~10% of CPU the
+  13:00 profile put in row parsing. Now the table is read once, `recordMarkets` and `recordMarketSnapshotBatch` apply what they
+  wrote to the copy, `freshMarketSnapshots` filters the copy, a reset's truncate clears it, and a full reload runs at most once a
+  minute as a backstop for writes from outside the process. One copy per database pool, shared by every `Store`. A write that
+  lands during a reload is replayed on top of it. On by default (a cache, Postgres stays the record); `LATEST_CACHE=off` in the
+  environment restores the old memo.
+- **Fuel stops indexed per system** (`fuelSellersBySystem`, fleet.ts). `fuelStops(system)` filtered the whole latest-price list
+  for one system, and the dispatcher asks for every relay system each recompute plus every ship looking for a fuel stop (about
+  8% of CPU in the profile). The index is built once per list and reused until the list changes.
+
+Tests: `tests/latestCache.test.ts`; the store, market-snapshot, stale-market, keeper-batch, dashboard and metrics suites give the
+same results with the cache on and off (store.test's 11 row-level-security failures are the known local-role ones).
+
 ## 2026-11-27 — Route build: price only each good's best legs (issue #88 P4, clause routeBuildTopPerGood, shipped off)
 
 A route build on 2026-11-27 took 40 s: 16 s for the price-pair query (352,866 legs) and 20.7 s pricing 321,799 legs, of which about

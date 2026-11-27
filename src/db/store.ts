@@ -1,3 +1,4 @@
+import { LatestMarketCache } from "./latestCache.js";
 import { chunks } from "../engine/changeTracker.js";
 import { splitPaceBuckets, type PaceRow, type SplitBuckets } from "../engine/paceSplit.js";
 import type { DeliveryState, NotifyPrefs } from "../engine/notify/types.js";
@@ -2583,6 +2584,7 @@ export class Store {
     this.dropLatestMemo();
     if (rows.length === 0) return;
     const CHUNK = 200;
+    const writtenAt = new Date().toISOString();
     await withPool(this.pool, async (c) => {
       for (let i = 0; i < rows.length; i += CHUNK) {
         const chunk = rows.slice(i, i + CHUNK);
@@ -2622,6 +2624,8 @@ export class Store {
         );
       }
     });
+    // Written: keep the in-memory market_latest current (latestCache.ts) instead of re-reading the whole table.
+    this.latestCacheFor()?.apply(rows, writtenAt);
   }
 
   /**
@@ -2637,6 +2641,7 @@ export class Store {
     const lastByGood = new Map<string, Omit<MarketRow, "timestamp">>();
     for (const r of rows) lastByGood.set(`${r.waypointSymbol}\u0000${r.goodSymbol}`, r);
     const latest = [...lastByGood.values()];
+    const writtenAt = new Date().toISOString();
     const valuesFor = (list: Omit<MarketRow, "timestamp">[]): { sql: string; params: unknown[] } => {
       const params: unknown[] = [];
       const tuples = list.map((m, idx) => {
@@ -2674,6 +2679,7 @@ export class Store {
         );
       }
     });
+    this.latestCacheFor()?.apply(latest, writtenAt);
   }
 
   /**
@@ -2891,7 +2897,24 @@ export class Store {
     this.latestMemo = undefined;
   }
 
+  /**
+   * The process-wide write-through copy of market_latest (latestCache.ts, issue #88 P4), one per pool so every Store on the same
+   * database shares it. LATEST_CACHE=off in the environment = the old 5 s memo, re-read after every write.
+   */
+  private static readonly latestCaches = new WeakMap<pg.Pool, LatestMarketCache>();
+  private latestCacheFor(): LatestMarketCache | undefined {
+    if (process.env.LATEST_CACHE === "off") return undefined;
+    let c = Store.latestCaches.get(this.pool);
+    if (!c) {
+      c = new LatestMarketCache(() => withPool(this.pool, async (cl) => (await cl.query(`SELECT * FROM market_latest`)).rows.map(Store.mapMarketRow)));
+      Store.latestCaches.set(this.pool, c);
+    }
+    return c;
+  }
+
   async latestMarketSnapshots(): Promise<MarketRow[]> {
+    const cache = this.latestCacheFor();
+    if (cache) return cache.all();
     const now = Date.now();
     if (this.latestMemo && now - this.latestMemo.at < Store.LATEST_MEMO_MS) return this.latestMemo.rows;
     const rows = withPool(this.pool, async (c) => {
@@ -2911,6 +2934,11 @@ export class Store {
    * same stale table. Same window, same answer.
    */
   async freshMarketSnapshots(maxAgeMinutes: number): Promise<MarketRow[]> {
+    const cache = this.latestCacheFor();
+    if (cache) {
+      const cutoff = Date.now() - maxAgeMinutes * 60_000;
+      return (await cache.all()).filter((r) => Date.parse(r.timestamp) >= cutoff);
+    }
     return withPool(this.pool, async (c) => {
       const res = await c.query(
         `SELECT * FROM market_latest WHERE timestamp >= now() - ($1 || ' minutes')::interval`,
@@ -4762,6 +4790,7 @@ export class Store {
    *  input, so string-interpolating them into the query is safe. */
   async truncateSharedGalaxyTables(): Promise<void> {
     this.dropLatestMemo();
+    this.latestCacheFor()?.clear();
     await withPool(this.pool, (c) => c.query(`TRUNCATE ${Store.SHARED_GALAXY_TABLES.join(", ")}`));
   }
 
