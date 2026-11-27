@@ -38,7 +38,7 @@ Contract ship stays on contracts (operator, 2026-11-23): "Do not take that off o
 until we get to like 10-15 million." Never dispatch, re-role, feed or tour the contract-duty ship (THEO-5 this week) while the wallet is
 under about 10-15M; pick another hull, or wait.
 Buying rule and score (operator, 2026-11-26): the leaderboard counts credits, so lead reports with net trading per hour (matched - jumps - fuel)
-and wallet + cargo; matched profit is an engine-health number. Trader hulls stop once Tower's Profit per hour (3 h average) holds at the operator's target (15M/h steady, set 2026-11-26; may be raised) or in the last 24 h before reset (no trader pays back then). Keeper probes and system expansion continue to the end.
+and wallet + cargo; matched profit is an engine-health number. Trader hulls stop once Tower's Profit per hour (3 h average) holds at the operator's target (30M/h steady, raised from 15M/h by the operator 2026-11-27 21:20 after the trade lane lifted net trading to ~44M/h; may be raised) or in the last 24 h before reset (no trader pays back then). Keeper probes and system expansion continue to the end.
 Update this section when the operator states a layout for a following week.
 
 ## Buying a ship: nearest yard to the destination, not the cheapest
