@@ -692,7 +692,7 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     key: "freshTours",
     name: "Fresh systems: tour ships price the staged systems",
     description: "On (with Fresh systems on auto) = the engine sends free tour or explorer ships to the staged systems, nearest first, to read their markets: a staged system has its keepers parked, so nobody prices it until it is released, and the release rule waits for the share of markets priced (Fresh systems: share of markets priced before release). A ship stays in a system until that share is reached, then moves to the next. The value is the most ships working at once. A tour ship with a destination the operator set is never touched; held ships are never touched. This automates the hand-run 'fresh-system hybrid' of the week of 2026-11-01 (docs/journal/2026-11-01.md). Off (the default) = no ship is sent. Takes effect within 5 minutes. See src/engine/queueTours.ts.",
-    value: 2, min: 1, max: 8, step: 1, unit: " ships",
+    value: 2, min: 1, max: 16, step: 1, unit: " ships",
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {

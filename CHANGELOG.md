@@ -6,6 +6,11 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — freshTours range raised from 8 to 16 ships
+
+Operator, 2026-11-27: raise the tour limit to 12. With freshStagedAhead at 12, the cap of 8 working tour ships left the last
+staged systems to wait for a probe bought for them ("10 of 8 ships are already working"). The clause's range is now 1-16.
+
 ## 2026-11-27 — Scheduler: charge each task its own API calls, not everyone's
 
 The scheduler admits a task only when its token budget (1.5 a second, burst 5) covers the task's estimate, then charges the task
