@@ -1,3 +1,4 @@
+import { queryStats } from "../db/queryStats.js";
 import { endpointStats } from "../http/endpointStats.js";
 import * as z from "zod";
 import { gateAtOrBefore, gateBuildTime } from "../engine/agentWatch.js";
@@ -391,6 +392,18 @@ export const OPS_TOOLS: OpsTool[] = [
         // This billing period's proxy bytes against the plan (API_LANE_PLAN_GB, API_LANE_PLAN_RESET_DAY), stored in lane_bytes.
         ...(billing ? { planBilling: billing } : {}),
       };
+    },
+  },
+
+  {
+    name: "db_queries",
+    title: "Database: time, calls and rows per query shape",
+    description:
+      "Every query the process ran through the pool over the last sinceMin minutes (default 15, up to 60; in memory, a restart empties it), grouped by its SQL shape (literals and parameters folded): calls and calls a minute, total, average, p90 and worst time in ms (wire plus Postgres; row mapping is not included), average rows, and its share of all query time. Sorted by total time: the first rows are where a cache would pay (issue #88 P0). Transaction control (BEGIN, COMMIT, SET LOCAL) is left out. Read-only.",
+    input: { sinceMin: num(15), top: num(25) },
+    async run(ctx, a) {
+      const windowMs = Math.min(60, Math.max(1, a.sinceMin)) * 60_000;
+      return { asOf: iso(ctx.now()), ...queryStats.summary(ctx.now(), windowMs, Math.min(Math.max(a.top, 1), 80)) };
     },
   },
 

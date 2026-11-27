@@ -17,6 +17,8 @@ export interface TaskTimingSample {
   totalMs: number;
   steps: Record<string, number>;
   counts: Record<string, number>;
+  /** How long the task waited to start after it came due (start time minus earliestRunAt), ms; undefined = not measured. */
+  queueMs?: number;
 }
 
 export interface TaskTimingSummary {
@@ -32,6 +34,10 @@ export interface TaskTimingSummary {
   avgStepCount: Record<string, number>;
   /** Each step's share of the held time, 0-100. */
   sharePct: Record<string, number>;
+  /** Wait between coming due and starting (issue #88 P0): what a concurrent scheduler would win back. */
+  avgQueueMs?: number;
+  p90QueueMs?: number;
+  maxQueueMs?: number;
 }
 
 /** The task kind for a scheduler task id: `THEO-1A-keeper` -> `keeper`. */
@@ -105,6 +111,10 @@ export function summarize(kind: string, list: TaskTimingSample[], windowMs: numb
   }
   const avgStepCount: Record<string, number> = {};
   for (const k of Object.keys(countTotals).sort()) avgStepCount[k] = n ? round(countTotals[k]! / n, 1) : 0;
+  const queued = list.map((s) => s.queueMs).filter((q): q is number => q !== undefined).sort((a, b) => a - b);
+  const queue = queued.length
+    ? { avgQueueMs: round(queued.reduce((t, v) => t + v, 0) / queued.length), p90QueueMs: queued[Math.min(queued.length - 1, Math.floor(queued.length * 0.9))]!, maxQueueMs: queued[queued.length - 1]! }
+    : {};
   return {
     kind,
     tasks: n,
@@ -115,6 +125,7 @@ export function summarize(kind: string, list: TaskTimingSample[], windowMs: numb
     avgStepMs,
     avgStepCount,
     sharePct,
+    ...queue,
   };
 }
 

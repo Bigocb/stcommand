@@ -1,3 +1,5 @@
+import { performance } from "node:perf_hooks";
+import { queryLabel, queryStats } from "./queryStats.js";
 import pg from "pg";
 import { isUniverseKey } from "../engine/universe.js";
 import { noteStep } from "../core/stepTiming.js";
@@ -119,6 +121,29 @@ export function tenantUniverse(tenantId: string): string | undefined {
  * Which week's ledger rows a transaction may see: the tenant's current universe (the default), one named universe, or
  * every universe (`null`, for the week-over-week comparison and for stamping rows that have no key yet).
  */
+
+/**
+ * Time every query this checkout runs into queryStats (issue #88 P0), then hand the client back unchanged in behaviour.
+ * Restored on release so a pooled client is never wrapped twice.
+ */
+function instrumentClient(client: pg.PoolClient): () => void {
+  const orig = client.query;
+  const wrapped = function (this: unknown, ...args: unknown[]) {
+    const label = queryLabel(args[0]);
+    const t0 = performance.now();
+    const out = (orig as (...a: unknown[]) => unknown).apply(client, args);
+    if (label && out && typeof (out as Promise<unknown>).then === "function") {
+      (out as Promise<{ rowCount?: number | null; rows?: unknown[] }>).then(
+        (res) => { try { queryStats.record({ at: Date.now(), label, ms: performance.now() - t0, rows: res?.rowCount ?? res?.rows?.length ?? 0 }); } catch { /* telemetry */ } },
+        () => { try { queryStats.record({ at: Date.now(), label: `ERROR ${label}`, ms: performance.now() - t0, rows: 0 }); } catch { /* telemetry */ } },
+      );
+    }
+    return out;
+  };
+  (client as unknown as { query: unknown }).query = wrapped;
+  return () => { (client as unknown as { query: unknown }).query = orig; };
+}
+
 type UniverseScope = string | null | undefined;
 
 async function runAsTenant<T>(pool: pg.Pool, tenantId: string, scope: UniverseScope, fn: (client: pg.PoolClient) => Promise<T>): Promise<T> {
@@ -136,6 +161,7 @@ async function runAsTenant<T>(pool: pg.Pool, tenantId: string, scope: UniverseSc
   const client = await pool.connect();
   const heldAt = Date.now();
   noteStep("db.wait", heldAt - waitAt);
+  const restore = instrumentClient(client);
   try {
     await client.query("BEGIN");
     // One round trip for both settings. The universe key is always set, so a pooled connection that last ran under
@@ -148,6 +174,7 @@ async function runAsTenant<T>(pool: pg.Pool, tenantId: string, scope: UniverseSc
     await client.query("ROLLBACK").catch(() => {});
     throw err;
   } finally {
+    restore();
     client.release();
     noteStep("db.query", Date.now() - heldAt);
   }
@@ -206,9 +233,11 @@ export async function withPool<T>(pool: pg.Pool, fn: (client: pg.PoolClient) => 
   const client = await pool.connect();
   const heldAt = Date.now();
   noteStep("db.wait", heldAt - waitAt);
+  const restore = instrumentClient(client);
   try {
     return await fn(client);
   } finally {
+    restore();
     client.release();
     noteStep("db.query", Date.now() - heldAt);
   }

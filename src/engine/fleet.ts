@@ -3322,9 +3322,9 @@ export class FleetManager {
   private taskTimingLoggedAt = Date.now();
 
   /** Called by the scheduler after every task (tenantRegistry wires it). Logs the keeper split every 5 minutes. */
-  noteTaskTiming(taskId: string, totalMs: number, timer: StepTimer): void {
+  noteTaskTiming(taskId: string, totalMs: number, timer: StepTimer, queueMs?: number): void {
     const now = Date.now();
-    this.taskTiming.note({ at: now, kind: taskKind(taskId), totalMs, steps: { ...timer.ms }, counts: { ...timer.counts } });
+    this.taskTiming.note({ at: now, kind: taskKind(taskId), totalMs, steps: { ...timer.ms }, counts: { ...timer.counts }, ...(queueMs !== undefined ? { queueMs } : {}) });
     if (now - this.taskTimingLoggedAt < 5 * 60_000) return;
     this.taskTimingLoggedAt = now;
     const keeper = this.taskTiming.summary(now, "keeper")[0];

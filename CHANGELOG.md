@@ -6,6 +6,20 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Measurement for the scheduler-lanes plan (issue #88, P0)
+
+Before splitting the scheduler's main loop, measure what it costs:
+
+- **Queue delay per task kind.** The scheduler now passes each task's wait between coming due and starting to the task-timing
+  window, and `ops keeper_coverage` `taskTiming` shows `avgQueueMs`, `p90QueueMs` and `maxQueueMs` per kind (trade, keeper, tour,
+  ...). This is what concurrent trade lanes would win back.
+- **Database time per query shape.** Every query run through `withPool` / `withTenant` is timed into `queryStats`
+  (src/db/queryStats.ts), labelled by its SQL with literals and parameters folded; new ops tool `db_queries` lists the shapes by
+  total time with calls, average, p90, worst, rows and share. This decides what a write-through or write-behind cache should hold
+  (operator, 2026-11-27: "if db reads/writes are slowing us down then let's talk about doing a write through cache").
+
+No behaviour change. Tests: `tests/queryStats.test.ts`. Plan: `docs/scheduler-lanes-plan.md`.
+
 ## 2026-11-27 — Keepers covered by the read scheduler wake every 15 min; the CPU alert stops suggesting a restart right after one
 
 At 17:20, 34 minutes after the lane-refill deploy, the CPU alert fired at 103% ("restart may be due", at 0 h uptime). The scheduler

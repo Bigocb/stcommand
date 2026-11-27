@@ -121,13 +121,13 @@ export class Scheduler {
   private readonly lowPriorityWorkers: () => number;
   private lowInFlight = 0;
   /** Told how long each task held its worker and where the time went (issue #66, taskTiming.ts). Telemetry only. */
-  private readonly onTaskTimed?: (task: Task, totalMs: number, timer: StepTimer) => void;
+  private readonly onTaskTimed?: (task: Task, totalMs: number, timer: StepTimer, queueMs: number) => void;
   /** Counts the requests a task's own work sends (client.ts countTaskCalls). With it the budget is charged that count, not the
    *  task's `actualCalls`, which tasks take as the client's whole call count before and after and so includes every concurrent
    *  call made elsewhere. Unset (tests, a Scheduler with no client) = `actualCalls`, as before. */
   private readonly countCalls?: <T>(fn: () => Promise<T>) => Promise<{ value: T; calls: number }>;
 
-  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void; runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>, shipSymbol?: string) => Promise<T>; lowPriorityWorkers?: () => number; onTaskTimed?: (task: Task, totalMs: number, timer: StepTimer) => void; countCalls?: <T>(fn: () => Promise<T>) => Promise<{ value: T; calls: number }> } = {}) {
+  constructor(opts: { ratePerSec?: number; burst?: number; isPaused?: () => boolean; log?: (msg: string) => void; heartbeatMs?: number; setClientPriority?: (priority: number) => void; runWithPriority?: <T>(taskPriority: number, fn: () => Promise<T>, shipSymbol?: string) => Promise<T>; lowPriorityWorkers?: () => number; onTaskTimed?: (task: Task, totalMs: number, timer: StepTimer, queueMs: number) => void; countCalls?: <T>(fn: () => Promise<T>) => Promise<{ value: T; calls: number }> } = {}) {
     // Matches Client's own RateLimiter (see client.ts's comment) — admitting
     // tasks faster than the transport layer can actually sustain just means
     // more of them arrive at the real 429 ceiling instead of waiting here.
@@ -249,7 +249,7 @@ export class Scheduler {
     } finally {
       if (!this.runWithPriority) this.setClientPriority?.(1);
       if (timer) {
-        try { this.onTaskTimed!(task, Date.now() - startedAt, timer); } catch { /* telemetry must never fail a task */ }
+        try { this.onTaskTimed!(task, Date.now() - startedAt, timer, task.earliestRunAt > 0 ? Math.max(0, startedAt - task.earliestRunAt) : 0); } catch { /* telemetry must never fail a task */ }
       }
     }
   }
