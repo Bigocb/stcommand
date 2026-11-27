@@ -21,6 +21,10 @@ export interface HourRow {
   jumps: number;
   /** The wallet after this hour's last row that carried one; null when none did. */
   wallet: number | null;
+  /** Credits spent this hour on ships (SHIP rows), gate jumps (JUMP) and fuel (REFUEL). Absent counts as 0. */
+  shipSpend?: number;
+  jumpCost?: number;
+  fuelCost?: number;
 }
 
 export interface WeekSeries {
@@ -57,18 +61,27 @@ export interface Point {
   units: number;
   /** Matched profit per hour averaged over this hour and the two before it (fewer at the start), to read a trend through the hour-to-hour noise. */
   rate: number;
+  /** Spent so far on ships, jumps and fuel. */
+  spend: number;
+  /**
+   * Net after spending so far: matched profit minus ships, jumps and fuel (operator 2026-11-27, after the 2026-11-15 week matched
+   * 35M more than the 2026-11-08 week but ended 79.5M lower on credits because it spent 91M more on ships and 24M more on jumps).
+   */
+  net: number;
 }
+
+const spendOf = (r: HourRow) => (r.shipSpend ?? 0) + (r.jumpCost ?? 0) + (r.fuelCost ?? 0);
 
 /** One point per hour from 0 to `upToHour`, cumulative where a total is cumulative, wallet carried forward. */
 export function toPoints(series: Pick<WeekSeries, "hours">, upToHour: number): Point[] {
   const byHour = new Map(series.hours.map((r) => [r.hour, r]));
   const out: Point[] = [];
-  let cum = 0, ships = 0, trades = 0, units = 0;
+  let cum = 0, ships = 0, trades = 0, units = 0, spend = 0;
   let wallet: number | null = null;
   for (let h = 0; h <= upToHour; h++) {
     const r = byHour.get(h);
-    if (r) { cum += r.pnl; ships += r.ships; trades += r.sells; units += r.units; if (r.wallet !== null) wallet = r.wallet; }
-    out.push({ hour: h, cumPnl: Math.round(cum), pnl: Math.round(r?.pnl ?? 0), wallet, ships, trades, units, rate: 0 });
+    if (r) { cum += r.pnl; ships += r.ships; trades += r.sells; units += r.units; spend += spendOf(r); if (r.wallet !== null) wallet = r.wallet; }
+    out.push({ hour: h, cumPnl: Math.round(cum), pnl: Math.round(r?.pnl ?? 0), wallet, ships, trades, units, rate: 0, spend: Math.round(spend), net: Math.round(cum - spend) });
   }
   for (let i = 0; i < out.length; i++) {
     const from = Math.max(0, i - 2);
@@ -83,8 +96,8 @@ export function toPoints(series: Pick<WeekSeries, "hours">, upToHour: number): P
  * The points a chart should draw: the hours after a week's last ledger row are blanked (null), so a week still in progress ends
  * where it is instead of falling to zero or running flat to the end of the axis. The checkpoint table reads the unblanked points.
  */
-export function drawnPoints(points: readonly Point[], reached: number): (Point | { hour: number; cumPnl: null; pnl: null; wallet: null; ships: null; trades: null; units: null; rate: null })[] {
-  return points.map((p) => (p.hour <= reached ? p : { hour: p.hour, cumPnl: null, pnl: null, wallet: null, ships: null, trades: null, units: null, rate: null }));
+export function drawnPoints(points: readonly Point[], reached: number): (Point | { hour: number; cumPnl: null; pnl: null; wallet: null; ships: null; trades: null; units: null; rate: null; spend: null; net: null })[] {
+  return points.map((p) => (p.hour <= reached ? p : { hour: p.hour, cumPnl: null, pnl: null, wallet: null, ships: null, trades: null, units: null, rate: null, spend: null, net: null }));
 }
 
 export const CHECKPOINT_HOURS = [6, 12, 24, 36, 48, 60, 72, 96, 120, 144, 167] as const;
@@ -121,12 +134,24 @@ export interface WeekTotals {
   jumps: number;
   bestHourPnl: number;
   endWallet: number | null;
+  /** Spent on ships, jumps and fuel. */
+  shipSpend: number;
+  jumpCost: number;
+  fuelCost: number;
+  /** Matched profit minus ships, jumps and fuel. */
+  net: number;
+  /** Matched profit per credit spent on ships, jumps and fuel; null with nothing spent. */
+  returnOnSpend: number | null;
 }
 
 export function weekTotals(series: Pick<WeekSeries, "hours">): WeekTotals {
   const reached = hoursReached(series);
   const pnl = series.hours.reduce((s, r) => s + r.pnl, 0);
   const wallet = [...series.hours].sort((x, y) => y.hour - x.hour).find((r) => r.wallet !== null)?.wallet ?? null;
+  const shipSpend = series.hours.reduce((s, r) => s + (r.shipSpend ?? 0), 0);
+  const jumpCost = series.hours.reduce((s, r) => s + (r.jumpCost ?? 0), 0);
+  const fuelCost = series.hours.reduce((s, r) => s + (r.fuelCost ?? 0), 0);
+  const spent = shipSpend + jumpCost + fuelCost;
   return {
     hoursReached: reached,
     matchedPnl: Math.round(pnl),
@@ -137,6 +162,9 @@ export function weekTotals(series: Pick<WeekSeries, "hours">): WeekTotals {
     jumps: series.hours.reduce((s, r) => s + r.jumps, 0),
     bestHourPnl: Math.round(series.hours.reduce((m, r) => Math.max(m, r.pnl), 0)),
     endWallet: wallet,
+    shipSpend: Math.round(shipSpend), jumpCost: Math.round(jumpCost), fuelCost: Math.round(fuelCost),
+    net: Math.round(pnl - spent),
+    returnOnSpend: spent > 0 ? Math.round((pnl / spent) * 100) / 100 : null,
   };
 }
 

@@ -150,6 +150,8 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
     const kpis = `<div class="kpirow cmp-kpis">
       ${kpi(`Matched profit, first ${L.hours} h`, L.a.matchedPnl, L.b.matchedPnl)}
       ${kpi("Profit / hour", L.a.pnlPerHour, L.b.pnlPerHour)}
+      ${L.a.net !== undefined ? kpi(`Net after spending, first ${L.hours} h`, L.a.net, L.b.net) : ""}
+      ${L.a.returnOnSpend !== undefined ? kpi("Profit per credit spent", L.a.returnOnSpend, L.b.returnOnSpend, (v) => (v === null || v === undefined ? "—" : `${Number(v).toFixed(2)}`)) : ""}
       ${kpi("Sells", L.a.trades, L.b.trades)}
       ${kpi("Units sold", L.a.units, L.b.units)}
       ${small ? "" : kpi("Ships bought", L.a.ships, L.b.ships)}
@@ -170,6 +172,7 @@ export function mountCompare(root, { api, compact: small = false } = {}) {
     const charts = `<div class="cmp-charts">
       <div class="cmp-chart-box"><div class="cmp-chart-h">Matched profit, cumulative <span class="cmp-legend"><i class="a"></i>${h(A.label)}<i class="b"></i>${h(B.label)}${F ? `<i class="f"></i>Forecast${data.forecast?.anchored ? ` (follows the real week from hour ${data.forecast.anchored.hour}${data.forecast.anchored.gateOpenHour != null ? `, gate opened at hour ${data.forecast.anchored.gateOpenHour}` : ", gate not open yet"}${data.forecast.anchored.bigHulls ? `, ${data.forecast.anchored.bigHulls} big hulls counted` : ""})` : ""}` : ""}</span></div>${compareChart(A.points, B.points, { key: "cumPnl", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "matched profit", height: small ? 120 : 160, axisPx: small ? 15 : 9 })}</div>
       <div class="cmp-chart-box"><div class="cmp-chart-h">Wallet (cash only)</div>${compareChart(A.points, B.points, { key: "wallet", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "wallet", height: small ? 120 : 160, axisPx: small ? 15 : 9 })}</div>
+      <div class="cmp-chart-box"><div class="cmp-chart-h">Net after spending (matched profit less ships, jumps and fuel)</div>${compareChart(A.points, B.points, { key: "net", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, label: "net after spending", height: small ? 120 : 160, axisPx: small ? 15 : 9 })}</div>
       <div class="cmp-chart-box"><div class="cmp-chart-h">Profit per hour, 3-hour average</div>${compareChart(A.points, B.points, { key: "rate", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "profit per hour", height: small ? 120 : 160, axisPx: small ? 15 : 9 })}</div>
       <div class="cmp-chart-box"><div class="cmp-chart-h">Trade volume, cumulative</div>${compareChart(A.points, B.points, { key: "units", gateA: gate(A), gateB: gate(B), openA: A.gateOpenHour, openB: B.gateOpenHour, forecast: F, label: "units sold", height: small ? 120 : 160, axisPx: small ? 15 : 9 })}</div>
       ${fleetChart("live", "Live systems", data, gate(A), gate(B), small)}

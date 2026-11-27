@@ -6,6 +6,20 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Compare: net after spending, and profit per credit spent
+
+Operator, 2026-11-27: "I really don't know which week was better". The 2026-11-15 week matched 643.9M, 35M more than the 2026-11-08
+week's 609.2M, but ended on 340.4M credits against 419.9M. It spent 228.5M on ships (137.6M the week before) and 67.6M on jumps
+(43.6M).
+
+- **New chart, "Net after spending".** Compare (Deck and Tower) now draws matched profit minus ships, jumps and fuel, cumulative by
+  hour (`Point.net` and `Point.spend` in `src/engine/weekCompare.ts`). Unlike the wallet, it ignores cargo bought but not yet sold, so it shows what the
+  week's trading kept after paying for the fleet.
+- **Two new totals** in the like-for-like row: "Net after spending" and "Profit per credit spent" (matched profit / (ships + jumps
+  + fuel); `WeekTotals.net` and `returnOnSpend`). For the full weeks: 2026-11-08 about 3.4, 2026-11-15 about 2.2.
+- **Where the spend comes from:** `Store.weekHours()` now sums each hour's SHIP, JUMP and REFUEL totals. Rows without them count as spending nothing.
+- **Tests:** `tests/weekCompare.test.ts`. `tests/compareRoute.test.ts` was already failing (its tests time out) before this change.
+
 ## 2026-11-27 — Compare: the wallet chart moves up and shows on Tower, with hours to each wallet mark
 
 Operator, 2026-11-27: "I'd love to see a chart of the Wallet over time this week", and then "I wanna add it to the compare page as well".

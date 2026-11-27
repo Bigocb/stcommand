@@ -85,3 +85,22 @@ describe("gateAligned", () => {
     assert.equal(gateAligned(wk(2, [1, 2, 3]), wk(0, [1, 2, 3])), undefined);
   });
 });
+
+describe("net after spending (operator 2026-11-27)", () => {
+  const row = (hour: number, pnl: number, shipSpend: number, jumpCost: number, fuelCost: number) =>
+    ({ hour, sells: 1, units: 10, pnl, revenue: pnl * 2, purchases: pnl, ships: shipSpend ? 1 : 0, jumps: jumpCost ? 1 : 0, wallet: null, shipSpend, jumpCost, fuelCost });
+  it("subtracts ships, jumps and fuel from matched profit, hour by hour", () => {
+    const pts = toPoints({ hours: [row(0, 1000, 600, 100, 10), row(2, 5000, 0, 200, 20)] }, 2);
+    assert.deepEqual(pts.map((p) => [p.cumPnl, p.spend, p.net]), [[1000, 710, 290], [1000, 710, 290], [6000, 930, 5070]]);
+  });
+  it("totals the spend and gives profit per credit spent", () => {
+    const t = weekTotals({ hours: [row(0, 6000, 2000, 900, 100)] });
+    assert.equal(t.net, 3000);
+    assert.equal(t.returnOnSpend, 2);
+    assert.equal(weekTotals({ hours: [row(0, 10, 0, 0, 0)] }).returnOnSpend, null);
+  });
+  it("treats rows from before the spend columns as spending nothing", () => {
+    const pts = toPoints({ hours: [{ hour: 0, sells: 1, units: 1, pnl: 50, revenue: 0, purchases: 0, ships: 0, jumps: 0, wallet: null }] }, 0);
+    assert.equal(pts[0]!.net, 50);
+  });
+});

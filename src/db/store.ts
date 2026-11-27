@@ -1342,7 +1342,7 @@ export class Store {
    * (src/engine/weekCompare.ts). Reads the named universe only. `startAt` is the first row; `firstJumpHour` the hour of its
    * first gate jump (the same stand-in for "gate open" for every past week). `units` is units sold, like opsLedgerBuckets()'.
    */
-  async weekHours(tenantId: string, universe: string): Promise<{ startAt: string | null; firstJumpHour: number | null; hours: { hour: number; sells: number; units: number; pnl: number; revenue: number; purchases: number; ships: number; jumps: number; wallet: number | null }[] }> {
+  async weekHours(tenantId: string, universe: string): Promise<{ startAt: string | null; firstJumpHour: number | null; hours: { hour: number; sells: number; units: number; pnl: number; revenue: number; purchases: number; ships: number; jumps: number; wallet: number | null; shipSpend: number; jumpCost: number; fuelCost: number }[] }> {
     return withTenantUniverse(this.pool, tenantId, universe, async (c) => {
       const t0 = (await c.query(`SELECT MIN(timestamp) AS t0 FROM ledger`)).rows[0]?.t0 as Date | null;
       if (!t0) return { startAt: null, firstJumpHour: null, hours: [] };
@@ -1355,6 +1355,9 @@ export class Store {
                 COALESCE(SUM(total) FILTER (WHERE type = 'PURCHASE'), 0) AS purchases,
                 COUNT(*) FILTER (WHERE type = 'SHIP')::int AS ships,
                 COUNT(*) FILTER (WHERE type = 'JUMP')::int AS jumps,
+                COALESCE(SUM(total) FILTER (WHERE type = 'SHIP'), 0) AS ship_spend,
+                COALESCE(SUM(total) FILTER (WHERE type = 'JUMP'), 0) AS jump_cost,
+                COALESCE(SUM(total) FILTER (WHERE type = 'REFUEL'), 0) AS fuel_cost,
                 (array_agg(wallet_after ORDER BY timestamp DESC) FILTER (WHERE wallet_after IS NOT NULL))[1] AS wallet,
                 MIN(timestamp) FILTER (WHERE type = 'JUMP') AS first_jump
            FROM ledger GROUP BY 1 ORDER BY 1`,
@@ -1368,6 +1371,7 @@ export class Store {
         hours: r.rows.map((x: any) => ({
           hour: x.hour, sells: x.sells, units: Number(x.units), pnl: Number(x.pnl), revenue: Number(x.revenue), purchases: Number(x.purchases),
           ships: x.ships, jumps: x.jumps, wallet: x.wallet === null || x.wallet === undefined ? null : Number(x.wallet),
+          shipSpend: Number(x.ship_spend), jumpCost: Number(x.jump_cost), fuelCost: Number(x.fuel_cost),
         })),
       };
     });
