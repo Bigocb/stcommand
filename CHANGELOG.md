@@ -6,6 +6,14 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — /api/dispatch sends the routes screens use, not all 250,000 (issue #87)
+
+The new ops `http_endpoints` showed the real weight: `GET /api/dispatch` built a 90 MB JSON body on every call (15 calls in 30
+minutes, about 12 s each, 1.33 GB of JSON; 6.5 MB gzipped on the wire), because it returned the dispatcher's whole priced route list.
+Tower and Deck poll it once a minute and use only the top few routes by profit per trip and the first route of a good. It now sends
+those (`screenRoutes`, src/http/screenRoutes.ts: every good's first route plus the best 100 by profit per trip, in the list's own
+order); `?full=1` returns everything. Tests: `tests/screenRoutes.test.ts`.
+
 ## 2026-11-27 — freshTours range raised from 8 to 16 ships
 
 Operator, 2026-11-27: raise the tour limit to 12. With freshStagedAhead at 12, the cap of 8 working tour ships left the last

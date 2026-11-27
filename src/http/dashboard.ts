@@ -15,6 +15,7 @@ import type { TenantRegistry, TenantWorker } from "../engine/tenantRegistry.js";
 import type { ProposedAction } from "../engine/agentChat.js";
 import { makeTTLCache, keyedTtlCache, HttpStatusError } from "./cache.js";
 import { markCached } from "./endpointStats.js";
+import { screenRoutes } from "./screenRoutes.js";
 import { jsonErrors } from "./jsonErrors.js";
 import type { SpaceTradersAPI } from "../core/client.js";
 import type { GalaxyCrawler } from "../engine/galaxyCrawler.js";
@@ -1166,8 +1167,11 @@ export function createDashboardRouter(registry: TenantRegistry, pool: pg.Pool, g
   router.get("/dispatch", async (req, res) => {
     const w = worker(req);
     if (!w) return res.status(503).json({ error: "engine not ready" });
+    const all = await w.fleet.computeDispatchRoutesCached();
     res.json({
-      routes: await w.fleet.computeDispatchRoutesCached(),
+      // The screens use only the best few routes and the first route per good (issue #87: the whole list was about 250,000 routes,
+      // a 90 MB body built every poll, 12 s each, parsed by every phone). ?full=1 still returns all of it.
+      routes: req.query.full === "1" ? all : screenRoutes(all),
       assignments: w.fleet.dispatcher.list(),
       minerPreferences: w.fleet.minerPreferenceList(),
       contractDuty: w.fleet.contractDutyShips(),
