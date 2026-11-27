@@ -36,3 +36,20 @@ describe("taskTiming: queue delay (issue #88 P0)", () => {
     assert.equal(s.maxQueueMs, 4000);
   });
 });
+
+it("QueryStats.record stays fast at the sample cap and keeps the newest samples", async () => {
+  const qs = new QueryStats(60 * 60_000, 10_000);
+  const t0 = Date.now();
+  for (let i = 0; i < 200_000; i++) qs.record({ at: 1_000 + i, label: i % 2 ? "A" : "B", ms: 1, rows: 1 });
+  const took = Date.now() - t0;
+  const sum = qs.summary(1_000 + 200_000, 60 * 60_000);
+  assert.equal(sum.calls, 10_000, "only the newest maxSamples are kept");
+  assert.ok(took < 2_000, `200k records took ${took} ms`);
+});
+
+it("QueryStats.record drops samples older than keepMs", async () => {
+  const qs = new QueryStats(1_000, 1_000_000);
+  for (let i = 0; i < 100; i++) qs.record({ at: i * 100, label: "A", ms: 1, rows: 1 });
+  const sum = qs.summary(9_900, 60 * 60_000);
+  assert.equal(sum.calls, 11, "samples from 8,900 to 9,900 ms");
+});

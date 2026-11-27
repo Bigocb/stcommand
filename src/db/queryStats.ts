@@ -38,20 +38,33 @@ export class QueryStats {
   private samples: QuerySample[] = [];
   constructor(private readonly keepMs = 60 * 60_000, private readonly maxSamples = 300_000) {}
 
+  /** Index of the oldest live sample: dropping from the front only moves this, and the array is compacted now and then. */
+  private head = 0;
+
+  /**
+   * O(1) amortized. The first version spliced the front of the array on every record once it held maxSamples (300,000):
+   * at about 9,000 queries a minute that copy was 23% of the process's CPU on 2026-11-27 23:45 (box at 104%).
+   */
   record(s: QuerySample): void {
     this.samples.push(s);
-    if (this.samples.length > this.maxSamples) this.samples.splice(0, this.samples.length - this.maxSamples);
+    const len = this.samples.length;
+    if (len - this.head > this.maxSamples) this.head = len - this.maxSamples;
     const cut = s.at - this.keepMs;
-    if (this.samples[0] && this.samples[0].at < cut) {
-      let i = 0;
-      while (i < this.samples.length && this.samples[i]!.at < cut) i++;
-      this.samples.splice(0, i);
+    while (this.head < len && this.samples[this.head]!.at < cut) this.head++;
+    if (this.head >= 50_000 && this.head * 2 >= len) {
+      this.samples = this.samples.slice(this.head);
+      this.head = 0;
     }
+  }
+
+  /** Live samples (oldest first). */
+  private live(): QuerySample[] {
+    return this.head === 0 ? this.samples : this.samples.slice(this.head);
   }
 
   summary(now: number, windowMs: number, top = 25): { windowMin: number; coveredMin: number; calls: number; totalMs: number; queries: QueryRow[] } {
     const from = now - windowMs;
-    const inWin = this.samples.filter((s) => s.at >= from);
+    const inWin = this.live().filter((s) => s.at >= from);
     const covered = inWin[0] ? Math.max(1, (now - inWin[0].at) / 60_000) : 1;
     const by = new Map<string, QuerySample[]>();
     for (const s of inWin) (by.get(s.label) ?? by.set(s.label, []).get(s.label)!).push(s);

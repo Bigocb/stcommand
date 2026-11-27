@@ -6,6 +6,14 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Fix: the query-timing diagnostic was 23% of the CPU (box at 104%)
+
+`QueryStats.record()` (src/db/queryStats.ts, issue #88 P0) dropped its oldest sample with `Array.splice(0, n)` on every record
+once it held 300,000 samples. At about 9,000 queries a minute (4,500 of them ship position rows) that copied the whole array on
+every query: a 20-second CPU profile at 23:46 put 23% of the process in `record`, and the box reported 104% CPU. It now moves a
+head index and compacts the array only when half of it is dead (amortized O(1)). Same samples kept, same `ops db_queries` output.
+Tests: tests/queryStats.test.ts (200,000 records at a 10,000 cap in under 2 s; age cut).
+
 ## 2026-11-27 — Database: bigger pool, connections held for traders, price writes that do not wait for disk (issue #88)
 
 Why: with the trade lane at 4 workers, a trade step spent 1.9 s (54%) waiting for a database connection, and `ops db_queries`
