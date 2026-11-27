@@ -176,7 +176,7 @@ const shipContext = new AsyncLocalStorage<string>();
  */
 const taskCallContext = new AsyncLocalStorage<{ calls: number }>();
 
-/** Count one request against the scheduler task whose async context this is, if any. Called by Client for every request sent. */
+/** Count one request against the scheduler task whose async context this is, if any. Called by Client for every request sent from the box's own IP (not through a proxy lane). */
 export function noteTaskCall(): void {
   const box = taskCallContext.getStore();
   if (box) box.calls += 1;
@@ -754,7 +754,9 @@ export class Client {
         try { apiCallLog.record({ at: sentAt, role: roleContext.getStore() ?? "?", kind, priority, waitMs: sentAt - waitStart, durationMs: status === 0 ? 0 : Date.now() - sentAt, status, lane }); } catch { /* telemetry must never fail the request */ }
       };
       this.callCount += 1;
-      noteTaskCall();
+      // The scheduler's budget stands for the box's own IP rate: a call that leaves through a proxy lane has its own limiter and
+      // is not charged to the task (2026-11-27: keeper tasks read through the lanes but held the box budget at 1.5 tasks a second).
+      if (!slot) noteTaskCall();
       // A proxied Client goes through undici's own fetch, with its own
       // ProxyAgent as the dispatcher — both from the same undici install.
       // Node's global fetch is backed by its own internal, differently-
