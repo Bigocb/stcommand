@@ -6,6 +6,24 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-27 — Route build: price only each good's best legs (issue #88 P4, clause routeBuildTopPerGood, shipped off)
+
+A route build on 2026-11-27 took 40 s: 16 s for the price-pair query (352,866 legs) and 20.7 s pricing 321,799 legs, of which about
+280,000 stayed on the route list. The dispatcher reserves a direct route's whole good, so it takes the best few routes per good,
+and the list it ranked on was 60 long; everything else was priced, kept, held in memory and walked by the dispatcher and
+/api/markets for nothing.
+
+`priceTopPerGood` (src/engine/routeTopK.ts) prices legs best upper bound first for each good and stops once no unpriced leg could
+make that good's top N by profit per trip or by profit per hour. The bound is the prefilter's `netCeiling` (margin x the largest
+load the leg could carry, less its fixed fuel or jump cost), which pricing can only lower, and the trip time is computed the same
+way the route itself uses, so each good's top N on both ranks are exact. Legs left out are counted in `ops dispatch_explain`
+`routeBuild.dropped` under "outside the best N of its good". Behind the new clause `routeBuildTopPerGood` (value 50, range 5-500),
+off by default = every leg priced, as before.
+
+Tests: `tests/routeTopK.test.ts` (4,000 random legs: the top 25 per good by profit and by rate match full pricing exactly, at under
+a third of the pricing). There is no end-to-end test of the route build itself (the dashboard tests stub it); turn the clause on and
+compare `ops dispatch_explain` routeBuild (offered, timings) and the work list before and after.
+
 ## 2026-11-27 — Scheduler lanes and cash reservations (issue #88, P1 and P2), trade lane shipped off
 
 The scheduler's main loop ran one task at a time, so 94 traders queued behind each other: the P0 measurement right after the 18:05

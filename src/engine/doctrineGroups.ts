@@ -166,6 +166,7 @@ export const CLAUSE_GROUP: Readonly<Record<string, readonly [string, string]>> =
   stateResponseSlim: ["api", "Dispatcher cost"],
   fleetListOnCountChange: ["api", "Dispatcher cost"],
   tradeLegsPrefilter: ["api", "Dispatcher cost"],
+  routeBuildTopPerGood: ["api", "Dispatcher cost"],
   shipBook: ["api", "Call savings"],
   marketSnapshotReuse: ["api", "Call savings"],
   arrivalSurveyMaxAgeMin: ["api", "Call savings"],

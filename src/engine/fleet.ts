@@ -1,3 +1,4 @@
+import { priceTopPerGood, type LegBound } from "./routeTopK.js";
 import { CashReservations } from "./cashReservations.js";
 import { DispatchWorkerHost } from "./dispatchWorkerHost.js";
 import { buildDispatchWorld } from "./dispatchWorld.js";
@@ -2713,11 +2714,46 @@ export class FleetManager {
     };
     const priceStart = Date.now();
     const priced: (DispatchRoute | null)[] = [];
-    for (let i = 0; i < legs.length; i++) {
-      priced.push(priceLeg(legs[i]!));
-      if ((i + 1) % FleetManager.ROUTE_YIELD_EVERY === 0) {
-        timing.yields++;
-        await new Promise<void>((resolve) => setImmediate(resolve));
+    // Clause routeBuildTopPerGood (issue #88 P4, routeTopK.ts): price only the legs that can make a good's top N by profit per trip
+    // or per hour, best upper bound first. The dispatcher reserves a direct route's whole good, so it takes the best few per good;
+    // pricing all ~320,000 legs (2026-11-27: 20.7 s of a 40 s build) and keeping ~280,000 routes bought nothing. Off = every leg, as before.
+    const topPerGood = this.doctrine.isEnabledOr("routeBuildTopPerGood", false) ? this.doctrine.value("routeBuildTopPerGood", 50) : 0;
+    if (topPerGood > 0) {
+      const bounds: LegBound[] = legs.map((l) => {
+        const crossSystem = l.buySystem !== l.sellSystem;
+        if (crossSystem) {
+          const affordable = l.buyPrice > 0 ? Math.floor(spendable / l.buyPrice) : maxTraderCargo;
+          const ceiling = netCeiling({ buyPrice: l.buyPrice, sellPrice: l.sellPrice, unitsCeiling: Math.max(0, Math.min(maxTraderCargo, affordable, l.volume * maxLots)), fixedCost: this.crossSystemTripCost(l.buySystem, l.sellSystem) });
+          return { good: l.goodSymbol, ceiling, seconds: this.crossSystemHops(l.buySystem, l.sellSystem) * JUMP_COOLDOWN_SECONDS + CROSS_SYSTEM_FLIGHT_SECONDS };
+        }
+        const a = positions.get(l.buyAt);
+        const b = positions.get(l.sellAt);
+        // No coordinates: priced anyway (priceLeg drops it at once and counts the reason).
+        if (!a || !b) return { good: l.goodSymbol, ceiling: Number.POSITIVE_INFINITY };
+        const dist = Math.max(1, Math.round(Math.hypot(b.x - a.x, b.y - a.y)));
+        const leg = legTravel(dist, fleetFuelCapacity, fleetSpeed);
+        const affordable = l.buyPrice > 0 ? Math.floor(spendable / l.buyPrice) : maxTraderCargo;
+        const ceiling = netCeiling({ buyPrice: l.buyPrice, sellPrice: l.sellPrice, unitsCeiling: Math.max(0, Math.min(maxTraderCargo, affordable, l.volume * maxLots)), fixedCost: fuelCredits(leg.fuelPerLeg * 2, fuelAt.get(l.buyAt) ?? 72) });
+        return { good: l.goodSymbol, ceiling, seconds: leg.secondsPerLeg * 2 };
+      });
+      const top = await priceTopPerGood(bounds, {
+        perGood: topPerGood,
+        price: (i) => priceLeg(legs[i]!),
+        profitOf: (r) => r.profitPerTrip,
+        rateOf: (r) => routePerHour(r),
+        rateBound: (b) => (b.seconds ? (b.ceiling * REFERENCE_TRIP_SECONDS) / b.seconds : b.ceiling),
+        yieldEvery: FleetManager.ROUTE_YIELD_EVERY,
+        pause: async () => { timing.yields++; await new Promise<void>((resolve) => setImmediate(resolve)); },
+      });
+      for (const r of top.priced.values()) priced.push(r);
+      if (top.skipped > 0) drops.set(`outside the best ${topPerGood} of its good (routeBuildTopPerGood; not priced)`, top.skipped);
+    } else {
+      for (let i = 0; i < legs.length; i++) {
+        priced.push(priceLeg(legs[i]!));
+        if ((i + 1) % FleetManager.ROUTE_YIELD_EVERY === 0) {
+          timing.yields++;
+          await new Promise<void>((resolve) => setImmediate(resolve));
+        }
       }
     }
     timing.priceMs = Date.now() - priceStart;

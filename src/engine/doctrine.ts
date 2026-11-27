@@ -829,6 +829,13 @@ const POLICY_CATALOG: PolicyDefinition[] = [
     enabled: false, enforced: true, category: "ops", defaultAdopted: true,
   },
   {
+    key: "routeBuildTopPerGood",
+    name: "Route build: price only each good's best N legs",
+    description: "On = the route build prices legs best upper bound first for each good and stops once no unpriced leg could make that good's top this-many by profit per trip or by profit per hour (src/engine/routeTopK.ts). A leg's profit can never exceed its ceiling (margin x the largest load it could carry, less its fixed fuel or jump cost), so the top N on both ranks are exact; the rest are not priced and do not reach the route list. Why: on 2026-11-27 a build priced 321,799 legs (20.7 s of 40 s) and kept about 280,000 routes, while the dispatcher reserves a direct route's whole good and so takes the best few per good; every consumer of the list (the dispatcher, /api/markets) then walked all of them (issue #88 P4). ops dispatch_explain routeBuild shows the legs left out under 'outside the best N'. Off (the default) = every leg priced, as before. Takes effect on the next route build.",
+    value: 50, min: 5, max: 500, step: 5, unit: " legs a good",
+    enabled: false, enforced: true, category: "ops", defaultAdopted: true,
+  },
+  {
     key: "tradeLegsPrefilter",
     name: "Route build: filter the price pairs in the database (best N sell markets per buy)",
     description: "On = the route build's price-pair query keeps only markets in systems we have charted and can gate to, leaves out blocked and protected goods, and returns only the best this-many sell markets for each good and buy market (Store.tradeLegs, src/engine/fleet.ts computeDispatchRoutes). On 2026-11-21 the plain join returned 1,381,097 rows a pass, built twice in memory before filters cut it to 433,496; this was most of the route build's 17 s and its memory spikes (docs/memory-analysis-2026-11-21.md). The filters in code still run on what comes back. Lower values make the list smaller and the build faster, at the cost of the dispatcher seeing fewer far-away sell markets. Off (the default) = the plain query, as before. Takes effect on the next route build.",
