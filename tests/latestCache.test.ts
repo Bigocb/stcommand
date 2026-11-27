@@ -15,7 +15,7 @@ describe("LatestMarketCache (issue #88 P4)", () => {
     const after = await c.all();
     assert.equal(after.find((r) => r.waypointSymbol === "A1")!.sellPrice, 99);
     assert.equal(after.length, 3);
-    assert.equal((after.find((r) => r.waypointSymbol === "A1") as Record<string, unknown>).activity, undefined, "same shape as a read row");
+    assert.equal((after.find((r) => r.waypointSymbol === "A1") as unknown as Record<string, unknown>).activity, undefined, "same shape as a read row");
     assert.equal(loads, 1, "a write does not cause a re-read");
     t = 60_000;
     db = [row("A9", "FOOD", 1)];
