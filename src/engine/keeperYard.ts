@@ -50,7 +50,10 @@ export function pickKeeperYardWithShip<T extends KeeperYardRow>(
   rows: readonly T[],
   opts: { systemSymbol: string; hulls: readonly string[]; nowMs: number; freshMs?: number; distance?: (waypoint: string) => number; shipPresentAt: (waypoint: string) => boolean },
 ): T | undefined {
-  const here = rows.filter((r) => opts.shipPresentAt(r.waypointSymbol));
+  // System and hull first, then the presence test: shipPresentAt scans the fleet (about 5,000 ships), and asking it for every yard row
+  // in the galaxy was 14% of the box's CPU on 2026-11-28. pickCheapestKeeperYard keeps only this system's keeper hulls anyway, so the
+  // answer is the same.
+  const here = rows.filter((r) => r.systemSymbol === opts.systemSymbol && opts.hulls.includes(r.shipType) && opts.shipPresentAt(r.waypointSymbol));
   for (const hull of opts.hulls) {
     const pick = pickCheapestKeeperYard(here, { systemSymbol: opts.systemSymbol, hulls: [hull], nowMs: opts.nowMs, freshMs: opts.freshMs, distance: opts.distance });
     if (pick) return pick;

@@ -58,3 +58,23 @@ test("preferYardWithShip: keeps the cheapest yard when a ship of ours is there, 
   assert.equal(preferYardWithShip(c44, a2, true).waypointSymbol, "X1-UZ49-C44");
   assert.equal(preferYardWithShip(c44, undefined, false).waypointSymbol, "X1-UZ49-C44");
 });
+
+test("pickKeeperYardWithShip asks about ships only at this system's keeper yards, and picks as before (2026-11-28)", () => {
+  {
+    const now = Date.parse("2026-11-28T06:00:00Z");
+    const ts = new Date(now - 60_000).toISOString();
+    const rows = [
+      { systemSymbol: "X1-A", waypointSymbol: "X1-A-Y1", shipType: "SHIP_PROBE", purchasePrice: 30_000, timestamp: ts },
+      { systemSymbol: "X1-A", waypointSymbol: "X1-A-Y2", shipType: "SHIP_PROBE", purchasePrice: 25_000, timestamp: ts },
+      { systemSymbol: "X1-A", waypointSymbol: "X1-A-Y3", shipType: "SHIP_HEAVY_FREIGHTER", purchasePrice: 2_000_000, timestamp: ts },
+      { systemSymbol: "X1-B", waypointSymbol: "X1-B-Y1", shipType: "SHIP_PROBE", purchasePrice: 10_000, timestamp: ts },
+    ];
+    const asked: string[] = [];
+    const pick = pickKeeperYardWithShip(rows, {
+      systemSymbol: "X1-A", hulls: ["SHIP_PROBE"], nowMs: now,
+      shipPresentAt: (wp) => { asked.push(wp); return wp !== "X1-A-Y2"; },
+    });
+    assert.equal(pick?.waypointSymbol, "X1-A-Y1");
+    assert.deepEqual(asked.sort(), ["X1-A-Y1", "X1-A-Y2"]);
+  }
+});

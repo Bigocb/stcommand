@@ -6,6 +6,14 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-28 — Keeper yard pick: test for a docked ship only at this system's keeper yards
+
+After the analysis fix went live (06:34), a CPU profile put `pickKeeperYardWithShip` (`src/engine/keeperYard.ts`) at 14% of
+the box. It asked `shipPresentAt` (a scan of the fleet's ~5,000 ships) for every shipyard row in the galaxy, and only then
+narrowed to the market's own system and the keeper hulls. It now narrows first. The pick is unchanged, because
+`pickCheapestKeeperYard` kept only that system's keeper hulls anyway; `tests/keeperYard.test.ts` checks both the pick and
+that no other system's yard is asked about.
+
 ## 2026-11-28 — Analysis report: settings-change windows by binary search
 
 A CPU profile ten minutes after the trip-index deploy (04:54) put `windowMetrics` (`src/engine/analysis/changes.ts`) at 42%
