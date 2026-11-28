@@ -39,6 +39,69 @@ export function windowMetrics(trips: readonly Trip[], ledger: readonly AnalysisL
   };
 }
 
+/**
+ * The same figures as windowMetrics() for any number of windows over one (trips, ledger) pair: sorted once, with running
+ * totals, so each window is two binary searches (2026-11-28: changeImpacts ran windowMetrics twice per settings change,
+ * each a full pass over the week's ledger with a Date.parse per row; at hour 134 that was 42% of the box's CPU while a
+ * Season screen was open). A row whose time does not parse falls inside every window, as it does in windowMetrics().
+ */
+export interface WindowIndex { metrics(fromMs: number, toMs: number): WindowMetrics }
+
+function upperBound(keys: Float64Array, v: number): number {
+  let lo = 0, hi = keys.length;
+  while (lo < hi) { const mid = (lo + hi) >>> 1; if (keys[mid]! <= v) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+
+export function windowIndex(trips: readonly Trip[], ledger: readonly AnalysisLedgerRow[]): WindowIndex {
+  const tripRows = trips.filter((t) => t.endMs !== null).map((t) => ({ at: t.endMs as number, net: tripNetAll(t) })).sort((a, b) => a.at - b.at);
+  const tripAt = Float64Array.from(tripRows, (r) => r.at);
+  const tripNet = new Float64Array(tripRows.length + 1);
+  for (let i = 0; i < tripRows.length; i++) tripNet[i + 1] = tripNet[i]! + tripRows[i]!.net;
+
+  let undatedOverhead = 0, undatedSales = 0;
+  const rows: { at: number; overhead: number; sales: number }[] = [];
+  for (const r of ledger) {
+    const isOverhead = r.type === "REFUEL" || r.type === "JUMP" || (r.type === "SHIP" && (r.good === "REPAIR" || r.total < 0));
+    const overhead = isOverhead ? Math.abs(r.total) : 0;
+    const sales = !isOverhead && r.type === "SELL" ? r.total : 0;
+    if (overhead === 0 && sales === 0) continue;
+    const at = Date.parse(r.timestamp);
+    if (Number.isNaN(at)) { undatedOverhead += overhead; undatedSales += sales; continue; }
+    rows.push({ at, overhead, sales });
+  }
+  rows.sort((a, b) => a.at - b.at);
+  const ledgerAt = Float64Array.from(rows, (r) => r.at);
+  const overheadSum = new Float64Array(rows.length + 1);
+  const salesSum = new Float64Array(rows.length + 1);
+  for (let i = 0; i < rows.length; i++) {
+    overheadSum[i + 1] = overheadSum[i]! + rows[i]!.overhead;
+    salesSum[i + 1] = salesSum[i]! + rows[i]!.sales;
+  }
+
+  return {
+    metrics(fromMs, toMs) {
+      // A window edge that is not a number compares false everywhere; the plain scan says exactly what that means.
+      if (Number.isNaN(fromMs) || Number.isNaN(toMs)) return windowMetrics(trips, ledger, fromMs, toMs);
+      // (fromMs, toMs]: everything at or before toMs, less everything at or before fromMs. An empty or reversed window is empty.
+      const span = (keys: Float64Array): [number, number] => {
+        const a = upperBound(keys, fromMs), b = upperBound(keys, toMs);
+        return b > a ? [a, b] : [a, a];
+      };
+      const [ta, tb] = span(tripAt);
+      const [la, lb] = span(ledgerAt);
+      const profit = tripNet[tb]! - tripNet[ta]!;
+      const overhead = overheadSum[lb]! - overheadSum[la]! + undatedOverhead;
+      const sales = salesSum[lb]! - salesSum[la]! + undatedSales;
+      const hours = Math.max(1e-6, (toMs - fromMs) / 3_600_000);
+      return {
+        fromMs, toMs, trips: tb - ta, profit: Math.round(profit), profitPerHour: Math.round(profit / hours),
+        overheadShare: sales > 0 ? Math.round((overhead / sales) * 10_000) / 10_000 : null,
+      };
+    },
+  };
+}
+
 export interface ChangeImpact {
   at: string;
   setting: string;
@@ -63,16 +126,25 @@ export function changeScope(e: Pick<ActionEventRow, "shipSymbol" | "subject">): 
 export function changeImpacts(events: readonly ActionEventRow[], trips: readonly Trip[], ledger: readonly AnalysisLedgerRow[], policy: AnalysisPolicy, nowMs: number): ChangeImpact[] {
   const w = policy.changeWindowHours * 3_600_000;
   const settle = policy.changeSettleMinutes * 60_000;
+  // One index for the fleet and one per ship named by a change, built on first use (see windowIndex()).
+  const indexes = new Map<string | null, WindowIndex>();
+  const indexFor = (ship: string | null): WindowIndex => {
+    let idx = indexes.get(ship);
+    if (!idx) {
+      idx = ship ? windowIndex(trips.filter((x) => x.shipSymbol === ship), ledger.filter((x) => x.shipSymbol === ship)) : windowIndex(trips, ledger);
+      indexes.set(ship, idx);
+    }
+    return idx;
+  };
   return events
     .filter((e) => e.kind === "config_change" && e.subject)
     .map((e) => {
       const at = Date.parse(e.at);
       const ship = changeScope(e);
-      const t = ship ? trips.filter((x) => x.shipSymbol === ship) : trips;
-      const l = ship ? ledger.filter((x) => x.shipSymbol === ship) : ledger;
-      const before = windowMetrics(t, l, at - w, at);
+      const idx = indexFor(ship);
+      const before = idx.metrics(at - w, at);
       const tooRecent = at + settle + w > nowMs;
-      const after = tooRecent ? null : windowMetrics(t, l, at + settle, at + settle + w);
+      const after = tooRecent ? null : idx.metrics(at + settle, at + settle + w);
       const ctx = (e.context ?? {}) as { before?: unknown; after?: unknown };
       return {
         at: e.at, setting: e.subject!, ship, before: ctx.before ?? null, after: ctx.after ?? null,

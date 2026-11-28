@@ -6,6 +6,17 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-28 — Analysis report: settings-change windows by binary search
+
+A CPU profile ten minutes after the trip-index deploy (04:54) put `windowMetrics` (`src/engine/analysis/changes.ts`) at 42%
+of the box. The week's analysis report (read by the Season screen, the Tower Season card, the pace card and ops `analysis`)
+measures every settings change of the week in a window before and after it, and each window was a full pass over the week's
+ledger with a `Date.parse` per row: two passes per change, and this week has a lot of logged changes. New `windowIndex()`
+sorts the trips and the ledger once, keeps running totals, and answers each window with two binary searches; `changeImpacts`
+builds one index for the fleet and one per ship a change names. The figures are identical, including the edge cases (a
+row whose time does not parse still counts in every window, a reversed window is empty); `tests/analysis.test.ts` compares
+both on random data and windows.
+
 ## 2026-11-28 — Dispatcher route rest checks read an index instead of the whole trip history
 
 A CPU profile at 04:12 (event loop p50 73 ms, p99 994 ms, CPU 85%, 321 live systems) put the dispatcher's route rest

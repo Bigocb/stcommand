@@ -4,7 +4,7 @@ import type { ActionEventRow, AnalysisLedgerRow, AnalysisSnapshotRow } from "../
 import { rebuildTrips, summarizeRoutes, tripFindings, tripNet, tripNetAll } from "../src/engine/analysis/trips.js";
 import { clusterTrades, impactFindings, latestTradeVolumes, summarizeImpact } from "../src/engine/analysis/marketImpact.js";
 import { attributePriceMoves, moveFindings, summarizeMoves } from "../src/engine/analysis/priceMoves.js";
-import { changeFindings, changeImpacts, windowMetrics } from "../src/engine/analysis/changes.js";
+import { changeFindings, changeImpacts, windowIndex, windowMetrics } from "../src/engine/analysis/changes.js";
 import { calibrate, predictProfit } from "../src/engine/analysis/calibration.js";
 import { buildAnalysisReport, rankSuggestions } from "../src/engine/analysis/report.js";
 import { DEFAULT_ANALYSIS_POLICY as P, confidenceFor, median } from "../src/engine/analysis/types.js";
@@ -229,5 +229,39 @@ describe("report", () => {
     assert.equal(confidenceFor(12), "high");
     assert.equal(median([3, 1, 2]), 2);
     assert.equal(median([]), null);
+  });
+});
+
+describe("windowIndex (2026-11-28: windows by binary search instead of a ledger pass each)", () => {
+  it("matches windowMetrics on random trips and ledgers, for random windows", () => {
+    let x = 12345;
+    const r = () => { x = (x * 1103515245 + 12345) % 2147483648; return x / 2147483648; };
+    const T = Date.parse("2026-11-28T00:00:00Z");
+    const types = ["SELL", "PURCHASE", "REFUEL", "JUMP", "SHIP"] as const;
+    for (let round = 0; round < 5; round++) {
+      const ledger = Array.from({ length: 400 }, (_, i) => {
+        const type = types[Math.floor(r() * types.length)]!;
+        return {
+          timestamp: i === 7 && round === 2 ? "not a date" : new Date(T + Math.floor(r() * 10 * 3_600_000)).toISOString(),
+          type, shipSymbol: `S-${Math.floor(r() * 4)}`, good: type === "SHIP" ? (r() < 0.5 ? "REPAIR" : "SHIP_PROBE") : "FOOD",
+          units: 10, pricePerUnit: 100, total: Math.round((r() - 0.3) * 10_000), waypoint: "X1-A-1",
+        };
+      }) as unknown as Parameters<typeof windowMetrics>[1];
+      const trips = Array.from({ length: 150 }, () => ({
+        shipSymbol: `S-${Math.floor(r() * 4)}`, endMs: r() < 0.1 ? null : T + Math.floor(r() * 10 * 3_600_000),
+        realized: Math.round(r() * 50_000), tripCosts: Math.round(r() * 3_000), positioningCosts: Math.round(r() * 2_000),
+      })) as unknown as Parameters<typeof windowMetrics>[0];
+      const idx = windowIndex(trips, ledger);
+      for (let k = 0; k < 200; k++) {
+        const a = T + Math.floor((r() - 0.1) * 11 * 3_600_000);
+        const b = r() < 0.1 ? a - 60_000 : a + Math.floor(r() * 4 * 3_600_000);
+        assert.deepEqual(idx.metrics(a, b), windowMetrics(trips, ledger, a, b));
+      }
+      // Edges exactly on a row's time, and a window edge that is not a number.
+      const t0 = (trips.find((t) => t.endMs !== null)!).endMs!;
+      assert.deepEqual(idx.metrics(t0, t0 + 3_600_000), windowMetrics(trips, ledger, t0, t0 + 3_600_000));
+      assert.deepEqual(idx.metrics(t0 - 3_600_000, t0), windowMetrics(trips, ledger, t0 - 3_600_000, t0));
+      assert.deepEqual(idx.metrics(Number.NaN, t0), windowMetrics(trips, ledger, Number.NaN, t0));
+    }
   });
 });
