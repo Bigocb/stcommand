@@ -6,6 +6,15 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-28 — keeperMaxTotal may go up to 10,000 (was 5,000)
+
+Operator, 08:45: "Raise the ceiling". The fleet reached 5,000 keepers at about 06:40, the top of the clause's range, and from
+07:08 the fresh-system queue could stage nothing ("needs 8 keeper slot(s) and 0 are free"); by 08:15 one staged system was
+left, and the stale watch found 35 markets unread with 89 waiting for a keeper. The range now runs to 10,000; the value
+itself is set with `set_doctrine` after the deploy. Each keeper adds polling: at 5,000 the keepers read about 825 markets a
+minute against the 900-a-minute read ceiling (`keeperTopUpMaxCalls`), so more keepers stretch the pass time unless that
+ceiling and the proxy lanes grow with them.
+
 ## 2026-11-28 — Keeper yard pick: test for a docked ship only at this system's keeper yards
 
 After the analysis fix went live (06:34), a CPU profile put `pickKeeperYardWithShip` (`src/engine/keeperYard.ts`) at 14% of
