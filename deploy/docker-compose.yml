@@ -1,0 +1,62 @@
+# stcommand — Phase A (containerized) on bigocb-DNB20-series.
+#
+# This is the box's live compose file, copied into the repo for reference.
+# `PG_SUPER_PASSWORD` comes from the `.env` beside it on the box.
+# Machine-specific paths are the Lennox layout.
+#
+# There is intentionally no Dockerfile: the app runs from the stock Node image
+# with the checkout bind-mounted. The build happens on the host.
+#
+# Runs the app straight from the repo checkout via tsx (the repo's own `start`
+# script), plus a local Postgres sidecar. Both use host networking so the app's
+# DB connection is 127.0.0.1 — src/db/pool.ts only disables TLS for localhost/
+# 127.0.0.1, and a stock postgres container serves no TLS, so this is the one
+# topology that connects cleanly without enabling TLS or changing code.
+#
+# The DB listens on 127.0.0.1:5432 only (not the LAN). The app listens on
+# 0.0.0.0:3002 so Traefik (in a container) can reach it at the bridge gateway
+# 172.19.0.1:3002, exactly like the existing opencode/pocketdev host services.
+
+services:
+  stcommand-db:
+    image: postgres:16-alpine
+    container_name: stcommand-db
+    restart: unless-stopped
+    network_mode: host
+    command: ["postgres", "-c", "listen_addresses=127.0.0.1", "-c", "port=5432"]
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${PG_SUPER_PASSWORD}
+      PGDATA: /pgdata
+    volumes:
+      - /home/bigocb/media-stack/configs/stcommand/pgdata:/pgdata
+      - /home/bigocb/media-stack/configs/stcommand/pg-initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  stcommand:
+    image: node:22-bookworm-slim
+    container_name: stcommand
+    restart: unless-stopped
+    network_mode: host
+    working_dir: /app
+    user: "1000:1000"
+    env_file:
+      - /home/bigocb/media-stack/configs/stcommand/stcommand.env
+    volumes:
+      - /home/bigocb/dev/stcommand:/app
+    # Deps + dist/ are built on the host (npm ci runs the postinstall build).
+    # scripts/start.mjs runs the compiled server, falling back to tsx if dist is absent.
+    command: node scripts/start.mjs
+    depends_on:
+      stcommand-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3002/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 20s

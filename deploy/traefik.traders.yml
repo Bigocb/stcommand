@@ -1,0 +1,20 @@
+# The public route for stcommand, from
+# /home/bigocb/media-stack/observability/traefik-dynamic.yml.
+#
+# The app uses host networking and listens on 0.0.0.0:3002; Traefik runs in a
+# container, so it reaches the host through the bridge gateway 172.19.0.1.
+# cloudflared sends traders.cloutier.work to Traefik on localhost:8088.
+
+http:
+  routers:
+    traders:
+      rule: "Host(`traders.cloutier.work`)"
+      service: stcommand-svc
+      entryPoints:
+        - web
+
+  services:
+    stcommand-svc:
+      loadBalancer:
+        servers:
+          - url: "http://172.19.0.1:3002"

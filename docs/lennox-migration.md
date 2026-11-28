@@ -1,3 +1,7 @@
+> **2026-11-28:** the box's current container/compose deploy is documented in
+> [`deploy/README.md`](../deploy/README.md). This runbook remains the cutover
+> history; its systemd section is not what is running now.
+
 # Migrating stcommand from Render to the Lennox box
 
 Written 2026-10-10 for an agent that will SSH into the box at **100.100.95.94** (a Tailscale address) and set stcommand up there. Read all of it before touching anything. The repo's own `CLAUDE.md`, `CONTEXT.md` and `docs/architecture-overview.md` are the background reading; this file is the runbook.
