@@ -6,6 +6,17 @@ the commit touched. Decisions with lasting architectural weight get their
 own ADR in `docs/adr/` (see `docs/adr/README.md`) instead of just a line
 here; link it from the entry when that happens.
 
+## 2026-11-28 — Dispatcher route rest checks read an index instead of the whole trip history
+
+A CPU profile at 04:12 (event loop p50 73 ms, p99 994 ms, CPU 85%, 321 live systems) put the dispatcher's route rest
+checks at about 10% of the box: `routeCoolOff` 5.7%, `spacingReason` 2.8%, `buyMarketRoundsReason` 1.6%. Each pass ran
+the cool-off, rounds, buy-market rounds and spacing checks for every route, and each check filtered the full list of
+the last 200 closed trips or 200 trip starts by good and market. With thousands of routes that is millions of
+comparisons per pass. New `src/engine/tripIndex.ts` groups the trips by route and by buy market once per pass, and
+`routeCoolOff` hands each check only its own route's records. The answers are identical (every check only ever looked at
+its own good and markets); `tests/tripIndex.test.ts` compares every check on random histories with and without the
+index, plus the dispatcher's own `routeCoolOff`. The per-trader call from the fleet (`routeResting`) is unchanged.
+
 ## 2026-11-27 — Fix: the query-timing diagnostic was 23% of the CPU (box at 104%)
 
 `QueryStats.record()` (src/db/queryStats.ts, issue #88 P0) dropped its oldest sample with `Array.splice(0, n)` on every record

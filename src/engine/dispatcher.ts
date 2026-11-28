@@ -122,6 +122,7 @@ import { estimateBuyPrice, estimateSellPrice, profitAfterShortfall, type SaleImp
 import { ROUNDS_WINDOW_MIN, buyMarketRoundsReason, roundsReason } from "./routeRounds.js";
 import { mergeTripHistory, packTripHistory, unpackTripHistory } from "./tripHistory.js";
 import { autoSpacedNow, spacingReason, type SpacedRoute, type SpacingPolicy, type TripStart } from "./tripSpacing.js";
+import { buildTripIndex, type TripIndex } from "./tripIndex.js";
 import { formatTraderStates, summarizeTraderStates } from "./traderStates.js";
 import { PRICE_IMPACT_PER_LOT, REFERENCE_TRIP_SECONDS, effectiveMarginFloor } from "./routeEconomics.js";
 import { profitPerReference, scaledTripSeconds } from "./tripScale.js";
@@ -654,11 +655,17 @@ export class RouteDispatcher {
 
   /** Why this exact route is resting after a disappointing trip or too many trips on it, or undefined. `minutes` 0 = off
    *  for the cool-off; the round limit is read from `roundsMax`, so the two clauses switch on independently. */
-  routeCoolOff(good: string, buyAt: string, sellAt: string, minutes = this.coolOffMin, exceptShip?: string): string | undefined {
-    return coolOffReason(this.closedTrips, good, buyAt, sellAt, Date.now(), { ...DEFAULT_HEAT_POLICY, minutes }) ??
-      roundsReason(this.closedTrips, good, buyAt, sellAt, Date.now(), { maxRounds: this.roundsMax, windowMin: ROUNDS_WINDOW_MIN }) ??
-      buyMarketRoundsReason(this.closedTrips, good, buyAt, Date.now(), { maxRounds: this.buyRoundsMax, windowMin: ROUNDS_WINDOW_MIN }) ??
-      spacingReason(this.tripStarts, good, buyAt, Date.now(), this.spacingPolicy(), this.spacedRoutes, exceptShip, this.askByBuy.get(`${good}|${buyAt}`));
+  routeCoolOff(good: string, buyAt: string, sellAt: string, minutes = this.coolOffMin, exceptShip?: string, index?: TripIndex): string | undefined {
+    // With an index (one per recompute pass, tripIndex.ts) each check gets only its own route's records: same answer,
+    // without scanning the whole history once per route.
+    const routeTrips = index ? index.route(good, buyAt, sellAt) : this.closedTrips;
+    const buyTrips = index ? index.buy(good, buyAt) : this.closedTrips;
+    const starts = index ? index.starts(good, buyAt) : this.tripStarts;
+    const now = Date.now();
+    return coolOffReason(routeTrips, good, buyAt, sellAt, now, { ...DEFAULT_HEAT_POLICY, minutes }) ??
+      roundsReason(routeTrips, good, buyAt, sellAt, now, { maxRounds: this.roundsMax, windowMin: ROUNDS_WINDOW_MIN }) ??
+      buyMarketRoundsReason(buyTrips, good, buyAt, now, { maxRounds: this.buyRoundsMax, windowMin: ROUNDS_WINDOW_MIN }) ??
+      spacingReason(starts, good, buyAt, now, this.spacingPolicy(), this.spacedRoutes, exceptShip, this.askByBuy.get(`${good}|${buyAt}`));
   }
   private coolOffMin = 0;
   /** Trip starts (first lot bought), newest last, for the spacing rule (tripSpacing.ts). Only the last few hours matter. */
@@ -1215,7 +1222,8 @@ export class RouteDispatcher {
       // 2026-11-21 SEV0 (found by a session working on the box): `open.includes(r)` per route was O(routes^2), and
       // routeCoolOff() (a scan of the trip lists) ran three times per route. One answer per route, and a Set for membership.
       const coolOff = new Map<DispatchRoute, string | undefined>();
-      for (const r of routes) coolOff.set(r, this.routeCoolOff(r.good, r.buyAt, r.sellAt));
+      const tripIndex = buildTripIndex(this.closedTrips, this.tripStarts);
+      for (const r of routes) coolOff.set(r, this.routeCoolOff(r.good, r.buyAt, r.sellAt, this.coolOffMin, undefined, tripIndex));
       const open = routes.filter((r) => !coolOff.get(r));
       if (open.length !== routes.length) {
         const openSet = new Set(open);
